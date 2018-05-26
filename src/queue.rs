@@ -66,7 +66,7 @@ impl<T> Queue<T> {
         Inspector {
             queue: self,
             sub,
-            curr: sub.as_ref().map(|x| x.front),
+            curr: unsafe { sub.as_ref().map(|x| x.front) },
         }
     }
 
@@ -97,10 +97,13 @@ impl<T> Drop for Queue<T> {
     }
 }
 
-impl<T> fmt::Debug for Queue<T> {
+impl<T> fmt::Debug for Queue<T>
+where
+    T: fmt::Debug,
+{
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(fmtr, "front <= ")?;
-        for item in self.inspect() {
+        for elem in self.inspect() {
             write!(fmtr, "{:?} <= ", elem)?;
         }
         write!(fmtr, "back")
@@ -124,8 +127,8 @@ where
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let curr = self.curr?.as_ref()?;
-        self.curr = Some(&mut curr.next as *mut _);
+        let curr = unsafe { self.curr?.as_ref()? };
+        self.curr = Some(curr.next);
         Some(&curr.val)
     }
 }
@@ -133,7 +136,9 @@ where
 impl<'a, T> Drop for Inspector<'a, T> {
     fn drop(&mut self) {
         if !self.sub.is_null() {
-            self.queue.reinsert(self.sub);
+            unsafe {
+                self.queue.reinsert(self.sub);
+            }
         }
     }
 }

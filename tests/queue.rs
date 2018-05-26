@@ -4,6 +4,15 @@ use lockfree::prelude::*;
 use std::{sync::Arc, thread};
 
 #[test]
+fn debug_iter() {
+    let queue = Queue::new();
+    queue.push(9);
+    queue.push(8);
+    queue.push(7);
+    assert_eq!(format!("{:?}", queue), "front <= 9 <= 8 <= 7 <= back");
+}
+
+#[test]
 fn single_threaded_order() {
     let queue = Queue::new();
     assert_eq!(queue.pop(), None);

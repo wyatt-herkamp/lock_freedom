@@ -208,6 +208,11 @@
 <span id="208">208</span>
 <span id="209">209</span>
 <span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
 </pre><pre class="rust ">
 <span class="kw">use</span> <span class="ident">std</span>::{
     <span class="ident">alloc</span>::{<span class="ident">oom</span> <span class="kw">as</span> <span class="ident">alloc_oom</span>, <span class="ident">Alloc</span>, <span class="ident">AllocErr</span>, <span class="ident">Global</span>},
@@ -277,7 +282,7 @@
         <span class="ident">Inspector</span> {
             <span class="ident">queue</span>: <span class="self">self</span>,
             <span class="ident">sub</span>,
-            <span class="ident">curr</span>: <span class="ident">sub</span>.<span class="ident">as_ref</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">x</span><span class="op">|</span> <span class="ident">x</span>.<span class="ident">front</span>),
+            <span class="ident">curr</span>: <span class="kw">unsafe</span> { <span class="ident">sub</span>.<span class="ident">as_ref</span>().<span class="ident">map</span>(<span class="op">|</span><span class="ident">x</span><span class="op">|</span> <span class="ident">x</span>.<span class="ident">front</span>) },
         }
     }
 
@@ -308,10 +313,13 @@
     }
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>
+<span class="kw">where</span>
+    <span class="ident">T</span>: <span class="ident">fmt</span>::<span class="ident">Debug</span>,
+{
     <span class="kw">fn</span> <span class="ident">fmt</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">fmtr</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">fmt</span>::<span class="ident">Formatter</span>) <span class="op">-&gt;</span> <span class="ident">fmt</span>::<span class="prelude-ty">Result</span> {
         <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmtr</span>, <span class="string">&quot;front &lt;= &quot;</span>)<span class="question-mark">?</span>;
-        <span class="kw">for</span> <span class="ident">item</span> <span class="kw">in</span> <span class="self">self</span>.<span class="ident">inspect</span>() {
+        <span class="kw">for</span> <span class="ident">elem</span> <span class="kw">in</span> <span class="self">self</span>.<span class="ident">inspect</span>() {
             <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmtr</span>, <span class="string">&quot;{:?} &lt;= &quot;</span>, <span class="ident">elem</span>)<span class="question-mark">?</span>;
         }
         <span class="macro">write</span><span class="macro">!</span>(<span class="ident">fmtr</span>, <span class="string">&quot;back&quot;</span>)
@@ -335,8 +343,8 @@
     <span class="kw">type</span> <span class="ident">Item</span> <span class="op">=</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">T</span>;
 
     <span class="kw">fn</span> <span class="ident">next</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Item</span><span class="op">&gt;</span> {
-        <span class="kw">let</span> <span class="ident">curr</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">curr</span><span class="question-mark">?</span>.<span class="ident">as_ref</span>()<span class="question-mark">?</span>;
-        <span class="self">self</span>.<span class="ident">curr</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">curr</span>.<span class="ident">next</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>);
+        <span class="kw">let</span> <span class="ident">curr</span> <span class="op">=</span> <span class="kw">unsafe</span> { <span class="self">self</span>.<span class="ident">curr</span><span class="question-mark">?</span>.<span class="ident">as_ref</span>()<span class="question-mark">?</span> };
+        <span class="self">self</span>.<span class="ident">curr</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">curr</span>.<span class="ident">next</span>);
         <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="ident">curr</span>.<span class="ident">val</span>)
     }
 }
@@ -344,7 +352,9 @@
 <span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">Inspector</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> {
     <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
         <span class="kw">if</span> <span class="op">!</span><span class="self">self</span>.<span class="ident">sub</span>.<span class="ident">is_null</span>() {
-            <span class="self">self</span>.<span class="ident">queue</span>.<span class="ident">reinsert</span>(<span class="self">self</span>.<span class="ident">sub</span>);
+            <span class="kw">unsafe</span> {
+                <span class="self">self</span>.<span class="ident">queue</span>.<span class="ident">reinsert</span>(<span class="self">self</span>.<span class="ident">sub</span>);
+            }
         }
     }
 }
