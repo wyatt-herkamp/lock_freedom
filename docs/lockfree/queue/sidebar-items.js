@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Inspector","An iterator which inspects a subqueue."],["Queue","A lock-free concurrent queue, but without FIFO garantees on multithreaded environments. Single thread environments still have FIFO garantees. The queue is based on subqueues which threads try to take, modify and then publish. If necessary, subqueues are joint."]]});

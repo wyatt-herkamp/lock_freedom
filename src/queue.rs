@@ -1,5 +1,6 @@
 use std::{
     alloc::{oom as alloc_oom, Alloc, AllocErr, Global},
+    fmt,
     ptr::{null_mut, read, write, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
@@ -9,17 +10,23 @@ fn oom<T>(e: AllocErr) -> T {
     alloc_oom()
 }
 
+/// A lock-free concurrent queue, but without FIFO garantees on multithreaded
+/// environments. Single thread environments still have FIFO garantees. The
+/// queue is based on subqueues which threads try to take, modify and then
+/// publish. If necessary, subqueues are joint.
 pub struct Queue<T> {
     sub: AtomicPtr<SubQueue<T>>,
 }
 
 impl<T> Queue<T> {
+    /// Creates a new empty queue.
     pub fn new() -> Self {
         Self {
             sub: AtomicPtr::new(null_mut()),
         }
     }
 
+    /// Pushes a value in the back of the queue.
     pub fn push(&self, val: T) {
         let mut sub = self.sub.swap(null_mut(), SeqCst);
         if sub.is_null() {
@@ -40,6 +47,7 @@ impl<T> Queue<T> {
         }
     }
 
+    /// Pops a value from the front of the queue.
     pub fn pop(&self) -> Option<T> {
         let sub = self.sub.swap(null_mut(), SeqCst);
         if sub.is_null() {
@@ -49,6 +57,16 @@ impl<T> Queue<T> {
             let res = (*sub).pop();
             self.reinsert(sub);
             res
+        }
+    }
+
+    /// Creates an inspector on the current subqueue.
+    pub fn inspect<'a>(&'a self) -> Inspector<'a, T> {
+        let sub = self.sub.swap(null_mut(), SeqCst);
+        Inspector {
+            queue: self,
+            sub,
+            curr: sub.as_ref().map(|x| x.front),
         }
     }
 
@@ -76,6 +94,53 @@ impl<T> Drop for Queue<T> {
                 Global.dealloc_one(NonNull::new_unchecked(sub));
             }
         }
+    }
+}
+
+impl<T> fmt::Debug for Queue<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "front <= ")?;
+        for item in self.inspect() {
+            write!(fmtr, "{:?} <= ", elem)?;
+        }
+        write!(fmtr, "back")
+    }
+}
+
+/// An iterator which inspects a subqueue.
+pub struct Inspector<'a, T>
+where
+    T: 'a,
+{
+    queue: &'a Queue<T>,
+    sub: *mut SubQueue<T>,
+    curr: Option<*mut Node<T>>,
+}
+
+impl<'a, T> Iterator for Inspector<'a, T>
+where
+    T: 'a,
+{
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let curr = self.curr?.as_ref()?;
+        self.curr = Some(&mut curr.next as *mut _);
+        Some(&curr.val)
+    }
+}
+
+impl<'a, T> Drop for Inspector<'a, T> {
+    fn drop(&mut self) {
+        if !self.sub.is_null() {
+            self.queue.reinsert(self.sub);
+        }
+    }
+}
+
+impl<'a, T> fmt::Debug for Inspector<'a, T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "Inspector {} node: {:?} {}", '{', self.curr, '}')
     }
 }
 
