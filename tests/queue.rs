@@ -13,6 +13,14 @@ fn debug_iter() {
 }
 
 #[test]
+fn into_and_from_iter() {
+    let answer = vec![9, 8, 7];
+    let queue = answer.clone().into_iter().collect::<Queue<_>>();
+    let result = queue.into_iter().collect::<Vec<_>>();
+    assert_eq!(result, answer);
+}
+
+#[test]
 fn single_threaded_order() {
     let queue = Queue::new();
     assert_eq!(queue.pop(), None);

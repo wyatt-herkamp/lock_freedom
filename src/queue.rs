@@ -1,6 +1,7 @@
 use std::{
     alloc::{oom as alloc_oom, Alloc, AllocErr, Global},
     fmt,
+    iter::FromIterator,
     ptr::{null_mut, read, write, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
@@ -30,16 +31,7 @@ impl<T> Queue<T> {
     pub fn push(&self, val: T) {
         let mut sub = self.sub.swap(null_mut(), SeqCst);
         if sub.is_null() {
-            sub = Global.alloc_one().unwrap_or_else(oom).as_ptr();
-            unsafe {
-                write(
-                    sub,
-                    SubQueue {
-                        front: null_mut(),
-                        back: null_mut(),
-                    },
-                );
-            }
+            sub = SubQueue::alloc().as_ptr();
         }
         unsafe {
             (*sub).push(val);
@@ -60,6 +52,23 @@ impl<T> Queue<T> {
         }
     }
 
+    /// Extends the queue from an iterator.
+    pub fn extend<I>(&self, iterable: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let mut sub = self.sub.swap(null_mut(), SeqCst);
+        if sub.is_null() {
+            sub = SubQueue::alloc().as_ptr();
+        }
+        unsafe {
+            for item in iterable {
+                (*sub).push(item);
+            }
+            self.reinsert(sub);
+        }
+    }
+
     /// Creates an inspector on the current subqueue.
     pub fn inspect<'a>(&'a self) -> Inspector<'a, T> {
         let sub = self.sub.swap(null_mut(), SeqCst);
@@ -67,6 +76,16 @@ impl<T> Queue<T> {
             queue: self,
             sub,
             curr: unsafe { sub.as_ref().map(|x| x.front) },
+        }
+    }
+
+    /// Creates a drainer on the current subqueue. The drainer takes the
+    /// subqueue for itself and restores it on drop.
+    pub fn drain<'a>(&'a self) -> Drainer<'a, T> {
+        let sub = self.sub.swap(null_mut(), SeqCst);
+        Drainer {
+            queue: self,
+            sub,
         }
     }
 
@@ -97,6 +116,14 @@ impl<T> Drop for Queue<T> {
     }
 }
 
+impl<'a, T> IntoIterator for &'a Queue<T> {
+    type Item = T;
+
+    type IntoIter = Drainer<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter { self.drain() }
+}
+
 impl<T> fmt::Debug for Queue<T>
 where
     T: fmt::Debug,
@@ -110,6 +137,17 @@ where
     }
 }
 
+impl<T> FromIterator<T> for Queue<T> {
+    fn from_iter<I>(iterable: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let this = Self::new();
+        this.extend(iterable);
+        this
+    }
+}
+
 /// An iterator which inspects a subqueue.
 pub struct Inspector<'a, T>
 where
@@ -120,10 +158,7 @@ where
     curr: Option<*mut Node<T>>,
 }
 
-impl<'a, T> Iterator for Inspector<'a, T>
-where
-    T: 'a,
-{
+impl<'a, T> Iterator for Inspector<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -149,12 +184,59 @@ impl<'a, T> fmt::Debug for Inspector<'a, T> {
     }
 }
 
+/// A drainer over the queue.
+pub struct Drainer<'a, T>
+where
+    T: 'a,
+{
+    queue: &'a Queue<T>,
+    sub: *mut SubQueue<T>,
+}
+
+impl<'a, T> Iterator for Drainer<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unsafe { self.sub.as_mut()?.pop() }
+    }
+}
+
+impl<'a, T> Drop for Drainer<'a, T> {
+    fn drop(&mut self) {
+        if !self.sub.is_null() {
+            unsafe {
+                self.queue.reinsert(self.sub);
+            }
+        }
+    }
+}
+
+impl<'a, T> fmt::Debug for Drainer<'a, T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "Drainer {} sub: {:?} {}", '{', self.sub, '}')
+    }
+}
+
 struct SubQueue<T> {
     front: *mut Node<T>,
     back: *mut Node<T>,
 }
 
 impl<T> SubQueue<T> {
+    fn alloc() -> NonNull<Self> {
+        let sub = Global.alloc_one().unwrap_or_else(oom);
+        unsafe {
+            write(
+                sub.as_ptr(),
+                SubQueue {
+                    front: null_mut(),
+                    back: null_mut(),
+                },
+            );
+        }
+        sub
+    }
+
     fn join(&mut self, other: Self) {
         if self.back.is_null() {
             debug_assert!(self.front.is_null());
