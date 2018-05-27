@@ -140,6 +140,17 @@ impl<'a, T> IntoIterator for &'a LooseQueue<T> {
     fn into_iter(self) -> Self::IntoIter { self.drain() }
 }
 
+impl<T> FromIterator<T> for LooseQueue<T> {
+    fn from_iter<I>(iterable: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let this = Self::new();
+        this.extend(iterable);
+        this
+    }
+}
+
 impl<T> fmt::Debug for LooseQueue<T>
 where
     T: fmt::Debug,
@@ -153,15 +164,16 @@ where
     }
 }
 
-impl<T> FromIterator<T> for LooseQueue<T> {
-    fn from_iter<I>(iterable: I) -> Self
-    where
-        I: IntoIterator<Item = T>,
-    {
-        let this = Self::new();
-        this.extend(iterable);
-        this
-    }
+unsafe impl<T> Send for LooseQueue<T>
+where
+    T: Send,
+{
+}
+
+unsafe impl<T> Sync for LooseQueue<T>
+where
+    T: Sync,
+{
 }
 
 /// An iterator which inspects a subqueue.
