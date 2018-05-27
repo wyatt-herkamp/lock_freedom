@@ -14,7 +14,7 @@ use std::{
 /// ```rust
 /// extern crate lockfree;
 /// use lockfree::prelude::*;
-/// use std::{collections::HashSet, sync::Arc, thread};
+/// use std::{sync::Arc, thread};
 ///
 /// let queue = Arc::new(LooseQueue::new());
 /// let mut producers = Vec::with_capacity(4);
