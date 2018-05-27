@@ -9,7 +9,47 @@ use std::{
 /// A lock-free concurrent queue, but without FIFO garantees on multithreaded
 /// environments. Single thread environments still have FIFO garantees. The
 /// queue is based on subqueues which threads try to take, modify and then
-/// publish. If necessary, subqueues are appendt.
+/// publish. If necessary, subqueues are appended.
+/// # Example
+/// ```rust
+/// extern crate lockfree;
+/// use lockfree::prelude::*;
+/// use std::{collections::HashSet, sync::Arc, thread};
+///
+/// let queue = Arc::new(LooseQueue::new());
+/// let mut producers = Vec::with_capacity(4);
+/// for i in 0..3 {
+///     let queue = queue.clone();
+///     producers.push(thread::spawn(move || {
+///         for j in i * 100..(i + 1) * 100 {
+///             queue.push(j);
+///             if j % 7 == 0 {
+///                 if let Some(elem) = queue.pop() {
+///                     queue.push(elem + 1);
+///                 }
+///             }
+///         }
+///     }));
+/// }
+/// let mut consumers = Vec::with_capacity(8);
+/// for _ in 0..8 {
+///     let queue = queue.clone();
+///     consumers.push(thread::spawn(move || {
+///         while let Some(x) = queue.pop() {
+///             assert!(x < 800);
+///         }
+///     }));
+/// }
+/// for producer in producers {
+///     producer.join().unwrap();
+/// }
+/// for consumer in consumers {
+///     consumer.join().unwrap();
+/// }
+/// while let Some(x) = queue.pop() {
+///     assert!(x < 800);
+/// }
+/// ```
 pub struct LooseQueue<T> {
     sub: AtomicPtr<SubQueue<T>>,
 }
@@ -85,7 +125,8 @@ impl<T> LooseQueue<T> {
         }
     }
 
-    /// Creates an inspector on the current subqueue.
+    /// Creates an inspector on the current subqueue. The inspector takes the
+    /// subqueue for itself and restores it on drop.
     pub fn inspect<'a>(&'a self) -> Inspector<'a, T> {
         let sub = self.sub.swap(null_mut(), SeqCst);
         Inspector {
@@ -96,7 +137,7 @@ impl<T> LooseQueue<T> {
     }
 
     /// Creates a drainer on the current subqueue. The drainer takes the
-    /// subqueue for itself and restores it on drop.
+    /// subqueue for itself and restores what is left of it on drop.
     pub fn drain<'a>(&'a self) -> Drainer<'a, T> {
         let sub = self.sub.swap(null_mut(), SeqCst);
         Drainer {
