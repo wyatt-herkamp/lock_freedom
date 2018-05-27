@@ -1,27 +1,22 @@
 use std::{
-    alloc::{oom as alloc_oom, Alloc, AllocErr, Global},
+    alloc::{Alloc, Global},
     fmt,
     iter::FromIterator,
     ptr::{null_mut, read, write, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
 
-fn oom<T>(e: AllocErr) -> T {
-    eprintln!("{}", e);
-    alloc_oom()
-}
-
 /// A lock-free concurrent queue, but without FIFO garantees on multithreaded
 /// environments. Single thread environments still have FIFO garantees. The
 /// queue is based on subqueues which threads try to take, modify and then
-/// publish. If necessary, subqueues are joint.
-pub struct Queue<T> {
+/// publish. If necessary, subqueues are appendt.
+pub struct LooseQueue<T> {
     sub: AtomicPtr<SubQueue<T>>,
 }
 
-impl<T> Queue<T> {
+impl<T> LooseQueue<T> {
     /// Creates a new empty queue.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             sub: AtomicPtr::new(null_mut()),
         }
@@ -49,6 +44,27 @@ impl<T> Queue<T> {
             let res = (*sub).pop();
             self.reinsert(sub);
             res
+        }
+    }
+
+    /// Appends some other queue to the end of this one.
+    pub fn append(&self, other: &Self) {
+        let sub = other.sub.swap(null_mut(), SeqCst);
+        if !sub.is_null() {
+            loop {
+                if self.sub.compare_and_swap(null_mut(), sub, SeqCst).is_null()
+                {
+                    break;
+                }
+                let other = self.sub.swap(null_mut(), SeqCst);
+                if other.is_null() {
+                    continue;
+                }
+                unsafe {
+                    (*other).append(read(sub));
+                    Global.dealloc_one(NonNull::new_unchecked(other));
+                }
+            }
         }
     }
 
@@ -98,13 +114,13 @@ impl<T> Queue<T> {
             if other.is_null() {
                 continue;
             }
-            (*sub).join(read(other));
+            (*sub).append(read(other));
             Global.dealloc_one(NonNull::new_unchecked(other));
         }
     }
 }
 
-impl<T> Drop for Queue<T> {
+impl<T> Drop for LooseQueue<T> {
     fn drop(&mut self) {
         let sub = self.sub.load(SeqCst);
         if !sub.is_null() {
@@ -116,7 +132,7 @@ impl<T> Drop for Queue<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a Queue<T> {
+impl<'a, T> IntoIterator for &'a LooseQueue<T> {
     type Item = T;
 
     type IntoIter = Drainer<'a, T>;
@@ -124,7 +140,7 @@ impl<'a, T> IntoIterator for &'a Queue<T> {
     fn into_iter(self) -> Self::IntoIter { self.drain() }
 }
 
-impl<T> fmt::Debug for Queue<T>
+impl<T> fmt::Debug for LooseQueue<T>
 where
     T: fmt::Debug,
 {
@@ -137,7 +153,7 @@ where
     }
 }
 
-impl<T> FromIterator<T> for Queue<T> {
+impl<T> FromIterator<T> for LooseQueue<T> {
     fn from_iter<I>(iterable: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -153,7 +169,7 @@ pub struct Inspector<'a, T>
 where
     T: 'a,
 {
-    queue: &'a Queue<T>,
+    queue: &'a LooseQueue<T>,
     sub: *mut SubQueue<T>,
     curr: Option<*mut Node<T>>,
 }
@@ -189,7 +205,7 @@ pub struct Drainer<'a, T>
 where
     T: 'a,
 {
-    queue: &'a Queue<T>,
+    queue: &'a LooseQueue<T>,
     sub: *mut SubQueue<T>,
 }
 
@@ -224,7 +240,7 @@ struct SubQueue<T> {
 
 impl<T> SubQueue<T> {
     fn alloc() -> NonNull<Self> {
-        let sub = Global.alloc_one().unwrap_or_else(oom);
+        let sub = Global.alloc_one().unwrap_or_else(::oom);
         unsafe {
             write(
                 sub.as_ptr(),
@@ -237,7 +253,7 @@ impl<T> SubQueue<T> {
         sub
     }
 
-    fn join(&mut self, other: Self) {
+    fn append(&mut self, other: Self) {
         if self.back.is_null() {
             debug_assert!(self.front.is_null());
             *self = other;
@@ -253,7 +269,7 @@ impl<T> SubQueue<T> {
     }
 
     fn push(&mut self, val: T) {
-        let node = Global.alloc_one().unwrap_or_else(oom).as_ptr();
+        let node = Global.alloc_one().unwrap_or_else(::oom).as_ptr();
         unsafe {
             write(
                 node,

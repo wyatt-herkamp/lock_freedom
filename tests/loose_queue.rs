@@ -5,7 +5,7 @@ use std::{sync::Arc, thread};
 
 #[test]
 fn debug_iter() {
-    let queue = Queue::new();
+    let queue = LooseQueue::new();
     queue.push(9);
     queue.push(8);
     queue.push(7);
@@ -15,14 +15,14 @@ fn debug_iter() {
 #[test]
 fn into_and_from_iter() {
     let answer = vec![9, 8, 7];
-    let queue = answer.clone().into_iter().collect::<Queue<_>>();
+    let queue = answer.clone().into_iter().collect::<LooseQueue<_>>();
     let result = queue.into_iter().collect::<Vec<_>>();
     assert_eq!(result, answer);
 }
 
 #[test]
 fn single_threaded_order() {
-    let queue = Queue::new();
+    let queue = LooseQueue::new();
     assert_eq!(queue.pop(), None);
     assert_eq!(queue.pop(), None);
     queue.push(3);
@@ -50,7 +50,7 @@ fn multithreaded() {
 }
 
 fn generic_multithreaded(nthread: usize, niter: usize, nmod: usize) {
-    let queue = Arc::new(Queue::new());
+    let queue = Arc::new(LooseQueue::new());
     let mut handles = Vec::with_capacity(nthread);
     for i in 0..nthread {
         let queue = queue.clone();

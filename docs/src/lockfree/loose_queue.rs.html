@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `src/queue.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>queue.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><input class="search-input" name="search" autocomplete="off" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `src/loose_queue.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>loose_queue.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css"><link rel="stylesheet" type="text/css" href="../../light.css" id="themeStyle"><script src="../../storage.js"></script></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><input class="search-input" name="search" autocomplete="off" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
 <span id="4">  4</span>
@@ -295,31 +295,42 @@
 <span id="295">295</span>
 <span id="296">296</span>
 <span id="297">297</span>
+<span id="298">298</span>
+<span id="299">299</span>
+<span id="300">300</span>
+<span id="301">301</span>
+<span id="302">302</span>
+<span id="303">303</span>
+<span id="304">304</span>
+<span id="305">305</span>
+<span id="306">306</span>
+<span id="307">307</span>
+<span id="308">308</span>
+<span id="309">309</span>
+<span id="310">310</span>
+<span id="311">311</span>
+<span id="312">312</span>
+<span id="313">313</span>
 </pre><pre class="rust ">
 <span class="kw">use</span> <span class="ident">std</span>::{
-    <span class="ident">alloc</span>::{<span class="ident">oom</span> <span class="kw">as</span> <span class="ident">alloc_oom</span>, <span class="ident">Alloc</span>, <span class="ident">AllocErr</span>, <span class="ident">Global</span>},
+    <span class="ident">alloc</span>::{<span class="ident">Alloc</span>, <span class="ident">Global</span>},
     <span class="ident">fmt</span>,
     <span class="ident">iter</span>::<span class="ident">FromIterator</span>,
     <span class="ident">ptr</span>::{<span class="ident">null_mut</span>, <span class="ident">read</span>, <span class="ident">write</span>, <span class="ident">NonNull</span>},
     <span class="ident">sync</span>::<span class="ident">atomic</span>::{<span class="ident">AtomicPtr</span>, <span class="ident">Ordering</span>::<span class="kw-2">*</span>},
 };
 
-<span class="kw">fn</span> <span class="ident">oom</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">e</span>: <span class="ident">AllocErr</span>) <span class="op">-&gt;</span> <span class="ident">T</span> {
-    <span class="macro">eprintln</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">e</span>);
-    <span class="ident">alloc_oom</span>()
-}
-
 <span class="doccomment">/// A lock-free concurrent queue, but without FIFO garantees on multithreaded</span>
 <span class="doccomment">/// environments. Single thread environments still have FIFO garantees. The</span>
 <span class="doccomment">/// queue is based on subqueues which threads try to take, modify and then</span>
-<span class="doccomment">/// publish. If necessary, subqueues are joint.</span>
-<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+<span class="doccomment">/// publish. If necessary, subqueues are appendt.</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="ident">sub</span>: <span class="ident">AtomicPtr</span><span class="op">&lt;</span><span class="ident">SubQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="doccomment">/// Creates a new empty queue.</span>
-    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>() <span class="op">-&gt;</span> <span class="self">Self</span> {
+    <span class="kw">pub</span> <span class="kw">const</span> <span class="kw">fn</span> <span class="ident">new</span>() <span class="op">-&gt;</span> <span class="self">Self</span> {
         <span class="self">Self</span> {
             <span class="ident">sub</span>: <span class="ident">AtomicPtr</span>::<span class="ident">new</span>(<span class="ident">null_mut</span>()),
         }
@@ -347,6 +358,27 @@
             <span class="kw">let</span> <span class="ident">res</span> <span class="op">=</span> (<span class="kw-2">*</span><span class="ident">sub</span>).<span class="ident">pop</span>();
             <span class="self">self</span>.<span class="ident">reinsert</span>(<span class="ident">sub</span>);
             <span class="ident">res</span>
+        }
+    }
+
+    <span class="doccomment">/// Appends some other queue to the end of this one.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">append</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">other</span>: <span class="kw-2">&amp;</span><span class="self">Self</span>) {
+        <span class="kw">let</span> <span class="ident">sub</span> <span class="op">=</span> <span class="ident">other</span>.<span class="ident">sub</span>.<span class="ident">swap</span>(<span class="ident">null_mut</span>(), <span class="ident">SeqCst</span>);
+        <span class="kw">if</span> <span class="op">!</span><span class="ident">sub</span>.<span class="ident">is_null</span>() {
+            <span class="kw">loop</span> {
+                <span class="kw">if</span> <span class="self">self</span>.<span class="ident">sub</span>.<span class="ident">compare_and_swap</span>(<span class="ident">null_mut</span>(), <span class="ident">sub</span>, <span class="ident">SeqCst</span>).<span class="ident">is_null</span>()
+                {
+                    <span class="kw">break</span>;
+                }
+                <span class="kw">let</span> <span class="ident">other</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">sub</span>.<span class="ident">swap</span>(<span class="ident">null_mut</span>(), <span class="ident">SeqCst</span>);
+                <span class="kw">if</span> <span class="ident">other</span>.<span class="ident">is_null</span>() {
+                    <span class="kw">continue</span>;
+                }
+                <span class="kw">unsafe</span> {
+                    (<span class="kw-2">*</span><span class="ident">other</span>).<span class="ident">append</span>(<span class="ident">read</span>(<span class="ident">sub</span>));
+                    <span class="ident">Global</span>.<span class="ident">dealloc_one</span>(<span class="ident">NonNull</span>::<span class="ident">new_unchecked</span>(<span class="ident">other</span>));
+                }
+            }
         }
     }
 
@@ -396,13 +428,13 @@
             <span class="kw">if</span> <span class="ident">other</span>.<span class="ident">is_null</span>() {
                 <span class="kw">continue</span>;
             }
-            (<span class="kw-2">*</span><span class="ident">sub</span>).<span class="ident">join</span>(<span class="ident">read</span>(<span class="ident">other</span>));
+            (<span class="kw-2">*</span><span class="ident">sub</span>).<span class="ident">append</span>(<span class="ident">read</span>(<span class="ident">other</span>));
             <span class="ident">Global</span>.<span class="ident">dealloc_one</span>(<span class="ident">NonNull</span>::<span class="ident">new_unchecked</span>(<span class="ident">other</span>));
         }
     }
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
         <span class="kw">let</span> <span class="ident">sub</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">sub</span>.<span class="ident">load</span>(<span class="ident">SeqCst</span>);
         <span class="kw">if</span> <span class="op">!</span><span class="ident">sub</span>.<span class="ident">is_null</span>() {
@@ -414,7 +446,7 @@
     }
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> <span class="ident">IntoIterator</span> <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+<span class="kw">impl</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span> <span class="ident">IntoIterator</span> <span class="kw">for</span> <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="kw">type</span> <span class="ident">Item</span> <span class="op">=</span> <span class="ident">T</span>;
 
     <span class="kw">type</span> <span class="ident">IntoIter</span> <span class="op">=</span> <span class="ident">Drainer</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span>, <span class="ident">T</span><span class="op">&gt;</span>;
@@ -422,7 +454,7 @@
     <span class="kw">fn</span> <span class="ident">into_iter</span>(<span class="self">self</span>) <span class="op">-&gt;</span> <span class="self">Self</span>::<span class="ident">IntoIter</span> { <span class="self">self</span>.<span class="ident">drain</span>() }
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">fmt</span>::<span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>
 <span class="kw">where</span>
     <span class="ident">T</span>: <span class="ident">fmt</span>::<span class="ident">Debug</span>,
 {
@@ -435,7 +467,7 @@
     }
 }
 
-<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">FromIterator</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">FromIterator</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="kw">fn</span> <span class="ident">from_iter</span><span class="op">&lt;</span><span class="ident">I</span><span class="op">&gt;</span>(<span class="ident">iterable</span>: <span class="ident">I</span>) <span class="op">-&gt;</span> <span class="self">Self</span>
     <span class="kw">where</span>
         <span class="ident">I</span>: <span class="ident">IntoIterator</span><span class="op">&lt;</span><span class="ident">Item</span> <span class="op">=</span> <span class="ident">T</span><span class="op">&gt;</span>,
@@ -451,7 +483,7 @@
 <span class="kw">where</span>
     <span class="ident">T</span>: <span class="lifetime">&#39;a</span>,
 {
-    <span class="ident">queue</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
+    <span class="ident">queue</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
     <span class="ident">sub</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">SubQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
     <span class="ident">curr</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">Node</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
 }
@@ -487,7 +519,7 @@
 <span class="kw">where</span>
     <span class="ident">T</span>: <span class="lifetime">&#39;a</span>,
 {
-    <span class="ident">queue</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Queue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
+    <span class="ident">queue</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
     <span class="ident">sub</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">SubQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
 }
 
@@ -522,7 +554,7 @@
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">SubQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="kw">fn</span> <span class="ident">alloc</span>() <span class="op">-&gt;</span> <span class="ident">NonNull</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span> {
-        <span class="kw">let</span> <span class="ident">sub</span> <span class="op">=</span> <span class="ident">Global</span>.<span class="ident">alloc_one</span>().<span class="ident">unwrap_or_else</span>(<span class="ident">oom</span>);
+        <span class="kw">let</span> <span class="ident">sub</span> <span class="op">=</span> <span class="ident">Global</span>.<span class="ident">alloc_one</span>().<span class="ident">unwrap_or_else</span>(::<span class="ident">oom</span>);
         <span class="kw">unsafe</span> {
             <span class="ident">write</span>(
                 <span class="ident">sub</span>.<span class="ident">as_ptr</span>(),
@@ -535,7 +567,7 @@
         <span class="ident">sub</span>
     }
 
-    <span class="kw">fn</span> <span class="ident">join</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">other</span>: <span class="self">Self</span>) {
+    <span class="kw">fn</span> <span class="ident">append</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">other</span>: <span class="self">Self</span>) {
         <span class="kw">if</span> <span class="self">self</span>.<span class="ident">back</span>.<span class="ident">is_null</span>() {
             <span class="macro">debug_assert</span><span class="macro">!</span>(<span class="self">self</span>.<span class="ident">front</span>.<span class="ident">is_null</span>());
             <span class="kw-2">*</span><span class="self">self</span> <span class="op">=</span> <span class="ident">other</span>;
@@ -551,7 +583,7 @@
     }
 
     <span class="kw">fn</span> <span class="ident">push</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">val</span>: <span class="ident">T</span>) {
-        <span class="kw">let</span> <span class="ident">node</span> <span class="op">=</span> <span class="ident">Global</span>.<span class="ident">alloc_one</span>().<span class="ident">unwrap_or_else</span>(<span class="ident">oom</span>).<span class="ident">as_ptr</span>();
+        <span class="kw">let</span> <span class="ident">node</span> <span class="op">=</span> <span class="ident">Global</span>.<span class="ident">alloc_one</span>().<span class="ident">unwrap_or_else</span>(::<span class="ident">oom</span>).<span class="ident">as_ptr</span>();
         <span class="kw">unsafe</span> {
             <span class="ident">write</span>(
                 <span class="ident">node</span>,

@@ -1,1 +1,1 @@
-pub use queue::Queue;
+pub use loose_queue::LooseQueue;
