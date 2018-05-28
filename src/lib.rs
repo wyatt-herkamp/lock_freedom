@@ -10,6 +10,11 @@ pub mod prelude;
 /// have FIFO garanteees.
 pub mod loose_queue;
 
+/// Hazard pointer API. Please, note that this API is not implemented in
+/// the "traditional" way hazard pointers are implemented. This is because
+/// this implemention aims to be lock-free.
+pub mod hazard;
+
 fn oom<T>(e: AllocErr) -> T {
     eprintln!("{}", e);
     alloc_oom()

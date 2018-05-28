@@ -245,7 +245,7 @@ where
 
 unsafe impl<T> Send for LooseQueue<T>
 where
-    T: Send,
+    T: Send + Sync,
 {
 }
 

@@ -14,6 +14,11 @@
 <span id="14">14</span>
 <span id="15">15</span>
 <span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
 </pre><pre class="rust ">
 <span class="attribute">#![<span class="ident">feature</span>(<span class="ident">allocator_api</span>, <span class="ident">const_fn</span>)]</span>
 
@@ -26,6 +31,11 @@
 <span class="doccomment">/// but still concurrent and lock-free. Single thread environments still</span>
 <span class="doccomment">/// have FIFO garanteees.</span>
 <span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">loose_queue</span>;
+
+<span class="doccomment">/// Hazard pointer API. Please, note that this API is not implemented in</span>
+<span class="doccomment">/// the &quot;traditional&quot; way hazard pointers are implemented. This is because</span>
+<span class="doccomment">/// this implemention aims to be lock-free.</span>
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">hazard</span>;
 
 <span class="kw">fn</span> <span class="ident">oom</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">e</span>: <span class="ident">AllocErr</span>) <span class="op">-&gt;</span> <span class="ident">T</span> {
     <span class="macro">eprintln</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">e</span>);
