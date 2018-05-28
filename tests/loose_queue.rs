@@ -21,6 +21,20 @@ fn into_and_from_iter() {
 }
 
 #[test]
+fn append() {
+    let q = LooseQueue::new();
+    let p = LooseQueue::new();
+    q.push(5);
+    q.push(7);
+    q.push(9);
+    p.push(6);
+    p.push(5);
+    p.append(&q);
+    assert_eq!(q.pop(), None);
+    assert_eq!(vec![6, 5, 5, 7, 9], p.into_iter().collect::<Vec<_>>());
+}
+
+#[test]
 fn single_threaded_order() {
     let queue = LooseQueue::new();
     assert_eq!(queue.pop(), None);
