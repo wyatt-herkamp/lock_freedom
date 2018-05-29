@@ -367,46 +367,6 @@
 <span id="367">367</span>
 <span id="368">368</span>
 <span id="369">369</span>
-<span id="370">370</span>
-<span id="371">371</span>
-<span id="372">372</span>
-<span id="373">373</span>
-<span id="374">374</span>
-<span id="375">375</span>
-<span id="376">376</span>
-<span id="377">377</span>
-<span id="378">378</span>
-<span id="379">379</span>
-<span id="380">380</span>
-<span id="381">381</span>
-<span id="382">382</span>
-<span id="383">383</span>
-<span id="384">384</span>
-<span id="385">385</span>
-<span id="386">386</span>
-<span id="387">387</span>
-<span id="388">388</span>
-<span id="389">389</span>
-<span id="390">390</span>
-<span id="391">391</span>
-<span id="392">392</span>
-<span id="393">393</span>
-<span id="394">394</span>
-<span id="395">395</span>
-<span id="396">396</span>
-<span id="397">397</span>
-<span id="398">398</span>
-<span id="399">399</span>
-<span id="400">400</span>
-<span id="401">401</span>
-<span id="402">402</span>
-<span id="403">403</span>
-<span id="404">404</span>
-<span id="405">405</span>
-<span id="406">406</span>
-<span id="407">407</span>
-<span id="408">408</span>
-<span id="409">409</span>
 </pre><pre class="rust ">
 <span class="kw">use</span> <span class="ident">std</span>::{
     <span class="ident">alloc</span>::{<span class="ident">Alloc</span>, <span class="ident">Global</span>},
@@ -420,46 +380,6 @@
 <span class="doccomment">/// environments. Single thread environments still have FIFO garantees. The</span>
 <span class="doccomment">/// queue is based on subqueues which threads try to take, modify and then</span>
 <span class="doccomment">/// publish. If necessary, subqueues are appended.</span>
-<span class="doccomment">/// # Example</span>
-<span class="doccomment">/// ```rust</span>
-<span class="doccomment">/// extern crate lockfree;</span>
-<span class="doccomment">/// use lockfree::prelude::*;</span>
-<span class="doccomment">/// use std::{sync::Arc, thread};</span>
-<span class="doccomment">///</span>
-<span class="doccomment">/// let queue = Arc::new(LooseQueue::new());</span>
-<span class="doccomment">/// let mut producers = Vec::with_capacity(4);</span>
-<span class="doccomment">/// for i in 0..3 {</span>
-<span class="doccomment">///     let queue = queue.clone();</span>
-<span class="doccomment">///     producers.push(thread::spawn(move || {</span>
-<span class="doccomment">///         for j in i * 100..(i + 1) * 100 {</span>
-<span class="doccomment">///             queue.push(j);</span>
-<span class="doccomment">///             if j % 7 == 0 {</span>
-<span class="doccomment">///                 if let Some(elem) = queue.pop() {</span>
-<span class="doccomment">///                     queue.push(elem + 1);</span>
-<span class="doccomment">///                 }</span>
-<span class="doccomment">///             }</span>
-<span class="doccomment">///         }</span>
-<span class="doccomment">///     }));</span>
-<span class="doccomment">/// }</span>
-<span class="doccomment">/// let mut consumers = Vec::with_capacity(8);</span>
-<span class="doccomment">/// for _ in 0..8 {</span>
-<span class="doccomment">///     let queue = queue.clone();</span>
-<span class="doccomment">///     consumers.push(thread::spawn(move || {</span>
-<span class="doccomment">///         while let Some(x) = queue.pop() {</span>
-<span class="doccomment">///             assert!(x &lt; 800);</span>
-<span class="doccomment">///         }</span>
-<span class="doccomment">///     }));</span>
-<span class="doccomment">/// }</span>
-<span class="doccomment">/// for producer in producers {</span>
-<span class="doccomment">///     producer.join().unwrap();</span>
-<span class="doccomment">/// }</span>
-<span class="doccomment">/// for consumer in consumers {</span>
-<span class="doccomment">///     consumer.join().unwrap();</span>
-<span class="doccomment">/// }</span>
-<span class="doccomment">/// while let Some(x) = queue.pop() {</span>
-<span class="doccomment">///     assert!(x &lt; 800);</span>
-<span class="doccomment">/// }</span>
-<span class="doccomment">/// ```</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="ident">sub</span>: <span class="ident">AtomicPtr</span><span class="op">&lt;</span><span class="ident">SubQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span>,
 }
@@ -661,7 +581,7 @@
 
 <span class="kw">unsafe</span> <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Sync</span> <span class="kw">for</span> <span class="ident">LooseQueue</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>
 <span class="kw">where</span>
-    <span class="ident">T</span>: <span class="ident">Sync</span>,
+    <span class="ident">T</span>: <span class="ident">Send</span> <span class="op">+</span> <span class="ident">Sync</span>,
 {
 }
 

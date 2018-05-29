@@ -142,7 +142,7 @@ where
 
 unsafe impl<T> Sync for Queue<T>
 where
-    T: Sync,
+    T: Sync + Send,
 {
 }
 
