@@ -108,6 +108,10 @@ impl<T> Queue<T> {
     }
 }
 
+impl<T> Default for Queue<T> {
+    fn default() -> Self { Self::new() }
+}
+
 impl<T> Drop for Queue<T> {
     fn drop(&mut self) { while let Some(_) = self.pop() {} }
 }

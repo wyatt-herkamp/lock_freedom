@@ -103,6 +103,10 @@ impl<T> Stack<T> {
     }
 }
 
+impl<T> Default for Stack<T> {
+    fn default() -> Self { Self::new() }
+}
+
 impl<T> Drop for Stack<T> {
     fn drop(&mut self) { while let Some(_) = self.pop() {} }
 }
