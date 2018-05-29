@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Iter","An iterator based on `pop` operation of the `Stack`."],["Stack","A lock-free stack. LIFO/FILO semanthics are fully respected."]]});

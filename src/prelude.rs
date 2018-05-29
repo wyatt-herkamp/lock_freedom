@@ -4,3 +4,4 @@ pub use hazard::{
     Ordering::{self, *},
 };
 pub use queue::Queue;
+pub use stack::Stack;

@@ -9,5 +9,8 @@ pub mod hazard;
 /// A lock-free queue.
 pub mod queue;
 
+/// A lock-free stack.
+pub mod stack;
+
 #[allow(dead_code)]
 mod alloc;
