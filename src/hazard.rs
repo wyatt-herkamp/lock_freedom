@@ -6,8 +6,11 @@ use std::{
     sync::atomic::{AtomicPtr, AtomicUsize},
 };
 
-/// A hazard atomic pointer. The destruction and loading of this pointer uses
-/// the hazard API of this module.
+/// A hazard atomic pointer. It keeps a destructor with itself.
+/// The destruction and loading of this pointer uses the hazard API of this
+/// module. Because it (possibly later) calls the destructor on drop, be very
+/// careful. In general, if the pointer is consumed, you may want to fill the
+/// hazard pointer with `std::ptr::null_mut()` and check it on your drop.
 #[derive(Debug)]
 pub struct HazardPtr<T> {
     dropper: fn(*mut T),

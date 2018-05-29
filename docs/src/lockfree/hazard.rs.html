@@ -204,6 +204,9 @@
 <span id="204">204</span>
 <span id="205">205</span>
 <span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
 </pre><pre class="rust ">
 <span class="kw">pub</span> <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">sync</span>::<span class="ident">atomic</span>::<span class="ident">Ordering</span>::{<span class="self">self</span>, <span class="kw-2">*</span>};
 <span class="kw">use</span> <span class="ident">std</span>::{
@@ -213,8 +216,11 @@
     <span class="ident">sync</span>::<span class="ident">atomic</span>::{<span class="ident">AtomicPtr</span>, <span class="ident">AtomicUsize</span>},
 };
 
-<span class="doccomment">/// A hazard atomic pointer. The destruction and loading of this pointer uses</span>
-<span class="doccomment">/// the hazard API of this module.</span>
+<span class="doccomment">/// A hazard atomic pointer. It keeps a destructor with itself.</span>
+<span class="doccomment">/// The destruction and loading of this pointer uses the hazard API of this</span>
+<span class="doccomment">/// module. Because it (possibly later) calls the destructor on drop, be very</span>
+<span class="doccomment">/// careful. In general, if the pointer is consumed, you may want to fill the</span>
+<span class="doccomment">/// hazard pointer with `std::ptr::null_mut()` and check it on your drop.</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">HazardPtr</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span>),

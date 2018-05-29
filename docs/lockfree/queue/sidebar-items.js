@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Iter","An iterator based on `pop` operation of the `Queue`."],["Queue","A strict FIFO semanthics queue. This queue uses the hazard API. It can be used as multi-producer and multi-consumer channel."]]});
