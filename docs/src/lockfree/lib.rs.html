@@ -11,23 +11,7 @@
 <span id="11">11</span>
 <span id="12">12</span>
 <span id="13">13</span>
-<span id="14">14</span>
-<span id="15">15</span>
-<span id="16">16</span>
-<span id="17">17</span>
-<span id="18">18</span>
-<span id="19">19</span>
-<span id="20">20</span>
-<span id="21">21</span>
-<span id="22">22</span>
-<span id="23">23</span>
-<span id="24">24</span>
-<span id="25">25</span>
 </pre><pre class="rust ">
-<span class="attribute">#![<span class="ident">feature</span>(<span class="ident">allocator_api</span>, <span class="ident">const_fn</span>)]</span>
-
-<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">alloc</span>::{<span class="ident">oom</span> <span class="kw">as</span> <span class="ident">alloc_oom</span>, <span class="ident">AllocErr</span>};
-
 <span class="doccomment">/// Provides convenient re-exports.</span>
 <span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">prelude</span>;
 
@@ -36,18 +20,10 @@
 <span class="doccomment">/// this implemention aims to be lock-free.</span>
 <span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">hazard</span>;
 
-<span class="doccomment">/// Provides a queue with strict FIFO semanthics in single and multithread</span>
-<span class="doccomment">/// environments.</span>
+<span class="doccomment">/// A lock-free queue.</span>
 <span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">queue</span>;
 
-<span class="doccomment">/// Provides a queue without FIFO garantees on multithread environments,</span>
-<span class="doccomment">/// but still concurrent and lock-free. Single thread environments still</span>
-<span class="doccomment">/// have FIFO garanteees. This queue does not use the hazard API.</span>
-<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">loose_queue</span>;
-
-<span class="kw">fn</span> <span class="ident">oom</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">e</span>: <span class="ident">AllocErr</span>) <span class="op">-&gt;</span> <span class="ident">T</span> {
-    <span class="macro">eprintln</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">e</span>);
-    <span class="ident">alloc_oom</span>()
-}
+<span class="attribute">#[<span class="ident">allow</span>(<span class="ident">dead_code</span>)]</span>
+<span class="kw">mod</span> <span class="ident">alloc</span>;
 </pre>
 </section><section id="search" class="content hidden"></section><section class="footer"></section><aside id="help" class="hidden"><div><h1 class="hidden">Help</h1><div class="shortcuts"><h2>Keyboard Shortcuts</h2><dl><dt><kbd>?</kbd></dt><dd>Show this help dialog</dd><dt><kbd>S</kbd></dt><dd>Focus the search field</dd><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd><dt><kbd>↹</kbd></dt><dd>Switch tab</dd><dt><kbd>&#9166;</kbd></dt><dd>Go to active search result</dd><dt><kbd>+</kbd></dt><dd>Expand all sections</dd><dt><kbd>-</kbd></dt><dd>Collapse all sections</dd></dl></div><div class="infos"><h2>Search Tricks</h2><p>Prefix searches with a type followed by a colon (e.g. <code>fn:</code>) to restrict the search to a given type.</p><p>Accepted types are: <code>fn</code>, <code>mod</code>, <code>struct</code>, <code>enum</code>, <code>trait</code>, <code>type</code>, <code>macro</code>, and <code>const</code>.</p><p>Search functions by type signature (e.g. <code>vec -> usize</code> or <code>* -> vec</code>)</p><p>Search multiple things at once by splitting your query with comma (e.g. <code>str,u8</code> or <code>String,struct:Vec,test</code>)</p></div></div></aside><script>window.rootPath = "../../";window.currentCrate = "lockfree";</script><script src="../../aliases.js"></script><script src="../../main.js"></script><script defer src="../../search-index.js"></script></body></html>

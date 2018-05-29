@@ -30,6 +30,14 @@ fn single_threaded_order() {
 }
 
 #[test]
+fn no_leak() {
+    let queue = Queue::new();
+    queue.push("foo".to_string());
+    queue.push("bar".to_string());
+    assert_eq!(queue.pop(), Some("foo".to_string()));
+}
+
+#[test]
 fn multithreaded() {
     generic_multithreaded(20, 800, 55);
     generic_multithreaded(50, 10000, 87);

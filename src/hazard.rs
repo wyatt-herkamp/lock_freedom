@@ -3,6 +3,7 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     mem::transmute,
+    ptr::NonNull,
     sync::atomic::{AtomicPtr, AtomicUsize},
 };
 
@@ -10,10 +11,11 @@ use std::{
 /// The destruction and loading of this pointer uses the hazard API of this
 /// module. Because it (possibly later) calls the destructor on drop, be very
 /// careful. In general, if the pointer is consumed, you may want to fill the
-/// hazard pointer with `std::ptr::null_mut()` and check it on your drop.
+/// hazard pointer with `std::ptr::null_mut()`, because `HazardPtr` checks for
+/// nulls before putting the pointer on the queue.
 #[derive(Debug)]
 pub struct HazardPtr<T> {
-    dropper: fn(*mut T),
+    dropper: fn(NonNull<T>),
     ptr: AtomicPtr<T>,
 }
 
@@ -21,7 +23,7 @@ impl<T> HazardPtr<T> {
     /// Creates a new pointer from the given dropper and initial ptr.
     /// The dropper is run at the `HazardPtr<T>`'s `Drop`. Also, it may
     /// be used for dropping intermediate pointers explicitly.
-    pub const fn new(dropper: fn(*mut T), ptr: *mut T) -> Self {
+    pub fn new(dropper: fn(NonNull<T>), ptr: *mut T) -> Self {
         Self {
             dropper,
             ptr: AtomicPtr::new(ptr),
@@ -106,14 +108,16 @@ impl<T> HazardPtr<T> {
     /// Applies the dropper to some pointer. This function is unsafe because
     /// incorrectly applying the destructor may result in "use after free" or
     /// "double free".
-    pub unsafe fn apply_dropper(&self, ptr: *mut T) {
+    pub unsafe fn apply_dropper(&self, ptr: NonNull<T>) {
         later_drop(ptr, self.dropper)
     }
 }
 
 impl<T> Drop for HazardPtr<T> {
     fn drop(&mut self) {
-        unsafe { later_drop(self.ptr.load(Relaxed), self.dropper) }
+        if let Some(ptr) = NonNull::new(self.ptr.load(Relaxed)) {
+            unsafe { later_drop(ptr, self.dropper) }
+        }
     }
 }
 
@@ -121,12 +125,12 @@ impl<T> Drop for HazardPtr<T> {
 /// If there is no critical code executing, the local queue items are deleted.
 /// The function is unsafe because pointers must be correctly dropped such as
 /// no "use after free" or "double free" happens.
-pub unsafe fn later_drop<T>(ptr: *mut T, dropper: fn(*mut T)) {
+pub unsafe fn later_drop<T>(ptr: NonNull<T>, dropper: fn(NonNull<T>)) {
     LOCAL_DELETION.with(|queue| {
         // First of all, let's put it on the queue because of a possible
         // obstruction when deleting.
         queue.add(Garbage {
-            ptr: ptr as *mut u8,
+            ptr: ptr.cast(),
             dropper: transmute(dropper),
         });
         if DELETION_STATUS.load(SeqCst) == 0 {
@@ -168,8 +172,8 @@ where
 }
 
 struct Garbage {
-    ptr: *mut u8,
-    dropper: fn(*mut u8),
+    ptr: NonNull<u8>,
+    dropper: fn(NonNull<u8>),
 }
 
 struct GarbageQueue {

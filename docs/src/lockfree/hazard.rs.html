@@ -207,12 +207,17 @@
 <span id="207">207</span>
 <span id="208">208</span>
 <span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
 </pre><pre class="rust ">
 <span class="kw">pub</span> <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">sync</span>::<span class="ident">atomic</span>::<span class="ident">Ordering</span>::{<span class="self">self</span>, <span class="kw-2">*</span>};
 <span class="kw">use</span> <span class="ident">std</span>::{
     <span class="ident">cell</span>::<span class="ident">RefCell</span>,
     <span class="ident">collections</span>::<span class="ident">VecDeque</span>,
     <span class="ident">mem</span>::<span class="ident">transmute</span>,
+    <span class="ident">ptr</span>::<span class="ident">NonNull</span>,
     <span class="ident">sync</span>::<span class="ident">atomic</span>::{<span class="ident">AtomicPtr</span>, <span class="ident">AtomicUsize</span>},
 };
 
@@ -220,10 +225,11 @@
 <span class="doccomment">/// The destruction and loading of this pointer uses the hazard API of this</span>
 <span class="doccomment">/// module. Because it (possibly later) calls the destructor on drop, be very</span>
 <span class="doccomment">/// careful. In general, if the pointer is consumed, you may want to fill the</span>
-<span class="doccomment">/// hazard pointer with `std::ptr::null_mut()` and check it on your drop.</span>
+<span class="doccomment">/// hazard pointer with `std::ptr::null_mut()`, because `HazardPtr` checks for</span>
+<span class="doccomment">/// nulls before putting the pointer on the queue.</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">HazardPtr</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
-    <span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span>),
+    <span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="ident">NonNull</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>),
     <span class="ident">ptr</span>: <span class="ident">AtomicPtr</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
 }
 
@@ -231,7 +237,7 @@
     <span class="doccomment">/// Creates a new pointer from the given dropper and initial ptr.</span>
     <span class="doccomment">/// The dropper is run at the `HazardPtr&lt;T&gt;`&#39;s `Drop`. Also, it may</span>
     <span class="doccomment">/// be used for dropping intermediate pointers explicitly.</span>
-    <span class="kw">pub</span> <span class="kw">const</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span>), <span class="ident">ptr</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(<span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="ident">NonNull</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>), <span class="ident">ptr</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
         <span class="self">Self</span> {
             <span class="ident">dropper</span>,
             <span class="ident">ptr</span>: <span class="ident">AtomicPtr</span>::<span class="ident">new</span>(<span class="ident">ptr</span>),
@@ -316,14 +322,16 @@
     <span class="doccomment">/// Applies the dropper to some pointer. This function is unsafe because</span>
     <span class="doccomment">/// incorrectly applying the destructor may result in &quot;use after free&quot; or</span>
     <span class="doccomment">/// &quot;double free&quot;.</span>
-    <span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">apply_dropper</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ptr</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span>) {
+    <span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">apply_dropper</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">ptr</span>: <span class="ident">NonNull</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>) {
         <span class="ident">later_drop</span>(<span class="ident">ptr</span>, <span class="self">self</span>.<span class="ident">dropper</span>)
     }
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">Drop</span> <span class="kw">for</span> <span class="ident">HazardPtr</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
     <span class="kw">fn</span> <span class="ident">drop</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) {
-        <span class="kw">unsafe</span> { <span class="ident">later_drop</span>(<span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">load</span>(<span class="ident">Relaxed</span>), <span class="self">self</span>.<span class="ident">dropper</span>) }
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">ptr</span>) <span class="op">=</span> <span class="ident">NonNull</span>::<span class="ident">new</span>(<span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">load</span>(<span class="ident">Relaxed</span>)) {
+            <span class="kw">unsafe</span> { <span class="ident">later_drop</span>(<span class="ident">ptr</span>, <span class="self">self</span>.<span class="ident">dropper</span>) }
+        }
     }
 }
 
@@ -331,12 +339,12 @@
 <span class="doccomment">/// If there is no critical code executing, the local queue items are deleted.</span>
 <span class="doccomment">/// The function is unsafe because pointers must be correctly dropped such as</span>
 <span class="doccomment">/// no &quot;use after free&quot; or &quot;double free&quot; happens.</span>
-<span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">later_drop</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">ptr</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span>, <span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">T</span>)) {
+<span class="kw">pub</span> <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">later_drop</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="ident">ptr</span>: <span class="ident">NonNull</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="ident">NonNull</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>)) {
     <span class="ident">LOCAL_DELETION</span>.<span class="ident">with</span>(<span class="op">|</span><span class="ident">queue</span><span class="op">|</span> {
         <span class="comment">// First of all, let&#39;s put it on the queue because of a possible</span>
         <span class="comment">// obstruction when deleting.</span>
         <span class="ident">queue</span>.<span class="ident">add</span>(<span class="ident">Garbage</span> {
-            <span class="ident">ptr</span>: <span class="ident">ptr</span> <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">u8</span>,
+            <span class="ident">ptr</span>: <span class="ident">ptr</span>.<span class="ident">cast</span>(),
             <span class="ident">dropper</span>: <span class="ident">transmute</span>(<span class="ident">dropper</span>),
         });
         <span class="kw">if</span> <span class="ident">DELETION_STATUS</span>.<span class="ident">load</span>(<span class="ident">SeqCst</span>) <span class="op">==</span> <span class="number">0</span> {
@@ -378,8 +386,8 @@
 }
 
 <span class="kw">struct</span> <span class="ident">Garbage</span> {
-    <span class="ident">ptr</span>: <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">u8</span>,
-    <span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="kw-2">*</span><span class="kw-2">mut</span> <span class="ident">u8</span>),
+    <span class="ident">ptr</span>: <span class="ident">NonNull</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>,
+    <span class="ident">dropper</span>: <span class="kw">fn</span>(<span class="ident">NonNull</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>),
 }
 
 <span class="kw">struct</span> <span class="ident">GarbageQueue</span> {

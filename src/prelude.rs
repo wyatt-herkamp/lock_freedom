@@ -3,5 +3,4 @@ pub use hazard::{
     HazardPtr,
     Ordering::{self, *},
 };
-pub use loose_queue::LooseQueue;
 pub use queue::Queue;

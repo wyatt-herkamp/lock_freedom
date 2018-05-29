@@ -1,7 +1,7 @@
 extern crate lockfree;
 
 use lockfree::prelude::*;
-use std::{sync::Arc, thread};
+use std::{ptr::NonNull, sync::Arc, thread};
 
 // Run with sanitizer.
 #[test]
@@ -11,9 +11,9 @@ fn hazard() {
         ptr
     }
 
-    fn drop_boxed<T>(ptr: *mut T) {
+    fn drop_boxed<T>(ptr: NonNull<T>) {
         unsafe {
-            Box::from_raw(ptr);
+            Box::from_raw(ptr.as_ptr());
         }
     }
 
@@ -33,9 +33,9 @@ fn hazard() {
                         let haz = haz.clone();
                         move |res| unsafe {
                             if res == ptr {
-                                haz.apply_dropper(res);
+                                haz.apply_dropper(NonNull::new_unchecked(res));
                             } else {
-                                haz.apply_dropper(new);
+                                haz.apply_dropper(NonNull::new_unchecked(new));
                             }
                             res == ptr
                         }

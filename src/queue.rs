@@ -1,23 +1,24 @@
+use alloc::*;
 use prelude::*;
 use std::{
-    alloc::{Alloc, Global},
     iter::FromIterator,
-    ptr::{null_mut, read, write, NonNull},
+    ptr::{null_mut, read, NonNull},
 };
 
-/// A strict FIFO semanthics queue. This queue uses the hazard API.
+/// A lock-free queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.
+#[derive(Debug)]
 pub struct Queue<T> {
-    back: HazardPtr<Node<T>>,
     front: HazardPtr<Node<T>>,
+    back: HazardPtr<Node<T>>,
 }
 
 impl<T> Queue<T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
         Self {
-            back: HazardPtr::new(Node::drop_ptr, null_mut()),
             front: HazardPtr::new(Node::drop_ptr, null_mut()),
+            back: HazardPtr::new(Node::drop_ptr, null_mut()),
         }
     }
 
@@ -25,20 +26,13 @@ impl<T> Queue<T> {
     /// wait-free.
     pub fn push(&self, val: T) {
         let node =
-            Node::new_ptr(val, HazardPtr::new(Node::drop_ptr, null_mut()));
-
-        // This actually pretty simple: let's put our node as in place of back,
-        // and also put our node as next of whatever was inside back, if it was.
+            Node::new_ptr(val, HazardPtr::new(Node::drop_ptr, null_mut()))
+                .as_ptr();
         self.back.swap(node, SeqCst, |ptr| {
             if let Some(back) = unsafe { ptr.as_ref() } {
-                // Putting our node as next of the other back, if back wasn't
-                // null.
-                back.next
-                    .swap(node, SeqCst, |next| debug_assert!(next.is_null()));
+                back.next.swap(node, SeqCst, |p| debug_assert!(p.is_null()));
             } else {
-                // If back was null, then front needs to be updated.
-                self.front
-                    .swap(node, SeqCst, |next| debug_assert!(next.is_null()));
+                self.front.swap(node, SeqCst, |p| debug_assert!(p.is_null()));
             }
         });
     }
@@ -46,49 +40,34 @@ impl<T> Queue<T> {
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let res = self.front.load(SeqCst, |ptr| {
+            let result = self.front.load(SeqCst, |ptr| {
                 if ptr.is_null() {
-                    // If front is null, the queue is empty. We have no
-                    // element, but we're done.
                     Some(None)
                 } else {
-                    // We succeed if we can update front with the old front's
-                    // next. This is only possible because of automatic hazard
-                    // pointers.
-                    let success = self.front.compare_and_swap(
+                    self.front.compare_and_swap(
                         ptr,
                         unsafe { (*ptr).next.load(SeqCst, |x| x) },
                         SeqCst,
-                        |res| res == ptr,
-                    );
-
-                    if success {
-                        // Important! First we need to clean the next's hazard
-                        // pointer, in order not to have a double free.
-                        unsafe { (*ptr).next.store(null_mut(), SeqCst) }
-                        // Effectively obtain val.
-                        let elem = unsafe { read(ptr) }.val;
-                        // If back was the same as front, then back also needs
-                        // to be null.
-                        self.back.compare_and_swap(
-                            ptr,
-                            null_mut(),
-                            SeqCst,
-                            |_| {},
-                        );
-                        // Finally, let's drop the pointer now or later.
-                        unsafe { self.front.apply_dropper(ptr) }
-                        // And we're done. With an element.
-                        Some(Some(elem))
-                    } else {
-                        // Not done yet. No success.
-                        None
-                    }
+                        |res| {
+                            if res == ptr {
+                                Some(Some(ptr))
+                            } else {
+                                None
+                            }
+                        },
+                    )
                 }
             });
 
-            if let Some(maybe_elem) = res {
-                break maybe_elem;
+            if let Some(maybe_ptr) = result {
+                break maybe_ptr.map(|ptr| {
+                    self.back.compare_and_swap(ptr, null_mut(), SeqCst, |_| {});
+                    let val = unsafe { read(&mut (*ptr).val as *mut _) };
+                    unsafe {
+                        self.front.apply_dropper(NonNull::new_unchecked(ptr))
+                    }
+                    val
+                });
             }
         }
     }
@@ -160,27 +139,25 @@ impl<'a, T> Iterator for Iter<'a, T> {
     fn next(&mut self) -> Option<Self::Item> { self.queue.pop() }
 }
 
+#[derive(Debug)]
 struct Node<T> {
     val: T,
     next: HazardPtr<Node<T>>,
 }
 
 impl<T> Node<T> {
-    fn new_ptr(val: T, next: HazardPtr<Node<T>>) -> *mut Self {
-        let ptr = Global.alloc_one().unwrap_or_else(::oom).as_ptr();
+    fn new_ptr(val: T, next: HazardPtr<Node<T>>) -> NonNull<Node<T>> {
         unsafe {
-            write(
-                ptr,
-                Node {
-                    val,
-                    next,
-                },
-            )
-        };
-        ptr
+            alloc(Node {
+                val,
+                next,
+            })
+        }
     }
 
-    fn drop_ptr(ptr: *mut Self) {
-        NonNull::new(ptr).map(|x| unsafe { Global.dealloc_one(x) });
+    fn drop_ptr(ptr: NonNull<Node<T>>) {
+        unsafe {
+            dealloc_moved(ptr);
+        }
     }
 }
