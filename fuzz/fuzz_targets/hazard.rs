@@ -20,8 +20,8 @@ mod global {
 
 mod local {
     // Any combination of these operations should not panic/SIGSEGV.
-    pub const CONSUME_QUEUE: u8 = 0;
-    pub const CONSUME_STACK: u8 = 1;
+    pub const QUEUE_PUSH_NEXT_2: u8 = 0;
+    pub const STACK_PUSH_NEXT_2: u8 = 1;
     pub const QUEUE_PUSH_NEXT: u8 = 2;
     pub const QUEUE_POP: u8 = 3;
     pub const QUEUE_POP_AND_RUN: u8 = 4;
@@ -64,9 +64,7 @@ impl LocalState {
     fn eval(&mut self, mut op: u8) {
         loop {
             match op % 8 {
-                local::CONSUME_QUEUE => for _ in &*self.common.queue {},
-                local::CONSUME_STACK => for _ in &*self.common.stack {},
-                local::QUEUE_PUSH_NEXT => {
+                local::QUEUE_PUSH_NEXT | local::QUEUE_PUSH_NEXT_2 => {
                     if let Some(&b) = self.common.code.get(self.index) {
                         self.index = self.index.wrapping_add(1);
                         self.common.queue.push(Box::new(b));
@@ -81,7 +79,7 @@ impl LocalState {
                         continue;
                     }
                 },
-                local::STACK_PUSH_NEXT => {
+                local::STACK_PUSH_NEXT | local::STACK_PUSH_NEXT_2 => {
                     if let Some(&b) = self.common.code.get(self.index) {
                         self.index = self.index.wrapping_add(1);
                         self.common.stack.push(Box::new(b));
