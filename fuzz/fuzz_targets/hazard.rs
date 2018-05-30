@@ -8,14 +8,14 @@ use std::{sync::Arc, thread};
 
 mod global {
     // Any combination of these operations should not panic/SIGSEGV.
-    pub const NEW_THREAD: u8 = 0;
-    pub const AWAIT_LAST_THREAD: u8 = 1;
+    pub const NEW_THREAD: u8 = 7;
+    pub const AWAIT_LAST_THREAD: u8 = 6;
     pub const QUEUE_PUSH_NEXT: u8 = 2;
     pub const QUEUE_POP: u8 = 3;
     pub const QUEUE_POP_AND_RUN: u8 = 4;
     pub const STACK_PUSH_NEXT: u8 = 5;
-    pub const STACK_POP: u8 = 6;
-    pub const STACK_POP_AND_RUN: u8 = 7;
+    pub const STACK_POP: u8 = 0;
+    pub const STACK_POP_AND_RUN: u8 = 1;
 }
 
 mod local {
@@ -96,6 +96,7 @@ impl LocalState {
                 },
                 _ => (),
             }
+            break;
         }
     }
 

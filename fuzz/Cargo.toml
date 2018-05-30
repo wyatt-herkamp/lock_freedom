@@ -20,3 +20,7 @@ members = ["."]
 [[bin]]
 name = "hazard"
 path = "fuzz_targets/hazard.rs"
+
+[[bin]]
+name = "darc"
+path = "fuzz_targets/darc.rs"
