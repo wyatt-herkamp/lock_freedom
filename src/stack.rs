@@ -1,5 +1,5 @@
 use alloc::*;
-use prelude::*;
+use hazard::{later_drop, HazardPtr, Ordering::*};
 use std::{
     iter::FromIterator,
     ptr::{null_mut, read, NonNull},
@@ -15,7 +15,7 @@ impl<T> Stack<T> {
     /// Creates a new empty stack.
     pub fn new() -> Self {
         Self {
-            top: HazardPtr::new(Node::drop_ptr, null_mut()),
+            top: HazardPtr::new(null_mut()),
         }
     }
 
@@ -77,7 +77,7 @@ impl<T> Stack<T> {
                     let val = unsafe { read(&mut (*ptr).val as *mut _) };
                     unsafe {
                         // Then, let's dealloc (now or later).
-                        self.top.apply_dropper(NonNull::new_unchecked(ptr))
+                        later_drop(NonNull::new_unchecked(ptr), Node::drop_ptr);
                     }
                     val
                 });
@@ -104,11 +104,15 @@ impl<T> Stack<T> {
 }
 
 impl<T> Default for Stack<T> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T> Drop for Stack<T> {
-    fn drop(&mut self) { while let Some(_) = self.pop() {} }
+    fn drop(&mut self) {
+        while let Some(_) = self.pop() {}
+    }
 }
 
 impl<T> FromIterator<T> for Stack<T> {
@@ -127,7 +131,9 @@ impl<'a, T> IntoIterator for &'a Stack<T> {
 
     type IntoIter = Iter<'a, T>;
 
-    fn into_iter(self) -> Self::IntoIter { self.iter() }
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 unsafe impl<T> Send for Stack<T>
@@ -153,7 +159,9 @@ where
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = T;
 
-    fn next(&mut self) -> Option<Self::Item> { self.stack.pop() }
+    fn next(&mut self) -> Option<Self::Item> {
+        self.stack.pop()
+    }
 }
 
 #[derive(Debug)]

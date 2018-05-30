@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["Ordering","Atomic memory orderings"]]});
+initSidebarItems({});

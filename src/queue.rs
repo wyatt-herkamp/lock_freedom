@@ -1,5 +1,5 @@
 use alloc::*;
-use prelude::*;
+use hazard::{later_drop, HazardPtr, Ordering::*};
 use std::{
     iter::FromIterator,
     ptr::{null_mut, read, NonNull},
@@ -17,8 +17,8 @@ impl<T> Queue<T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
         Self {
-            front: HazardPtr::new(Node::drop_ptr, null_mut()),
-            back: HazardPtr::new(Node::drop_ptr, null_mut()),
+            front: HazardPtr::new(null_mut()),
+            back: HazardPtr::new(null_mut()),
         }
     }
 
@@ -82,7 +82,7 @@ impl<T> Queue<T> {
                         // Now it is OK to dealloc. If someone loaded the
                         // pointer, the thread will also block effectively
                         // memory reclamation.
-                        self.front.apply_dropper(NonNull::new_unchecked(ptr))
+                        later_drop(NonNull::new_unchecked(ptr), Node::drop_ptr)
                     }
                     val
                 });
@@ -109,11 +109,15 @@ impl<T> Queue<T> {
 }
 
 impl<T> Default for Queue<T> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T> Drop for Queue<T> {
-    fn drop(&mut self) { while let Some(_) = self.pop() {} }
+    fn drop(&mut self) {
+        while let Some(_) = self.pop() {}
+    }
 }
 
 impl<T> FromIterator<T> for Queue<T> {
@@ -132,7 +136,9 @@ impl<'a, T> IntoIterator for &'a Queue<T> {
 
     type IntoIter = Iter<'a, T>;
 
-    fn into_iter(self) -> Self::IntoIter { self.iter() }
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 unsafe impl<T> Send for Queue<T>
@@ -158,7 +164,9 @@ where
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = T;
 
-    fn next(&mut self) -> Option<Self::Item> { self.queue.pop() }
+    fn next(&mut self) -> Option<Self::Item> {
+        self.queue.pop()
+    }
 }
 
 #[derive(Debug)]

@@ -12,5 +12,8 @@ pub mod queue;
 /// A lock-free stack.
 pub mod stack;
 
+/// Provides a doubly atomic reference counter.
+pub mod darc;
+
 #[allow(dead_code)]
 mod alloc;

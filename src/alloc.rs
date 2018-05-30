@@ -4,7 +4,9 @@ pub unsafe fn alloc<T>(val: T) -> NonNull<T> {
     NonNull::new_unchecked(Box::into_raw(Box::new(val)))
 }
 
-pub unsafe fn dealloc<T>(ptr: NonNull<T>) { Box::from_raw(ptr.as_ptr()); }
+pub unsafe fn dealloc<T>(ptr: NonNull<T>) {
+    Box::from_raw(ptr.as_ptr());
+}
 
 pub unsafe fn dealloc_moved<T>(ptr: NonNull<T>) {
     let slice =

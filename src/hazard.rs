@@ -7,25 +7,18 @@ use std::{
     sync::atomic::{AtomicPtr, AtomicUsize},
 };
 
-/// A hazard atomic pointer. It keeps a destructor with itself.
-/// The destruction and loading of this pointer uses the hazard API of this
-/// module. Because it (possibly later) calls the destructor on drop, be very
-/// careful. In general, if the pointer is consumed, you may want to fill the
-/// hazard pointer with `std::ptr::null_mut()`, because `HazardPtr` checks for
-/// nulls before putting the pointer on the queue.
+/// A hazard atomic pointer. The loading of this pointer uses the hazard API of
+/// this module. In general, one should only apply a `later_drop` on a loaded
+/// pointer after one has replaced it.
 #[derive(Debug)]
 pub struct HazardPtr<T> {
-    dropper: fn(NonNull<T>),
     ptr: AtomicPtr<T>,
 }
 
 impl<T> HazardPtr<T> {
-    /// Creates a new pointer from the given dropper and initial ptr.
-    /// The dropper is run at the `HazardPtr<T>`'s `Drop`. Also, it may
-    /// be used for dropping intermediate pointers explicitly.
-    pub fn new(dropper: fn(NonNull<T>), ptr: *mut T) -> Self {
+    /// Creates a new pointer from the given and initial ptr.
+    pub fn new(ptr: *mut T) -> Self {
         Self {
-            dropper,
             ptr: AtomicPtr::new(ptr),
         }
     }
@@ -103,21 +96,6 @@ impl<T> HazardPtr<T> {
         critical(|| {
             exec(self.ptr.compare_exchange_weak(curr, new, succ_ord, fail_ord))
         })
-    }
-
-    /// Applies the dropper to some pointer. This function is unsafe because
-    /// incorrectly applying the destructor may result in "use after free" or
-    /// "double free".
-    pub unsafe fn apply_dropper(&self, ptr: NonNull<T>) {
-        later_drop(ptr, self.dropper)
-    }
-}
-
-impl<T> Drop for HazardPtr<T> {
-    fn drop(&mut self) {
-        if let Some(ptr) = NonNull::new(self.ptr.load(Relaxed)) {
-            unsafe { later_drop(ptr, self.dropper) }
-        }
     }
 }
 

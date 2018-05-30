@@ -1,6 +1,6 @@
 extern crate lockfree;
 
-use lockfree::prelude::*;
+use lockfree::hazard::{later_drop, HazardPtr, Ordering::*};
 use std::{ptr::NonNull, sync::Arc, thread};
 
 // Run with sanitizer.
@@ -17,7 +17,7 @@ fn hazard() {
         }
     }
 
-    let haz = Arc::new(HazardPtr::new(drop_boxed, alloc_boxed(0u64)));
+    let haz = Arc::new(HazardPtr::new(alloc_boxed(0u64)));
 
     let mut threads = Vec::with_capacity(16);
 
@@ -30,12 +30,17 @@ fn hazard() {
                     let (ptr, val) = haz.load(SeqCst, |p| unsafe { (p, *p) });
                     let new = alloc_boxed(val.wrapping_add((i + 1) * (j + 1)));
                     let res = haz.compare_and_swap(ptr, new, SeqCst, {
-                        let haz = haz.clone();
-                        move |res| unsafe {
+                        |res| unsafe {
                             if res == ptr {
-                                haz.apply_dropper(NonNull::new_unchecked(res));
+                                later_drop(
+                                    NonNull::new_unchecked(res),
+                                    drop_boxed,
+                                );
                             } else {
-                                haz.apply_dropper(NonNull::new_unchecked(new));
+                                later_drop(
+                                    NonNull::new_unchecked(new),
+                                    drop_boxed,
+                                );
                             }
                             res == ptr
                         }
@@ -50,5 +55,9 @@ fn hazard() {
 
     for thread in threads {
         thread.join().unwrap();
+    }
+
+    unsafe {
+        later_drop(haz.load(SeqCst, |x| NonNull::new(x).unwrap()), drop_boxed);
     }
 }
