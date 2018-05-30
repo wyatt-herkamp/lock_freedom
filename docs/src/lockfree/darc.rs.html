@@ -193,9 +193,19 @@
 <span id="193">193</span>
 <span id="194">194</span>
 <span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
+<span id="199">199</span>
+<span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
 </pre><pre class="rust ">
 <span class="kw">pub</span> <span class="kw">use</span> <span class="ident">hazard</span>::<span class="ident">Ordering</span>::{<span class="self">self</span>, <span class="kw-2">*</span>};
-<span class="kw">use</span> <span class="ident">hazard</span>::{<span class="ident">later_drop</span>, <span class="ident">HazardPtr</span>};
+<span class="kw">use</span> <span class="ident">hazard</span>::{<span class="ident">later_drop</span>, <span class="ident">try_delete_local</span>, <span class="ident">HazardPtr</span>};
 <span class="kw">use</span> <span class="ident">std</span>::{<span class="ident">ptr</span>::<span class="ident">NonNull</span>, <span class="ident">sync</span>::<span class="ident">Arc</span>};
 
 <span class="doccomment">/// Darc: Doubly atomic reference counter. `Darc` is an atomic pointer which</span>
@@ -234,22 +244,21 @@
     <span class="doccomment">/// Swaps the inner `Arc` with the argument `new` inconditionally.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">swap</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">new</span>: <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">ord</span>: <span class="ident">Ordering</span>) <span class="op">-&gt;</span> <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">new</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">new</span>) <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>;
-        <span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">swap</span>(<span class="ident">new</span>, <span class="ident">ord</span>, <span class="op">|</span><span class="ident">ptr</span><span class="op">|</span> <span class="kw">unsafe</span> {
-            <span class="comment">// Later drop because we don&#39;t want any use-after free.</span>
-            <span class="ident">later_drop</span>(<span class="ident">NonNull</span>::<span class="ident">new_unchecked</span>(<span class="ident">ptr</span>), <span class="ident">drop_arc</span>);
-            <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>);
-            <span class="comment">// You may think &quot;We could just return the arc without cloning&quot;.</span>
-            <span class="comment">// Well, we need to clone because the arc may be dropped right</span>
-            <span class="comment">// after the return of the method, so, we need clone and the</span>
-            <span class="comment">// later_drop above to ensure no use-after free.</span>
-            <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">arc</span>.<span class="ident">clone</span>());
-            <span class="ident">arc</span>
-        })
+        <span class="kw">let</span> <span class="ident">ptr</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">swap</span>(<span class="ident">new</span>, <span class="ident">ord</span>, <span class="op">|</span><span class="ident">ptr</span><span class="op">|</span> <span class="ident">ptr</span>);
+        <span class="comment">// You may think &quot;We could just return the arc without cloning&quot;.</span>
+        <span class="comment">// Well, we need to clone because the arc may be dropped right</span>
+        <span class="comment">// after the return of the method, so, we need clone and the</span>
+        <span class="comment">// later_drop above to ensure no use-after free.</span>
+        <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="kw">unsafe</span> { <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>) };
+        <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">arc</span>.<span class="ident">clone</span>());
+        <span class="kw">unsafe</span> { <span class="ident">later_drop</span>(<span class="ident">NonNull</span>::<span class="ident">new_unchecked</span>(<span class="ident">ptr</span>), <span class="ident">drop_arc</span>) };
+        <span class="ident">arc</span>
     }
 
     <span class="doccomment">/// Compares the inner `Arc` with `curr`, and if they are the same pointer,</span>
     <span class="doccomment">/// the inner `Arc` is swapped with `new`. To test the result, use</span>
     <span class="doccomment">/// `Arc::ptr_eq(&amp;curr, &amp;ret)`.</span>
+    <span class="attribute">#[<span class="ident">allow</span>(<span class="ident">unused_must_use</span>)]</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">compare_and_swap</span>(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="ident">curr</span>: <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
@@ -258,8 +267,9 @@
     ) <span class="op">-&gt;</span> <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="ident">curr</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">curr</span>) <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>;
         <span class="kw">let</span> <span class="ident">new</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">new</span>) <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>;
-        <span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">compare_and_swap</span>(<span class="ident">curr</span>, <span class="ident">new</span>, <span class="ident">ord</span>, <span class="op">|</span><span class="ident">ptr</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="ident">res</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">compare_and_swap</span>(<span class="ident">curr</span>, <span class="ident">new</span>, <span class="ident">ord</span>, <span class="op">|</span><span class="ident">ptr</span><span class="op">|</span> {
             <span class="kw">if</span> <span class="ident">ptr</span> <span class="op">==</span> <span class="ident">curr</span> {
+                <span class="comment">// Behaves as a swap.</span>
                 <span class="comment">// We need to later_drop the loaded pointer for the same reason</span>
                 <span class="comment">// as in swap.</span>
                 <span class="kw">unsafe</span> {
@@ -267,6 +277,7 @@
                 }
                 <span class="kw">unsafe</span> { <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>) }
             } <span class="kw">else</span> {
+                <span class="comment">// Behaves as a load.</span>
                 <span class="comment">// No need to later_drop new, since it was not atomically</span>
                 <span class="comment">// stored.</span>
                 <span class="kw">unsafe</span> {
@@ -282,11 +293,14 @@
                 <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">arc</span>.<span class="ident">clone</span>());
                 <span class="ident">arc</span>
             }
-        })
+        });
+        <span class="ident">try_delete_local</span>();
+        <span class="ident">res</span>
     }
 
     <span class="doccomment">/// Same as `compare_and_swap` but accepts two `Ordering`s: one for failure</span>
     <span class="doccomment">/// and one for success. Also, it returns a `Result` instead.</span>
+     <span class="attribute">#[<span class="ident">allow</span>(<span class="ident">unused_must_use</span>)]</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">compare_exchange</span>(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="ident">curr</span>: <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
@@ -296,7 +310,7 @@
     ) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span> {
         <span class="kw">let</span> <span class="ident">curr</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">curr</span>) <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>;
         <span class="kw">let</span> <span class="ident">new</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">new</span>) <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>;
-        <span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">compare_exchange</span>(<span class="ident">curr</span>, <span class="ident">new</span>, <span class="ident">succ</span>, <span class="ident">fail</span>, <span class="op">|</span><span class="ident">res</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="ident">res</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">compare_exchange</span>(<span class="ident">curr</span>, <span class="ident">new</span>, <span class="ident">succ</span>, <span class="ident">fail</span>, <span class="op">|</span><span class="ident">res</span><span class="op">|</span> {
             <span class="kw">match</span> <span class="ident">res</span> {
                 <span class="prelude-val">Ok</span>(<span class="ident">ptr</span>) <span class="op">=&gt;</span> {
                     <span class="comment">// We need to later_drop the loaded pointer for the same</span>
@@ -323,10 +337,13 @@
                     <span class="prelude-val">Err</span>(<span class="ident">arc</span>)
                 },
             }
-        })
+        });
+        <span class="ident">try_delete_local</span>();
+        <span class="ident">res</span>
     }
 
     <span class="doccomment">/// Same as `compare_exchange` but with weaker semanthics.</span>
+     <span class="attribute">#[<span class="ident">allow</span>(<span class="ident">unused_must_use</span>)]</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">compare_exchange_weak</span>(
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         <span class="ident">curr</span>: <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
@@ -336,34 +353,37 @@
     ) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>, <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;&gt;</span> {
         <span class="kw">let</span> <span class="ident">curr</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">curr</span>) <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>;
         <span class="kw">let</span> <span class="ident">new</span> <span class="op">=</span> <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">new</span>) <span class="kw">as</span> <span class="kw-2">*</span><span class="kw-2">mut</span> <span class="kw">_</span>;
-        <span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">compare_exchange_weak</span>(<span class="ident">curr</span>, <span class="ident">new</span>, <span class="ident">succ</span>, <span class="ident">fail</span>, <span class="op">|</span><span class="ident">res</span><span class="op">|</span> {
-            <span class="kw">match</span> <span class="ident">res</span> {
-                <span class="prelude-val">Ok</span>(<span class="ident">ptr</span>) <span class="op">=&gt;</span> {
-                    <span class="comment">// We need to later_drop the loaded pointer for the same</span>
-                    <span class="comment">// reason as in swap.</span>
-                    <span class="kw">unsafe</span> {
-                        <span class="ident">later_drop</span>(<span class="ident">NonNull</span>::<span class="ident">new_unchecked</span>(<span class="ident">ptr</span>), <span class="ident">drop_arc</span>);
-                    }
-                    <span class="prelude-val">Ok</span>(<span class="kw">unsafe</span> { <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>) })
-                },
-                <span class="prelude-val">Err</span>(<span class="ident">ptr</span>) <span class="op">=&gt;</span> {
-                    <span class="comment">// No need to later_drop new, since it was not atomically</span>
-                    <span class="comment">// stored.</span>
-                    <span class="kw">unsafe</span> {
-                        <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">new</span>);
-                    }
-                    <span class="comment">// No need to later_drop curr, since it was not atomically</span>
-                    <span class="comment">// stored.</span>
-                    <span class="kw">unsafe</span> {
-                        <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">curr</span>);
-                    }
-                    <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="kw">unsafe</span> { <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>) };
-                    <span class="comment">// This clone is needed for the same reason as in swap.</span>
-                    <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">arc</span>.<span class="ident">clone</span>());
-                    <span class="prelude-val">Err</span>(<span class="ident">arc</span>)
-                },
-            }
-        })
+        <span class="kw">let</span> <span class="ident">res</span> <span class="op">=</span>
+            <span class="self">self</span>.<span class="ident">ptr</span>.<span class="ident">compare_exchange_weak</span>(<span class="ident">curr</span>, <span class="ident">new</span>, <span class="ident">succ</span>, <span class="ident">fail</span>, <span class="op">|</span><span class="ident">res</span><span class="op">|</span> {
+                <span class="kw">match</span> <span class="ident">res</span> {
+                    <span class="prelude-val">Ok</span>(<span class="ident">ptr</span>) <span class="op">=&gt;</span> {
+                        <span class="comment">// We need to later_drop the loaded pointer for the same</span>
+                        <span class="comment">// reason as in swap.</span>
+                        <span class="kw">unsafe</span> {
+                            <span class="ident">later_drop</span>(<span class="ident">NonNull</span>::<span class="ident">new_unchecked</span>(<span class="ident">ptr</span>), <span class="ident">drop_arc</span>);
+                        }
+                        <span class="prelude-val">Ok</span>(<span class="kw">unsafe</span> { <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>) })
+                    },
+                    <span class="prelude-val">Err</span>(<span class="ident">ptr</span>) <span class="op">=&gt;</span> {
+                        <span class="comment">// No need to later_drop new, since it was not</span>
+                        <span class="comment">// atomically stored.</span>
+                        <span class="kw">unsafe</span> {
+                            <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">new</span>);
+                        }
+                        <span class="comment">// No need to later_drop curr, since it was not</span>
+                        <span class="comment">// atomically stored.</span>
+                        <span class="kw">unsafe</span> {
+                            <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">curr</span>);
+                        }
+                        <span class="kw">let</span> <span class="ident">arc</span> <span class="op">=</span> <span class="kw">unsafe</span> { <span class="ident">Arc</span>::<span class="ident">from_raw</span>(<span class="ident">ptr</span>) };
+                        <span class="comment">// This clone is needed for the same reason as in swap.</span>
+                        <span class="ident">Arc</span>::<span class="ident">into_raw</span>(<span class="ident">arc</span>.<span class="ident">clone</span>());
+                        <span class="prelude-val">Err</span>(<span class="ident">arc</span>)
+                    },
+                }
+            });
+        <span class="ident">try_delete_local</span>();
+        <span class="ident">res</span>
     }
 }
 
