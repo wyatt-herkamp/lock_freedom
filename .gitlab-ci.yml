@@ -1,3 +1,5 @@
+image: alpine:latest
+
 before_script:
   - curl https://sh.rustup.rs -sSf | sh -s -- -y
   - export PATH="~/.cargo/bin:$PATH"
