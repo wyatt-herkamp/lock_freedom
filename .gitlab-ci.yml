@@ -5,14 +5,20 @@ before_script:
 
 check:
   script:
-    - cargo check
+  - cargo check
 
 test:
   script:
-    - cargo test
+  - cargo test
 
-build_docs:
+pages:
+  stage: deploy
   script:
-    - rm -r docs
-    - cargo doc
-    - cp -r target/doc docs
+  - rm -r docs
+  - cargo doc
+  - cp -r target/doc docs
+  artifacts:
+    paths:
+    - docs
+  only:
+  - master
