@@ -203,3 +203,17 @@ fn drop_arc<T>(ptr: NonNull<T>) {
         Arc::from_raw(ptr.as_ptr());
     }
 }
+
+unsafe impl<T> Send for Darc<T>
+where
+    T: Send + Sync
+{
+
+}
+
+unsafe impl<T> Sync for Darc<T>
+where
+    T: Send + Sync
+{
+
+}
