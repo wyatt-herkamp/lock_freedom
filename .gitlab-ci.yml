@@ -1,3 +1,15 @@
+pages:
+  stage: deploy
+  script:
+  - cargo doc
+  - cp -r target/doc public
+  artifacts:
+    paths:
+    - public
+  only:
+  - master
+
+
 before_script:
   - curl https://sh.rustup.rs -sSf | sh -s -- -y
   - export PATH="~/.cargo/bin:$PATH"
@@ -7,15 +19,3 @@ check:
   script:
   - cargo check
   - cargo test
-
-pages:
-  stage: deploy
-  script:
-  - rm -r docs
-  - cargo doc
-  - cp -r target/doc docs
-  artifacts:
-    paths:
-    - docs
-  only:
-  - master

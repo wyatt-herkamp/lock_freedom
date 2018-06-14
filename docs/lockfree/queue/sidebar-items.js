@@ -1,1 +1,0 @@
-initSidebarItems({"struct":[["Iter","An iterator based on `pop` operation of the `Queue`."],["Queue","A lock-free queue. FIFO semanthics are fully respected. It can be used as multi-producer and multi-consumer channel."]]});

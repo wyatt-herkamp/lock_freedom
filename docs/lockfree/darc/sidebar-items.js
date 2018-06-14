@@ -1,1 +1,0 @@
-initSidebarItems({"enum":[["Ordering","Atomic memory orderings"]],"struct":[["Darc","Darc: Doubly atomic reference counter. `Darc` is an atomic pointer which stores `Arc`s."]]});
