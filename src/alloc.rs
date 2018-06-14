@@ -10,6 +10,6 @@ pub unsafe fn dealloc<T>(ptr: NonNull<T>) {
 
 pub unsafe fn dealloc_moved<T>(ptr: NonNull<T>) {
     let slice =
-        slice::from_raw_parts_mut(ptr.cast::<u8>().as_ptr(), size_of::<T>());
+        slice::from_raw_parts_mut(ptr.as_ptr() as *mut u8, size_of::<T>());
     Box::from_raw(slice as *mut _);
 }

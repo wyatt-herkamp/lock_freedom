@@ -108,7 +108,7 @@ pub unsafe fn later_drop<T>(ptr: NonNull<T>, dropper: fn(NonNull<T>)) {
         // First of all, let's put it on the queue because of a possible
         // obstruction when deleting.
         queue.add(Garbage {
-            ptr: ptr.cast(),
+            ptr: NonNull::new_unchecked(ptr.as_ptr() as *mut u8),
             dropper: transmute(dropper),
         });
         if DELETION_STATUS.load(SeqCst) == 0 {
