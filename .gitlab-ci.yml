@@ -1,7 +1,4 @@
-image: alpine:latest
-
 before_script:
-  - apt-get install curl
   - curl https://sh.rustup.rs -sSf | sh -s -- -y
   - export PATH="~/.cargo/bin:$PATH"
   - cargo --version
