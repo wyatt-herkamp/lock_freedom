@@ -25,18 +25,17 @@ impl<T> Queue<T> {
     /// Pushes a value into the back of the queue. This operation is also
     /// wait-free.
     pub fn push(&self, val: T) {
-        let node = Node::new_ptr(val, null_mut()).as_ptr();
+        let node = Node::new_ptr(val, HazardPtr::new(null_mut())).as_ptr();
         // Very simple schema: let's replace the back with our node, and then...
         self.back.swap(node, SeqCst, |ptr| {
             if let Some(back) = unsafe { ptr.as_mut() } {
-                debug_assert!(back.next.is_null());
                 // ...put our node as the "next" of the previous back, if it
                 // was not null...
-                back.next = node;
+                back.next.swap(node, SeqCst, |res| debug_assert!(res.is_null()))
             } else {
                 // ...otherwise, if it was null, front will also be null. We
                 // need to update front.
-                self.front.swap(node, SeqCst, |p| debug_assert!(p.is_null()));
+                self.front.compare_and_swap(null_mut(), node, SeqCst, |_| {});
             }
         });
     }
@@ -51,31 +50,50 @@ impl<T> Queue<T> {
                     // We're done with no elements.
                     Some(None)
                 } else {
-                    self.front.compare_and_swap(
-                        ptr,
-                        unsafe { (*ptr).next },
-                        SeqCst,
-                        |res| {
-                            if res == ptr {
-                                // If the loaded pointer "ptr" still was the
-                                // front, we have an element and we're done.
-                                Some(Some(ptr))
-                            } else {
-                                // Otherwise, we are not done. Let's try again.
-                                None
-                            }
-                        },
-                    )
+                    let next = unsafe { (*ptr).next.load(SeqCst, |x| x) };
+                    self.front.compare_and_swap(ptr, next, SeqCst, |res| {
+                        if res == ptr {
+                            // If the loaded pointer "ptr" still was the
+                            // front, we have an element and we're done.
+                            Some(Some((ptr, next)))
+                        } else {
+                            // Otherwise, we are not done. Let's try again.
+                            None
+                        }
+                    })
                 }
             });
 
             if let Some(maybe_ptr) = result {
-                break maybe_ptr.map(|ptr| {
+                break maybe_ptr.map(|(ptr, next)| {
                     // Critical! We have to first replace the back's pointer
                     // before deallocating our freshly front-removed pointer.
                     // Of course, we only need to replace if back and front
                     // were the same.
                     self.back.compare_and_swap(ptr, null_mut(), SeqCst, |_| {});
+
+                    // The back might have pushed a new value before we
+                    // swaped int the code above.
+                    // So, let's check if we don't need to
+                    // update the front.
+                    // This will only be needed if the stored "next" was null
+                    // AND if we reload the next we get
+                    // null.
+                    unsafe {
+                        if next.is_null() {
+                            (*ptr).next.load(Acquire, |x| {
+                                if !x.is_null() {
+                                    self.front.compare_and_swap(
+                                        null_mut(),
+                                        x,
+                                        SeqCst,
+                                        |_| {},
+                                    );
+                                }
+                            });
+                        }
+                    };
+
                     // Also, we have to take out the value.
                     let val = unsafe { read(&mut (*ptr).val as *mut _) };
                     unsafe {
@@ -141,17 +159,9 @@ impl<'a, T> IntoIterator for &'a Queue<T> {
     }
 }
 
-unsafe impl<T> Send for Queue<T>
-where
-    T: Send,
-{
-}
+unsafe impl<T> Send for Queue<T> where T: Send {}
 
-unsafe impl<T> Sync for Queue<T>
-where
-    T: Sync + Send,
-{
-}
+unsafe impl<T> Sync for Queue<T> where T: Sync + Send {}
 
 /// An iterator based on `pop` operation of the `Queue`.
 pub struct Iter<'a, T>
@@ -172,11 +182,11 @@ impl<'a, T> Iterator for Iter<'a, T> {
 #[derive(Debug)]
 struct Node<T> {
     val: T,
-    next: *mut Node<T>,
+    next: HazardPtr<Node<T>>,
 }
 
 impl<T> Node<T> {
-    fn new_ptr(val: T, next: *mut Node<T>) -> NonNull<Node<T>> {
+    fn new_ptr(val: T, next: HazardPtr<Node<T>>) -> NonNull<Node<T>> {
         unsafe {
             alloc(Node {
                 val,

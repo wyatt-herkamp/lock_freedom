@@ -1,0 +1,18 @@
+before_script:
+  - curl https://sh.rustup.rs -sSf | sh
+  - cargo --version
+  - which cargo
+
+check:
+  script:
+    - cargo check
+
+test:
+  script:
+    - cargo test
+
+build_docs:
+  script:
+    - rm -r docs
+    - cargo doc
+    - cp -r target/doc docs
