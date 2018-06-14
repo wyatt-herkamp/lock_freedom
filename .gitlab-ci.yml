@@ -1,5 +1,5 @@
 before_script:
-  - curl https://sh.rustup.rs -sSf | sh
+  - curl https://sh.rustup.rs -sSf | sh -s -- -y
   - cargo --version
   - which cargo
 
