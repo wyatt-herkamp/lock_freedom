@@ -1,25 +1,29 @@
-pub use hazard::Ordering::{self, *};
-use hazard::{later_drop, try_delete_local, HazardPtr};
-use std::{ptr::NonNull, sync::Arc};
+use incinerator;
+pub use std::sync::atomic::Ordering::{self, *};
+use std::{
+    ptr::NonNull,
+    sync::{atomic::AtomicPtr, Arc},
+};
 
 /// Darc: Doubly atomic reference counter. `Darc` is an atomic pointer which
 /// stores `Arc`s.
 #[derive(Debug)]
 pub struct Darc<T> {
-    ptr: HazardPtr<T>,
+    ptr: AtomicPtr<T>,
 }
 
 impl<T> Darc<T> {
     /// Creates a new `Darc` from the given `Arc`.
     pub fn new(arc: Arc<T>) -> Self {
         Self {
-            ptr: HazardPtr::new(Arc::into_raw(arc) as *mut _),
+            ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _),
         }
     }
 
     /// Loads the `Darc` into an `Arc`.
     pub fn load(&self, ord: Ordering) -> Arc<T> {
-        self.ptr.load(ord, |ptr| {
+        incinerator::pause(|| {
+            let ptr = self.ptr.load(ord);
             let arc = unsafe { Arc::from_raw(ptr) };
             // We are cloning the stored arc pointer. Therefore,
             // we must increase its reference counter.
@@ -38,14 +42,14 @@ impl<T> Darc<T> {
     /// Swaps the inner `Arc` with the argument `new` inconditionally.
     pub fn swap(&self, new: Arc<T>, ord: Ordering) -> Arc<T> {
         let new = Arc::into_raw(new) as *mut _;
-        let ptr = self.ptr.swap(new, ord, |ptr| ptr);
+        let ptr = self.ptr.swap(new, ord);
         // You may think "We could just return the arc without cloning".
         // Well, we need to clone because the arc may be dropped right
         // after the return of the method, so, we need clone and the
         // later_drop above to ensure no use-after free.
         let arc = unsafe { Arc::from_raw(ptr) };
         Arc::into_raw(arc.clone());
-        unsafe { later_drop(NonNull::new_unchecked(ptr), drop_arc) };
+        unsafe { incinerator::add(NonNull::new_unchecked(ptr), drop_arc) };
         arc
     }
 
@@ -61,13 +65,15 @@ impl<T> Darc<T> {
     ) -> Arc<T> {
         let curr = Arc::into_raw(curr) as *mut _;
         let new = Arc::into_raw(new) as *mut _;
-        let res = self.ptr.compare_and_swap(curr, new, ord, |ptr| {
+
+        let res = incinerator::pause(|| {
+            let ptr = self.ptr.compare_and_swap(curr, new, ord);
             if ptr == curr {
                 // Behaves as a swap.
                 // We need to later_drop the loaded pointer for the same reason
                 // as in swap.
                 unsafe {
-                    later_drop(NonNull::new_unchecked(ptr), drop_arc);
+                    incinerator::add(NonNull::new_unchecked(ptr), drop_arc);
                 }
                 unsafe { Arc::from_raw(ptr) }
             } else {
@@ -88,13 +94,14 @@ impl<T> Darc<T> {
                 arc
             }
         });
-        try_delete_local();
+
+        incinerator::try_force();
         res
     }
 
     /// Same as `compare_and_swap` but accepts two `Ordering`s: one for failure
     /// and one for success. Also, it returns a `Result` instead.
-     #[allow(unused_must_use)]
+    #[allow(unused_must_use)]
     pub fn compare_exchange(
         &self,
         curr: Arc<T>,
@@ -104,16 +111,18 @@ impl<T> Darc<T> {
     ) -> Result<Arc<T>, Arc<T>> {
         let curr = Arc::into_raw(curr) as *mut _;
         let new = Arc::into_raw(new) as *mut _;
-        let res = self.ptr.compare_exchange(curr, new, succ, fail, |res| {
+        let res = incinerator::pause(|| {
+            let res = self.ptr.compare_exchange(curr, new, succ, fail);
             match res {
                 Ok(ptr) => {
                     // We need to later_drop the loaded pointer for the same
                     // reason as in swap.
                     unsafe {
-                        later_drop(NonNull::new_unchecked(ptr), drop_arc);
+                        incinerator::add(NonNull::new_unchecked(ptr), drop_arc);
                     }
                     Ok(unsafe { Arc::from_raw(ptr) })
                 },
+
                 Err(ptr) => {
                     // No need to later_drop new, since it was not atomically
                     // stored.
@@ -132,12 +141,12 @@ impl<T> Darc<T> {
                 },
             }
         });
-        try_delete_local();
+        incinerator::try_force();
         res
     }
 
     /// Same as `compare_exchange` but with weaker semanthics.
-     #[allow(unused_must_use)]
+    #[allow(unused_must_use)]
     pub fn compare_exchange_weak(
         &self,
         curr: Arc<T>,
@@ -147,36 +156,37 @@ impl<T> Darc<T> {
     ) -> Result<Arc<T>, Arc<T>> {
         let curr = Arc::into_raw(curr) as *mut _;
         let new = Arc::into_raw(new) as *mut _;
-        let res =
-            self.ptr.compare_exchange_weak(curr, new, succ, fail, |res| {
-                match res {
-                    Ok(ptr) => {
-                        // We need to later_drop the loaded pointer for the same
-                        // reason as in swap.
-                        unsafe {
-                            later_drop(NonNull::new_unchecked(ptr), drop_arc);
-                        }
-                        Ok(unsafe { Arc::from_raw(ptr) })
-                    },
-                    Err(ptr) => {
-                        // No need to later_drop new, since it was not
-                        // atomically stored.
-                        unsafe {
-                            Arc::from_raw(new);
-                        }
-                        // No need to later_drop curr, since it was not
-                        // atomically stored.
-                        unsafe {
-                            Arc::from_raw(curr);
-                        }
-                        let arc = unsafe { Arc::from_raw(ptr) };
-                        // This clone is needed for the same reason as in swap.
-                        Arc::into_raw(arc.clone());
-                        Err(arc)
-                    },
-                }
-            });
-        try_delete_local();
+        let res = incinerator::pause(|| {
+            let res = self.ptr.compare_exchange_weak(curr, new, succ, fail);
+            match res {
+                Ok(ptr) => {
+                    // We need to later_drop the loaded pointer for the same
+                    // reason as in swap.
+                    unsafe {
+                        incinerator::add(NonNull::new_unchecked(ptr), drop_arc);
+                    }
+                    Ok(unsafe { Arc::from_raw(ptr) })
+                },
+
+                Err(ptr) => {
+                    // No need to later_drop new, since it was not atomically
+                    // stored.
+                    unsafe {
+                        Arc::from_raw(new);
+                    }
+                    // No need to later_drop curr, since it was not atomically
+                    // stored.
+                    unsafe {
+                        Arc::from_raw(curr);
+                    }
+                    let arc = unsafe { Arc::from_raw(ptr) };
+                    // This clone is needed for the same reason as in swap.
+                    Arc::into_raw(arc.clone());
+                    Err(arc)
+                },
+            }
+        });
+        incinerator::try_force();
         res
     }
 }
@@ -184,8 +194,8 @@ impl<T> Darc<T> {
 impl<T> Drop for Darc<T> {
     fn drop(&mut self) {
         unsafe {
-            later_drop(
-                NonNull::new_unchecked(self.ptr.load(Relaxed, |x| x)),
+            incinerator::add(
+                NonNull::new_unchecked(self.ptr.load(Relaxed)),
                 drop_arc,
             );
         }
@@ -204,16 +214,6 @@ fn drop_arc<T>(ptr: NonNull<T>) {
     }
 }
 
-unsafe impl<T> Send for Darc<T>
-where
-    T: Send + Sync
-{
+unsafe impl<T> Send for Darc<T> where T: Send + Sync {}
 
-}
-
-unsafe impl<T> Sync for Darc<T>
-where
-    T: Send + Sync
-{
-
-}
+unsafe impl<T> Sync for Darc<T> where T: Send + Sync {}

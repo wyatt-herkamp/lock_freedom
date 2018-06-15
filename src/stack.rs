@@ -1,21 +1,22 @@
 use alloc::*;
-use hazard::{later_drop, HazardPtr, Ordering::*};
+use incinerator;
 use std::{
     iter::FromIterator,
     ptr::{null_mut, read, NonNull},
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
 
 /// A lock-free stack. LIFO/FILO semanthics are fully respected.
 #[derive(Debug)]
 pub struct Stack<T> {
-    top: HazardPtr<Node<T>>,
+    top: AtomicPtr<Node<T>>,
 }
 
 impl<T> Stack<T> {
     /// Creates a new empty stack.
     pub fn new() -> Self {
         Self {
-            top: HazardPtr::new(null_mut()),
+            top: AtomicPtr::new(null_mut()),
         }
     }
 
@@ -24,17 +25,13 @@ impl<T> Stack<T> {
         let mut target = Node::new_ptr(val, null_mut());
         loop {
             // Load current top as our "next".
-            let next = self.top.load(SeqCst, |ptr| ptr);
+            let next = self.top.load(SeqCst);
             // Put our "next" into the new top.
             unsafe { target.as_mut().next = next }
-            let success = self.top.compare_and_swap(
-                next,
-                target.as_ptr(),
-                SeqCst,
-                // We will succeed if our "next" still was the top.
-                |inner| inner == next,
-            );
-            if success {
+            let inner =
+                self.top.compare_and_swap(next, target.as_ptr(), SeqCst);
+            // We will succeed if our "next" still was the top.
+            if inner == next {
                 break;
             }
         }
@@ -43,8 +40,9 @@ impl<T> Stack<T> {
     /// Pops a single element from the top of the stack.
     pub fn pop(&self) -> Option<T> {
         loop {
-            // First, let's load our top.
-            let result = self.top.load(SeqCst, |top| {
+            let result = incinerator::pause(|| {
+                // First, let's load our top.
+                let top = self.top.load(SeqCst);
                 if top.is_null() {
                     // If top is null, we have nothing. We're done without
                     // elements.
@@ -53,15 +51,13 @@ impl<T> Stack<T> {
                     // The replacement for top is its "next".
                     // This is only possible because of hazard pointers.
                     // Otherwise, we would face the "ABA problem".
-                    let success = self.top.compare_and_swap(
+                    let ptr = self.top.compare_and_swap(
                         top,
                         unsafe { (*top).next },
                         SeqCst,
-                        // We succeed if top still was the loaded pointer.
-                        |ptr| top == ptr,
                     );
-
-                    if success {
+                    // We succeed if top still was the loaded pointer.
+                    if top == ptr {
                         // Done with an element.
                         Some(Some(top))
                     } else {
@@ -77,7 +73,10 @@ impl<T> Stack<T> {
                     let val = unsafe { read(&mut (*ptr).val as *mut _) };
                     unsafe {
                         // Then, let's dealloc (now or later).
-                        later_drop(NonNull::new_unchecked(ptr), Node::drop_ptr);
+                        incinerator::add(
+                            NonNull::new_unchecked(ptr),
+                            Node::drop_ptr,
+                        );
                     }
                     val
                 });
@@ -136,17 +135,9 @@ impl<'a, T> IntoIterator for &'a Stack<T> {
     }
 }
 
-unsafe impl<T> Send for Stack<T>
-where
-    T: Send,
-{
-}
+unsafe impl<T> Send for Stack<T> where T: Send {}
 
-unsafe impl<T> Sync for Stack<T>
-where
-    T: Sync + Send,
-{
-}
+unsafe impl<T> Sync for Stack<T> where T: Sync + Send {}
 
 /// An iterator based on `pop` operation of the `Stack`.
 pub struct Iter<'a, T>

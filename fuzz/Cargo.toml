@@ -18,8 +18,8 @@ git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 members = ["."]
 
 [[bin]]
-name = "hazard"
-path = "fuzz_targets/hazard.rs"
+name = "stack-and-queue"
+path = "fuzz_targets/stack_and_queue.rs"
 
 [[bin]]
 name = "darc"
