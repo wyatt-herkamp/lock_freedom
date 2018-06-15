@@ -2,4 +2,4 @@
 Lockfree data structures for Rust
 
 # Docs
-<https://bzim.github.io/lockfree/lockfree/>
+<https://bzim.gitlab.io/lockfree/lockfree/>
