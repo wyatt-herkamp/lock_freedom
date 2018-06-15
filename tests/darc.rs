@@ -46,5 +46,4 @@ fn multithread_use_and_set() {
     for thread in threads {
         thread.join().unwrap();
     }
-    println!("{}", darc.load(SeqCst));
 }

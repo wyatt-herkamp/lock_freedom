@@ -1,15 +1,33 @@
-use std::{mem::size_of, ptr::NonNull, slice};
+use std::{
+    mem::forget,
+    ptr::{write, NonNull},
+};
 
 pub unsafe fn alloc<T>(val: T) -> NonNull<T> {
-    NonNull::new_unchecked(Box::into_raw(Box::new(val)))
+    let ptr = alloc_uninit();
+    write(ptr.as_ptr(), val);
+    ptr
+}
+
+pub unsafe fn alloc_uninit<T>() -> NonNull<T> {
+    alloc_array(1)
+}
+
+pub unsafe fn alloc_array<T>(len: usize) -> NonNull<T> {
+    let mut vec = Vec::with_capacity(len);
+    let ptr = vec.as_mut_ptr();
+    forget(vec);
+    NonNull::new_unchecked(ptr)
 }
 
 pub unsafe fn dealloc<T>(ptr: NonNull<T>) {
-    Box::from_raw(ptr.as_ptr());
+    let _vec = Vec::from_raw_parts(ptr.as_ptr(), 1, 1);
 }
 
 pub unsafe fn dealloc_moved<T>(ptr: NonNull<T>) {
-    let slice =
-        slice::from_raw_parts_mut(ptr.as_ptr() as *mut u8, size_of::<T>());
-    Box::from_raw(slice as *mut _);
+    dealloc_array(ptr, 1);
+}
+
+pub unsafe fn dealloc_array<T>(ptr: NonNull<T>, len: usize) {
+    let _vec = Vec::from_raw_parts(ptr.as_ptr(), 0, len);
 }
