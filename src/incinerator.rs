@@ -10,7 +10,8 @@ use std::{
 /// If there is no critical code executing (i.e. the incinerator is not
 /// paused), all local queue items are deleted. This function is unsafe because
 /// pointers must be correctly dropped such as no "use after free" or "double
-/// free" happens.
+/// free" happens. You may want to call this function only after you replaced
+/// the pointer (or there aren't active threads).
 pub unsafe fn add<T>(ptr: NonNull<T>, dropper: fn(NonNull<T>)) {
     LOCAL_DELETION.with(|queue| {
         // First of all, let's put it on the queue because of a possible
@@ -49,7 +50,8 @@ pub fn try_force() -> Result<(), ()> {
 
 /// Pauses the incinerator and executes the given function as critical code.
 /// No deletions of new queues will start during the execution of the given
-/// function.
+/// function. Inside the passed function is a good place to load and read
+/// atomic pointers.
 pub fn pause<F, T>(exec: F) -> T
 where
     F: FnOnce() -> T,
