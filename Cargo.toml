@@ -2,5 +2,8 @@
 name = "lockfree"
 version = "0.1.0"
 authors = ["Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
-
-[dependencies]
+description = "This crate provides concurrent data structures and a solution to the ABA problem as an alternative of hazard pointers"
+repository = "https://gitlab.com/bzim/lockfree/"
+keywords = ["concurrency", "lock-free", "atomics", "data-structures"]
+categories = ["concurrency", "data-structures", "algorithms"]
+license = "MIT"
