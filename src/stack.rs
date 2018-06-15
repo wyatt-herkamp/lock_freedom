@@ -25,11 +25,11 @@ impl<T> Stack<T> {
         let mut target = Node::new_ptr(val, null_mut());
         loop {
             // Load current top as our "next".
-            let next = self.top.load(SeqCst);
+            let next = self.top.load(Acquire);
             // Put our "next" into the new top.
             unsafe { target.as_mut().next = next }
             let inner =
-                self.top.compare_and_swap(next, target.as_ptr(), SeqCst);
+                self.top.compare_and_swap(next, target.as_ptr(), Release);
             // We will succeed if our "next" still was the top.
             if inner == next {
                 break;
@@ -42,7 +42,7 @@ impl<T> Stack<T> {
         loop {
             let result = incinerator::pause(|| {
                 // First, let's load our top.
-                let top = self.top.load(SeqCst);
+                let top = self.top.load(Acquire);
                 if top.is_null() {
                     // If top is null, we have nothing. We're done without
                     // elements.
@@ -54,7 +54,7 @@ impl<T> Stack<T> {
                     let ptr = self.top.compare_and_swap(
                         top,
                         unsafe { (*top).next },
-                        SeqCst,
+                        Release,
                     );
                     // We succeed if top still was the loaded pointer.
                     if top == ptr {
