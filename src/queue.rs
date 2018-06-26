@@ -26,7 +26,8 @@ impl<T> Queue<T> {
     /// Pushes a value into the back of the queue. This operation is also
     /// wait-free.
     pub fn push(&self, val: T) {
-        let node = Node::new_ptr(val, AtomicPtr::new(null_mut())).as_ptr();
+        let node =
+            unsafe { Node::new_ptr(val, AtomicPtr::new(null_mut())).as_ptr() };
         // Very simple schema: let's replace the back with our node, and then...
         incinerator::pause(|| {
             let ptr = self.back.swap(node, AcqRel);
@@ -52,26 +53,20 @@ impl<T> Queue<T> {
                 if ptr.is_null() {
                     // If front is null, then the queue is empty (for now).
                     // We're done with no elements.
-                    Some(None)
-                } else {
-                    let next = unsafe { (*ptr).next.load(Acquire) };
-                    let res = self.front.compare_and_swap(ptr, next, Release);
-                    if res == ptr {
-                        // If the loaded pointer "ptr" still was the
-                        // front, we have an element and we're done.
-                        Some(Some((ptr, next)))
-                    } else {
-                        // Otherwise, we are not done. Let's try again.
-                        None
-                    }
+                    return Some(None);
                 }
-            });
 
-            if let Some(maybe_ptr) = result {
-                break maybe_ptr.map(|(ptr, next)| {
+                let next = unsafe { (*ptr).next.load(Acquire) };
+                let res = self.front.compare_and_swap(ptr, next, Release);
+
+                if res == ptr {
+                    // If the loaded pointer "ptr" still was the
+                    // front, we have an element and we're done.
+
                     // Critical! We have to first replace the back's pointer
-                    // before deallocating our freshly front-removed pointer.
-                    // Of course, we only need to replace if back and front
+                    // before deallocating our freshly front-removed
+                    // pointer. Of course, we only
+                    // need to replace if back and front
                     // were the same.
                     self.back.compare_and_swap(ptr, null_mut(), Release);
 
@@ -79,24 +74,23 @@ impl<T> Queue<T> {
                     // swaped int the code above.
                     // So, let's check if we don't need to
                     // update the front.
-                    // This will only be needed if the stored "next" was null
-                    // AND if we reload the next we get
-                    // null.
-                    unsafe {
-                        if next.is_null() {
-                            incinerator::pause(|| {
-                                let next = (*ptr).next.load(Acquire);
-                                if !next.is_null() {
-                                    self.front.compare_and_swap(
-                                        null_mut(),
-                                        next,
-                                        Release,
-                                    );
-                                }
-                            });
-                        }
-                    };
+                    // This will only be needed if the stored "next" was
+                    // null AND if we reload the
+                    // next we get null.
+                    if next.is_null() {
+                        let next = unsafe { (*ptr).next.load(Acquire) };
+                        self.front.compare_and_swap(null_mut(), next, Release);
+                    }
 
+                    Some(Some(ptr))
+                } else {
+                    // Otherwise, we are not done. Let's try again.
+                    None
+                }
+            });
+
+            if let Some(maybe_ptr) = result {
+                break maybe_ptr.map(|ptr| {
                     // Also, we have to take out the value.
                     let val = unsafe { read(&mut (*ptr).val as *mut _) };
                     unsafe {
@@ -192,18 +186,14 @@ struct Node<T> {
 }
 
 impl<T> Node<T> {
-    fn new_ptr(val: T, next: AtomicPtr<Node<T>>) -> NonNull<Node<T>> {
-        unsafe {
-            alloc(Node {
-                val,
-                next,
-            })
-        }
+    unsafe fn new_ptr(val: T, next: AtomicPtr<Self>) -> NonNull<Self> {
+        alloc(Self {
+            val,
+            next,
+        })
     }
 
-    fn drop_ptr(ptr: NonNull<Node<T>>) {
-        unsafe {
-            dealloc_moved(ptr);
-        }
+    unsafe fn drop_ptr(ptr: NonNull<Self>) {
+        dealloc_moved(ptr);
     }
 }

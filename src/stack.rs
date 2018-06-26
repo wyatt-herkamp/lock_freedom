@@ -22,7 +22,7 @@ impl<T> Stack<T> {
 
     /// Pushes a new value onto the top of the stack.
     pub fn push(&self, val: T) {
-        let mut target = Node::new_ptr(val, null_mut());
+        let mut target = unsafe { Node::new_ptr(val, null_mut()) };
         loop {
             // Load current top as our "next".
             let next = self.top.load(Acquire);
@@ -162,18 +162,14 @@ struct Node<T> {
 }
 
 impl<T> Node<T> {
-    fn new_ptr(val: T, next: *mut Node<T>) -> NonNull<Node<T>> {
-        unsafe {
-            alloc(Node {
-                val,
-                next,
-            })
-        }
+    unsafe fn new_ptr(val: T, next: *mut Self) -> NonNull<Self> {
+        alloc(Self {
+            val,
+            next,
+        })
     }
 
-    fn drop_ptr(ptr: NonNull<Node<T>>) {
-        unsafe {
-            dealloc_moved(ptr);
-        }
+    unsafe fn drop_ptr(ptr: NonNull<Self>) {
+        dealloc_moved(ptr);
     }
 }

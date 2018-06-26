@@ -12,7 +12,7 @@ use std::{
 /// pointers must be correctly dropped such as no "use after free" or "double
 /// free" happens. You may want to call this function only after you replaced
 /// the pointer (or there aren't active threads).
-pub unsafe fn add<T>(ptr: NonNull<T>, dropper: fn(NonNull<T>)) {
+pub unsafe fn add<T>(ptr: NonNull<T>, dropper: unsafe fn(NonNull<T>)) {
     LOCAL_DELETION.with(|queue| {
         // First of all, let's put it on the queue because of a possible
         // obstruction when deleting.
@@ -66,7 +66,7 @@ where
 
 struct Garbage {
     ptr: NonNull<u8>,
-    dropper: fn(NonNull<u8>),
+    dropper: unsafe fn(NonNull<u8>),
 }
 
 struct GarbageQueue {
@@ -87,7 +87,9 @@ impl GarbageQueue {
     fn delete(&self) {
         let mut deque = self.inner.borrow_mut();
         while let Some(garbage) = deque.pop_front() {
-            (garbage.dropper)(garbage.ptr);
+            unsafe {
+                (garbage.dropper)(garbage.ptr);
+            }
         }
     }
 }

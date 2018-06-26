@@ -8,6 +8,12 @@ pub mod prelude;
 /// thread.
 pub mod incinerator;
 
+/// A multi-producer/multi-consumer lock-free channel.
+pub mod mpmc;
+
+/// Event notifying.
+pub mod event;
+
 /// A lock-free queue.
 pub mod queue;
 
