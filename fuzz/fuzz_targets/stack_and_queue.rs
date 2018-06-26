@@ -8,12 +8,12 @@ use std::{sync::Arc, thread};
 
 mod global {
     // Any combination of these operations should not panic/SIGSEGV.
-    pub const NEW_THREAD: u8 = 7;
+    pub const NEW_THREAD: u8 = 5;
     pub const AWAIT_LAST_THREAD: u8 = 6;
     pub const QUEUE_PUSH_NEXT: u8 = 2;
     pub const QUEUE_POP: u8 = 3;
     pub const QUEUE_POP_AND_RUN: u8 = 4;
-    pub const STACK_PUSH_NEXT: u8 = 5;
+    pub const STACK_PUSH_NEXT: u8 = 7;
     pub const STACK_POP: u8 = 0;
     pub const STACK_POP_AND_RUN: u8 = 1;
 }
@@ -70,30 +70,36 @@ impl LocalState {
                         self.common.queue.push(Box::new(b));
                     }
                 },
+
                 local::QUEUE_POP => {
                     self.common.queue.pop();
                 },
+
                 local::QUEUE_POP_AND_RUN => {
                     if let Some(new_op) = self.common.queue.pop() {
                         op = *new_op;
                         continue;
                     }
                 },
+
                 local::STACK_PUSH_NEXT | local::STACK_PUSH_NEXT_2 => {
                     if let Some(&b) = self.common.code.get(self.index) {
                         self.index = self.index.wrapping_add(1);
                         self.common.stack.push(Box::new(b));
                     }
                 },
+
                 local::STACK_POP => {
                     self.common.stack.pop();
                 },
+
                 local::STACK_POP_AND_RUN => {
                     if let Some(new_op) = self.common.stack.pop() {
                         op = *new_op;
                         continue;
                     }
                 },
+
                 _ => (),
             }
             break;
@@ -131,41 +137,49 @@ impl GlobalState {
                     let local = LocalState::new(self.common.clone());
                     self.threads.push(thread::spawn(move || local.run()));
                 },
+
                 global::AWAIT_LAST_THREAD => {
                     if let Some(thread) = self.threads.pop() {
                         thread.join().unwrap();
                     }
                 },
+
                 global::QUEUE_PUSH_NEXT => {
                     if let Some(&b) = self.common.code.get(self.index) {
                         self.index = self.index.wrapping_add(1);
                         self.common.queue.push(Box::new(b));
                     }
                 },
+
                 global::QUEUE_POP => {
                     self.common.queue.pop();
                 },
+
                 global::QUEUE_POP_AND_RUN => {
                     if let Some(new_op) = self.common.queue.pop() {
                         op = *new_op;
                         continue;
                     }
                 },
+
                 global::STACK_PUSH_NEXT => {
                     if let Some(&b) = self.common.code.get(self.index) {
                         self.index = self.index.wrapping_add(1);
                         self.common.stack.push(Box::new(b));
                     }
                 },
+
                 global::STACK_POP => {
                     self.common.stack.pop();
                 },
+
                 global::STACK_POP_AND_RUN => {
                     if let Some(new_op) = self.common.stack.pop() {
                         op = *new_op;
                         continue;
                     }
                 },
+
                 _ => (),
             }
             break;

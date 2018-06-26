@@ -24,3 +24,7 @@ path = "fuzz_targets/stack_and_queue.rs"
 [[bin]]
 name = "darc"
 path = "fuzz_targets/darc.rs"
+
+[[bin]]
+name = "mpmc"
+path = "fuzz_targets/mpmc.rs"
