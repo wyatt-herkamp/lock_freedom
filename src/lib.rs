@@ -12,6 +12,14 @@
 //! "pause". A thread may pause the incinerator to load and use the shared
 //! pointer, and this is why it is important to remove the pointer from the
 //! shared context before deleting.
+//!
+//! This crate is under development, and there are plans for some structures.
+//! We have:
+//! - [x] Stack
+//! - [x] Queue
+//! - [ ] Deque
+//! - [ ] Map
+//! - [ ] Set
 
 /// Provides convenient re-exports.
 pub mod prelude;
