@@ -11,7 +11,8 @@ use std::{
 /// paused), all local queue items are deleted. This function is unsafe because
 /// pointers must be correctly dropped such as no "use after free" or "double
 /// free" happens. You may want to call this function only after you replaced
-/// the pointer (or there aren't active threads).
+/// the pointer (or there aren't active threads). The dropper function SHALL
+/// NOT call `incinerator::add` in its body. If it calls, deletion may panic.
 pub unsafe fn add<T>(ptr: NonNull<T>, dropper: unsafe fn(NonNull<T>)) {
     LOCAL_DELETION.with(|queue| {
         // First of all, let's put it on the queue because of a possible
@@ -32,19 +33,18 @@ pub unsafe fn add<T>(ptr: NonNull<T>, dropper: unsafe fn(NonNull<T>)) {
 
 /// Tries to force deletion of all local queue items. Only succeeds
 /// if there are no pauses when checking for them before the deletion.
-/// Please note this functions is not strictly need to be called, but
-/// it may help on releasing garbage if you added a lot of them during
-/// a pause.
-pub fn try_force() -> Result<(), ()> {
+/// Returns true in case of success, false otherwise. Please note this
+/// functions is not strictly need to be called, but it may help on releasing
+/// garbage if you added a lot of them during a pause.
+pub fn try_force() -> bool {
     LOCAL_DELETION.with(|queue| {
-        if PAUSED_COUNT.load(SeqCst) == 0 {
+        let success = PAUSED_COUNT.load(SeqCst) == 0;
+        if success {
             // No problem to change the status while deleting.
             // No pointer is added to the queue during the change.
             queue.delete();
-            Ok(())
-        } else {
-            Err(())
         }
+        success
     })
 }
 

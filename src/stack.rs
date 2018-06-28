@@ -137,7 +137,7 @@ impl<'a, T> IntoIterator for &'a Stack<T> {
 
 unsafe impl<T> Send for Stack<T> where T: Send {}
 
-unsafe impl<T> Sync for Stack<T> where T: Sync + Send {}
+unsafe impl<T> Sync for Stack<T> where T: Send {}
 
 /// An iterator based on `pop` operation of the `Stack`.
 pub struct Iter<'a, T>

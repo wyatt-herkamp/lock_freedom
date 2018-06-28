@@ -56,7 +56,6 @@ impl<T> Darc<T> {
     /// Compares the inner `Arc` with `curr`, and if they are the same pointer,
     /// the inner `Arc` is swapped with `new`. To test the result, use
     /// `Arc::ptr_eq(&curr, &ret)`.
-    #[allow(unused_must_use)]
     pub fn compare_and_swap(
         &self,
         curr: Arc<T>,
@@ -101,7 +100,6 @@ impl<T> Darc<T> {
 
     /// Same as `compare_and_swap` but accepts two `Ordering`s: one for failure
     /// and one for success. Also, it returns a `Result` instead.
-    #[allow(unused_must_use)]
     pub fn compare_exchange(
         &self,
         curr: Arc<T>,
@@ -146,7 +144,6 @@ impl<T> Darc<T> {
     }
 
     /// Same as `compare_exchange` but with weaker semanthics.
-    #[allow(unused_must_use)]
     pub fn compare_exchange_weak(
         &self,
         curr: Arc<T>,

@@ -2,7 +2,7 @@ use alloc::*;
 use incinerator;
 use std::{
     iter::FromIterator,
-    ptr::{null_mut, read, NonNull},
+    ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
 
@@ -53,54 +53,51 @@ impl<T> Queue<T> {
                 if ptr.is_null() {
                     // If front is null, then the queue is empty (for now).
                     // We're done with no elements.
-                    return Some(None);
+                    return Some(ptr);
                 }
 
                 let next = unsafe { (*ptr).next.load(Acquire) };
                 let res = self.front.compare_and_swap(ptr, next, Release);
 
-                if res == ptr {
-                    // If the loaded pointer "ptr" still was the
-                    // front, we have an element and we're done.
-
-                    // Critical! We have to first replace the back's pointer
-                    // before deallocating our freshly front-removed
-                    // pointer. Of course, we only
-                    // need to replace if back and front
-                    // were the same.
-                    self.back.compare_and_swap(ptr, null_mut(), Release);
-
-                    // The back might have pushed a new value before we
-                    // swaped int the code above.
-                    // So, let's check if we don't need to
-                    // update the front.
-                    // This will only be needed if the stored "next" was
-                    // null AND if we reload the
-                    // next we get null.
-                    if next.is_null() {
-                        let next = unsafe { (*ptr).next.load(Acquire) };
-                        self.front.compare_and_swap(null_mut(), next, Release);
-                    }
-
-                    Some(Some(ptr))
-                } else {
-                    // Otherwise, we are not done. Let's try again.
-                    None
+                if res != ptr {
+                    return None;
                 }
+
+                // If the loaded pointer "ptr" still was the
+                // front, we have an element and we're done.
+
+                // Critical! We have to first replace the back's pointer
+                // before deallocating our freshly front-removed
+                // pointer. Of course, we only
+                // need to replace if back and front
+                // were the same.
+                self.back.compare_and_swap(ptr, null_mut(), Release);
+
+                // The back might have pushed a new value before we
+                // swaped int the code above.
+                // So, let's check if we don't need to
+                // update the front.
+                // This will only be needed if the stored "next" was
+                // null AND if we reload the
+                // next we get null.
+                if next.is_null() {
+                    let next = unsafe { (*ptr).next.load(Acquire) };
+                    self.front.compare_and_swap(null_mut(), next, Release);
+                }
+
+                Some(ptr)
             });
 
-            if let Some(maybe_ptr) = result {
-                break maybe_ptr.map(|ptr| {
+            if let Some(ptr) = result {
+                break NonNull::new(ptr).map(|nnptr| {
                     // Also, we have to take out the value.
-                    let val = unsafe { read(&mut (*ptr).val as *mut _) };
+                    let val =
+                        unsafe { (&nnptr.as_ref().val as *const T).read() };
                     unsafe {
                         // Now it is OK to dealloc. If someone loaded the
                         // pointer, the thread will also block effectively
                         // memory reclamation.
-                        incinerator::add(
-                            NonNull::new_unchecked(ptr),
-                            Node::drop_ptr,
-                        )
+                        incinerator::add(nnptr, Node::drop_ptr)
                     }
                     val
                 });
@@ -161,7 +158,7 @@ impl<'a, T> IntoIterator for &'a Queue<T> {
 
 unsafe impl<T> Send for Queue<T> where T: Send {}
 
-unsafe impl<T> Sync for Queue<T> where T: Sync + Send {}
+unsafe impl<T> Sync for Queue<T> where T: Send {}
 
 /// An iterator based on `pop` operation of the `Queue`.
 pub struct Iter<'a, T>

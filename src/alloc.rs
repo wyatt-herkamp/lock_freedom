@@ -1,11 +1,8 @@
-use std::{
-    mem::forget,
-    ptr::{write, NonNull},
-};
+use std::{mem::forget, ptr::NonNull};
 
 pub unsafe fn alloc<T>(val: T) -> NonNull<T> {
-    let ptr = alloc_uninit();
-    write(ptr.as_ptr(), val);
+    let ptr = alloc_uninit::<T>();
+    ptr.as_ptr().write(val);
     ptr
 }
 
