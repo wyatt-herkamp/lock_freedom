@@ -57,11 +57,26 @@ where
     F: FnOnce() -> T,
 {
     // Do not allow deletions, but allow adding pointers to the local queues.
-    PAUSED_COUNT.fetch_add(1, SeqCst);
+    let paused = Pause::new();
     let res = exec();
     // After the execution, everything is fine.
-    PAUSED_COUNT.fetch_sub(1, SeqCst);
+    drop(paused);
     res
+}
+
+struct Pause;
+
+impl Pause {
+    pub fn new() -> Self {
+        PAUSED_COUNT.fetch_add(1, SeqCst);
+        Pause
+    }
+}
+
+impl Drop for Pause {
+    fn drop(&mut self) {
+        PAUSED_COUNT.fetch_sub(1, SeqCst);
+    }
 }
 
 struct Garbage {
