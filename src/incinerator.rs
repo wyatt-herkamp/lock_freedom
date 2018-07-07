@@ -66,6 +66,15 @@ where
 
 struct Pause;
 
+struct Garbage {
+    ptr: NonNull<u8>,
+    dropper: unsafe fn(NonNull<u8>),
+}
+
+struct GarbageQueue {
+    inner: RefCell<VecDeque<Garbage>>,
+}
+
 impl Pause {
     pub fn new() -> Self {
         PAUSED_COUNT.fetch_add(1, SeqCst);
@@ -77,15 +86,6 @@ impl Drop for Pause {
     fn drop(&mut self) {
         PAUSED_COUNT.fetch_sub(1, SeqCst);
     }
-}
-
-struct Garbage {
-    ptr: NonNull<u8>,
-    dropper: unsafe fn(NonNull<u8>),
-}
-
-struct GarbageQueue {
-    inner: RefCell<VecDeque<Garbage>>,
 }
 
 impl GarbageQueue {
