@@ -29,6 +29,8 @@ pub mod prelude;
 /// deleter which does not necessarilly deletes all garbage at the moment it
 /// was added to the queue, i.e. it can be paused while still not-blocking any
 /// thread.
+///
+/// Whenever a thread exits, its garbage queue is dropped.
 /// # Example
 /// ```rust
 /// extern crate lockfree;
@@ -36,7 +38,10 @@ pub mod prelude;
 /// use lockfree::prelude::*;
 /// use std::{
 ///     ptr::{null_mut, NonNull},
-///     sync::{Arc, atomic::{AtomicPtr, Ordering::*}},
+///     sync::{
+///         atomic::{AtomicPtr, Ordering::*},
+///         Arc,
+///     },
 ///     thread,
 /// };
 ///

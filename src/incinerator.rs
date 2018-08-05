@@ -35,7 +35,12 @@ pub unsafe fn add<T>(ptr: NonNull<T>, dropper: unsafe fn(NonNull<T>)) {
 /// if there are no pauses when checking for them before the deletion.
 /// Returns true in case of success, false otherwise. Please note this
 /// functions is not strictly need to be called, but it may help on releasing
-/// garbage if you added a lot of them during a pause.
+/// garbage if you added a lot of them during a pause. These are some situations
+/// in which `try_force` can be helpful:
+/// 1. Your application exits from a concurrent context, and then you want to
+/// clean    a possibly non-empty deletion queue for the main thread.
+/// 2. Your application's threads might sleep for some time and you want to
+/// clean    garbage up and free memory.
 pub fn try_force() -> bool {
     LOCAL_DELETION.with(|queue| {
         let success = PAUSED_COUNT.load(SeqCst) == 0;
