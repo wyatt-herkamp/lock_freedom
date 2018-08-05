@@ -3,7 +3,7 @@
 extern crate libfuzzer_sys;
 extern crate lockfree;
 
-use lockfree::darc::*;
+use lockfree::darc::Darc;
 use std::{sync::Arc, thread};
 
 mod global {
@@ -40,66 +40,33 @@ fn local_op(data: Arc<[u8]>, target: Arc<Darc<String>>) {
                 }
             };
         }
-
-        macro_rules! get_ord {
-            (r) => {
-                match data.get(idx) {
-                    Some(&byte) => {
-                        idx += 1;
-                        get_read_ord(byte)
-                    },
-                    _ => break,
-                }
-            };
-            (rw) => {
-                match data.get(idx) {
-                    Some(&byte) => {
-                        idx += 1;
-                        get_rw_ord(byte)
-                    },
-                    _ => break,
-                }
-            };
-        }
-
         idx += 1;
         match op % 8 {
             local::LOAD => {
                 let dest = get_reg!();
-                let ord = get_ord!(r);
-                regs[dest] = target.load(ord);
+                regs[dest] = target.load();
             },
 
             local::SWAP => {
                 let src = get_reg!();
                 let dest = get_reg!();
-                let ord = get_ord!(rw);
-                regs[dest] = target.swap(regs[src].clone(), ord);
+                regs[dest] = target.swap(regs[src].clone());
             },
 
             local::CAS => {
                 let cmp = get_reg!();
                 let src = get_reg!();
                 let dest = get_reg!();
-                let ord = get_ord!(rw);
-                regs[dest] = target.compare_and_swap(
-                    regs[cmp].clone(),
-                    regs[src].clone(),
-                    ord,
-                );
+                regs[dest] = target
+                    .compare_and_swap(regs[cmp].clone(), regs[src].clone());
             },
 
             local::LOOP_CAS => {
                 let src = get_reg!();
-                let load_ord = get_ord!(r);
-                let cas_ord = get_ord!(rw);
                 loop {
-                    let initial = target.load(load_ord);
-                    let res = target.compare_and_swap(
-                        initial.clone(),
-                        regs[src].clone(),
-                        cas_ord,
-                    );
+                    let initial = target.load();
+                    let res = target
+                        .compare_and_swap(initial.clone(), regs[src].clone());
                     if Arc::ptr_eq(&initial, &res) {
                         break;
                     }
@@ -110,14 +77,9 @@ fn local_op(data: Arc<[u8]>, target: Arc<Darc<String>>) {
                 let cmp = get_reg!();
                 let src = get_reg!();
                 let dest = get_reg!();
-                let succ = get_ord!(rw);
-                let fail = Relaxed;
-                regs[dest] = match target.compare_exchange(
-                    regs[cmp].clone(),
-                    regs[src].clone(),
-                    succ,
-                    fail,
-                ) {
+                regs[dest] = match target
+                    .compare_exchange(regs[cmp].clone(), regs[src].clone())
+                {
                     Ok(x) => x,
                     Err(x) => x,
                 };
@@ -125,17 +87,11 @@ fn local_op(data: Arc<[u8]>, target: Arc<Darc<String>>) {
 
             local::LOOP_CX => {
                 let src = get_reg!();
-                let load_ord = get_ord!(r);
-                let succ_ord = get_ord!(rw);
-                let fail_ord = Relaxed;
-                let mut initial = target.load(load_ord);
+                let mut initial = target.load();
                 loop {
-                    match target.compare_exchange(
-                        initial.clone(),
-                        regs[src].clone(),
-                        succ_ord,
-                        fail_ord,
-                    ) {
+                    match target
+                        .compare_exchange(initial.clone(), regs[src].clone())
+                    {
                         Ok(_) => break,
                         Err(p) => initial = p,
                     }
@@ -146,14 +102,9 @@ fn local_op(data: Arc<[u8]>, target: Arc<Darc<String>>) {
                 let cmp = get_reg!();
                 let src = get_reg!();
                 let dest = get_reg!();
-                let succ = get_ord!(rw);
-                let fail = Relaxed;
-                regs[dest] = match target.compare_exchange_weak(
-                    regs[cmp].clone(),
-                    regs[src].clone(),
-                    succ,
-                    fail,
-                ) {
+                regs[dest] = match target
+                    .compare_exchange_weak(regs[cmp].clone(), regs[src].clone())
+                {
                     Ok(x) => x,
                     Err(x) => x,
                 };
@@ -161,16 +112,11 @@ fn local_op(data: Arc<[u8]>, target: Arc<Darc<String>>) {
 
             local::LOOP_CX_WEAK => {
                 let src = get_reg!();
-                let load_ord = get_ord!(r);
-                let succ_ord = get_ord!(rw);
-                let fail_ord = Relaxed;
-                let mut initial = target.load(load_ord);
+                let mut initial = target.load();
                 loop {
                     match target.compare_exchange_weak(
                         initial.clone(),
                         regs[src].clone(),
-                        succ_ord,
-                        fail_ord,
                     ) {
                         Ok(_) => break,
                         Err(p) => initial = p,
@@ -179,26 +125,6 @@ fn local_op(data: Arc<[u8]>, target: Arc<Darc<String>>) {
             },
 
             _ => (),
-        }
-    }
-
-    fn get_read_ord(byte: u8) -> Ordering {
-        match byte % 3 {
-            0 => SeqCst,
-            1 => Acquire,
-            2 => Relaxed,
-            _ => unreachable!(),
-        }
-    }
-
-    fn get_rw_ord(byte: u8) -> Ordering {
-        match byte % 5 {
-            0 => SeqCst,
-            1 => Acquire,
-            2 => AcqRel,
-            3 => Relaxed,
-            4 => Release,
-            _ => unreachable!(),
         }
     }
 }

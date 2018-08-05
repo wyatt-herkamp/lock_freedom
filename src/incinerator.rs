@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     mem::transmute,
+    process::abort,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering::*},
 };
@@ -82,14 +83,17 @@ struct GarbageQueue {
 
 impl Pause {
     pub fn new() -> Self {
-        PAUSED_COUNT.fetch_add(1, SeqCst);
+        // prevent count from overflowing and creating bugs
+        if PAUSED_COUNT.fetch_add(1, Acquire) == usize::max_value() {
+            abort();
+        }
         Pause
     }
 }
 
 impl Drop for Pause {
     fn drop(&mut self) {
-        PAUSED_COUNT.fetch_sub(1, SeqCst);
+        PAUSED_COUNT.fetch_sub(1, Release);
     }
 }
 
@@ -116,7 +120,7 @@ impl GarbageQueue {
 
 impl Drop for GarbageQueue {
     fn drop(&mut self) {
-        while PAUSED_COUNT.load(SeqCst) != 0 {}
+        while PAUSED_COUNT.load(Acquire) != 0 {}
         self.delete();
     }
 }
@@ -126,3 +130,51 @@ thread_local! {
 }
 
 static PAUSED_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+// Testing the safety of `unsafe` in this module is done with random operations
+// via fuzzing
+#[cfg(test)]
+mod test {
+    use super::*;
+    use alloc::*;
+    use std::thread;
+
+    #[test]
+    fn try_force_succeeds_in_single_threaded() {
+        assert!(try_force());
+
+        const COUNT: usize = 16;
+
+        let mut allocs = Vec::with_capacity(COUNT);
+
+        for i in 0..COUNT {
+            allocs.push(unsafe { alloc(i) });
+        }
+
+        pause(|| ());
+
+        for ptr in allocs {
+            unsafe {
+                add(ptr, dealloc);
+            }
+        }
+
+        assert!(try_force());
+    }
+
+    #[test]
+    fn count_is_gt_0_when_pausing() {
+        const NTHREADS: usize = 20;
+        let mut threads = Vec::with_capacity(NTHREADS);
+        for _ in 0..NTHREADS {
+            threads.push(thread::spawn(|| {
+                pause(|| {
+                    assert!(PAUSED_COUNT.load(SeqCst) > 0);
+                })
+            }));
+        }
+        for thread in threads {
+            thread.join().expect("sub-thread panicked");
+        }
+    }
+}

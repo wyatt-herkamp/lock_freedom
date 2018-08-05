@@ -96,9 +96,7 @@ impl<T> Stack<T> {
 
     /// Creates an iterator over `T`s, based on `pop` operation of the stack.
     pub fn iter<'a>(&'a self) -> Iter<'a, T> {
-        Iter {
-            stack: self,
-        }
+        Iter { stack: self }
     }
 }
 
@@ -163,13 +161,83 @@ struct Node<T> {
 
 impl<T> Node<T> {
     unsafe fn new_ptr(val: T, next: *mut Self) -> NonNull<Self> {
-        alloc(Self {
-            val,
-            next,
-        })
+        alloc(Self { val, next })
     }
 
     unsafe fn drop_ptr(ptr: NonNull<Self>) {
         dealloc_moved(ptr);
+    }
+}
+
+// Testing the safety of `unsafe` in this module is done with random operations
+// via fuzzing
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::{sync::Arc, thread};
+
+    #[test]
+    fn on_empty_first_pop_is_none() {
+        let stack = Stack::<usize>::new();
+        assert!(stack.pop().is_none());
+    }
+
+    #[test]
+    fn on_empty_last_pop_is_none() {
+        let stack = Stack::new();
+        stack.push(3);
+        stack.push(1234);
+        stack.pop();
+        stack.pop();
+        assert!(stack.pop().is_none());
+    }
+
+    #[test]
+    fn order() {
+        let stack = Stack::new();
+        stack.push(3);
+        stack.push(5);
+        stack.push(6);
+        assert_eq!(stack.pop(), Some(6));
+        assert_eq!(stack.pop(), Some(5));
+        assert_eq!(stack.pop(), Some(3));
+    }
+
+    #[test]
+    fn no_data_corruption() {
+        const NTHREAD: usize = 20;
+        const NITER: usize = 800;
+        const NMOD: usize = 55;
+
+        let stack = Arc::new(Stack::new());
+        let mut handles = Vec::with_capacity(NTHREAD);
+
+        for i in 0..NTHREAD {
+            let stack = stack.clone();
+            handles.push(thread::spawn(move || {
+                for j in 0..NITER {
+                    let val = (i * NITER) + j;
+                    stack.push(val);
+                    if (val + 1) % NMOD == 0 {
+                        if let Some(val) = stack.pop() {
+                            assert!(val < NITER * NTHREAD);
+                        }
+                    }
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("thread failed");
+        }
+
+        let expected = NITER * NTHREAD - NITER * NTHREAD / NMOD;
+        let mut res = 0;
+        while let Some(val) = stack.pop() {
+            assert!(val < NITER * NTHREAD);
+            res += 1;
+        }
+
+        assert_eq!(res, expected);
     }
 }

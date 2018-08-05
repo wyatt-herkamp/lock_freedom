@@ -117,9 +117,7 @@ impl<T> Queue<T> {
 
     /// Creates an iterator over `T`s, based on `pop` operation of the queue.
     pub fn iter<'a>(&'a self) -> Iter<'a, T> {
-        Iter {
-            queue: self,
-        }
+        Iter { queue: self }
     }
 }
 
@@ -184,13 +182,83 @@ struct Node<T> {
 
 impl<T> Node<T> {
     unsafe fn new_ptr(val: T, next: AtomicPtr<Self>) -> NonNull<Self> {
-        alloc(Self {
-            val,
-            next,
-        })
+        alloc(Self { val, next })
     }
 
     unsafe fn drop_ptr(ptr: NonNull<Self>) {
         dealloc_moved(ptr);
+    }
+}
+
+// Testing the safety of `unsafe` in this module is done with random operations
+// via fuzzing
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::{sync::Arc, thread};
+
+    #[test]
+    fn on_empty_first_pop_is_none() {
+        let queue = Queue::<usize>::new();
+        assert!(queue.pop().is_none());
+    }
+
+    #[test]
+    fn on_empty_last_pop_is_none() {
+        let queue = Queue::new();
+        queue.push(3);
+        queue.push(1234);
+        queue.pop();
+        queue.pop();
+        assert!(queue.pop().is_none());
+    }
+
+    #[test]
+    fn order() {
+        let queue = Queue::new();
+        queue.push(3);
+        queue.push(5);
+        queue.push(6);
+        assert_eq!(queue.pop(), Some(3));
+        assert_eq!(queue.pop(), Some(5));
+        assert_eq!(queue.pop(), Some(6));
+    }
+
+    #[test]
+    fn no_data_corruption() {
+        const NTHREAD: usize = 20;
+        const NITER: usize = 800;
+        const NMOD: usize = 55;
+
+        let queue = Arc::new(Queue::new());
+        let mut handles = Vec::with_capacity(NTHREAD);
+
+        for i in 0..NTHREAD {
+            let queue = queue.clone();
+            handles.push(thread::spawn(move || {
+                for j in 0..NITER {
+                    let val = (i * NITER) + j;
+                    queue.push(val);
+                    if (val + 1) % NMOD == 0 {
+                        if let Some(val) = queue.pop() {
+                            assert!(val < NITER * NTHREAD);
+                        }
+                    }
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("thread failed");
+        }
+
+        let expected = NITER * NTHREAD - NITER * NTHREAD / NMOD;
+        let mut res = 0;
+        while let Some(val) = queue.pop() {
+            assert!(val < NITER * NTHREAD);
+            res += 1;
+        }
+
+        assert_eq!(res, expected);
     }
 }
