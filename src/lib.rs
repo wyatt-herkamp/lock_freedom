@@ -89,6 +89,7 @@ pub mod prelude;
 /// ```
 pub mod incinerator;
 
+/// Atomic abstractions, such an atomic trait and atomic boxes.
 pub mod atomic;
 
 /// A lock-free queue.
