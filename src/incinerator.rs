@@ -22,7 +22,7 @@ pub unsafe fn add<T>(ptr: NonNull<T>, dropper: unsafe fn(NonNull<T>)) {
             ptr: NonNull::new_unchecked(ptr.as_ptr() as *mut u8),
             dropper: transmute(dropper),
         });
-        if PAUSED_COUNT.load(SeqCst) == 0 {
+        if PAUSED_COUNT.load(Acquire) == 0 {
             // Please, note that we check for the counter AFTER the enqueueing.
             // This ensures that no pointer is added after a possible status
             // change. All pointers deleted here were already added
@@ -44,7 +44,7 @@ pub unsafe fn add<T>(ptr: NonNull<T>, dropper: unsafe fn(NonNull<T>)) {
 /// clean    garbage up and free memory.
 pub fn try_force() -> bool {
     LOCAL_DELETION.with(|queue| {
-        let success = PAUSED_COUNT.load(SeqCst) == 0;
+        let success = PAUSED_COUNT.load(Acquire) == 0;
         if success {
             // No problem to change the status while deleting.
             // No pointer is added to the queue during the change.
@@ -99,9 +99,7 @@ impl Drop for Pause {
 
 impl GarbageQueue {
     fn new() -> Self {
-        Self {
-            inner: RefCell::new(VecDeque::with_capacity(16)),
-        }
+        Self { inner: RefCell::new(VecDeque::with_capacity(16)) }
     }
 
     fn add(&self, garbage: Garbage) {
@@ -147,7 +145,7 @@ mod test {
 
         let mut allocs = Vec::with_capacity(COUNT);
 
-        for i in 0..COUNT {
+        for i in 0 .. COUNT {
             allocs.push(unsafe { alloc(i) });
         }
 
@@ -166,7 +164,7 @@ mod test {
     fn count_is_gt_0_when_pausing() {
         const NTHREADS: usize = 20;
         let mut threads = Vec::with_capacity(NTHREADS);
-        for _ in 0..NTHREADS {
+        for _ in 0 .. NTHREADS {
             threads.push(thread::spawn(|| {
                 pause(|| {
                     assert!(PAUSED_COUNT.load(SeqCst) > 0);

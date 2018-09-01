@@ -58,7 +58,7 @@ pub mod prelude;
 ///
 /// let mut threads = Vec::with_capacity(16);
 ///
-/// for i in 0..16 {
+/// for i in 0 .. 16 {
 ///     let state = dummy_state.clone();
 ///     threads.push(thread::spawn(move || {
 ///         let ptr = incinerator::pause(|| {
@@ -89,6 +89,8 @@ pub mod prelude;
 /// ```
 pub mod incinerator;
 
+pub mod atomic;
+
 /// A lock-free queue.
 pub mod queue;
 
@@ -96,6 +98,11 @@ pub mod queue;
 pub mod stack;
 
 /// Provides a doubly atomic reference counter.
+#[deprecated(
+    since = "0.2.0",
+    note = "this API has been found too slow, messy, and not that useful for \
+            such slowness"
+)]
 pub mod darc;
 
 #[allow(dead_code)]
