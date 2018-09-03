@@ -40,7 +40,7 @@ pub struct AtomicBox<T> {
 }
 
 /// Specifies conversion between a type and its atomic form.
-pub trait IntoAtomic: Copy + PartialEq {
+pub trait IntoAtomic: Copy + Eq {
     /// The target atomic type, which must have itself as inner type.
     type Target: Atomic<Inner = Self>;
 
@@ -53,7 +53,7 @@ pub trait IntoAtomic: Copy + PartialEq {
 /// Speicifies atomic operations on a given type.
 pub trait Atomic: Send + Sync {
     /// The inner type of atomic operations.
-    type Inner: Copy + PartialEq;
+    type Inner: Copy + Eq;
 
     /// Creates a new atomic value from the inner type's value.
     fn new(init: Self::Inner) -> Self;
@@ -234,7 +234,7 @@ impl<T> IntoAtomic for *mut T {
 
 impl<T> Atomic for AtomicBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + Eq,
 {
     type Inner = T;
 
@@ -412,7 +412,7 @@ impl<T> fmt::Debug for AtomicBox<T> {
 
 impl<T> From<T> for AtomicBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + Eq,
 {
     fn from(val: T) -> Self {
         Self::new(val)

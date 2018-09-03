@@ -15,9 +15,7 @@ pub struct Stack<T> {
 impl<T> Stack<T> {
     /// Creates a new empty stack.
     pub fn new() -> Self {
-        Self {
-            top: AtomicPtr::new(null_mut()),
-        }
+        Self { top: AtomicPtr::new(null_mut()) }
     }
 
     /// Pushes a new value onto the top of the stack.
@@ -212,10 +210,10 @@ mod test {
         let stack = Arc::new(Stack::new());
         let mut handles = Vec::with_capacity(NTHREAD);
 
-        for i in 0..NTHREAD {
+        for i in 0 .. NTHREAD {
             let stack = stack.clone();
             handles.push(thread::spawn(move || {
-                for j in 0..NITER {
+                for j in 0 .. NITER {
                     let val = (i * NITER) + j;
                     stack.push(val);
                     if (val + 1) % NMOD == 0 {

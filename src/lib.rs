@@ -18,7 +18,7 @@
 //! - [x] Stack
 //! - [x] Queue
 //! - [ ] Deque
-//! - [ ] Map
+//! - [x] Map
 //! - [ ] Set
 
 /// Provides convenient re-exports.
@@ -97,6 +97,8 @@ pub mod queue;
 
 /// A lock-free stack.
 pub mod stack;
+
+pub mod map;
 
 /// Provides a doubly atomic reference counter.
 #[deprecated(

@@ -233,10 +233,10 @@ mod test {
         let queue = Arc::new(Queue::new());
         let mut handles = Vec::with_capacity(NTHREAD);
 
-        for i in 0..NTHREAD {
+        for i in 0 .. NTHREAD {
             let queue = queue.clone();
             handles.push(thread::spawn(move || {
-                for j in 0..NITER {
+                for j in 0 .. NITER {
                     let val = (i * NITER) + j;
                     queue.push(val);
                     if (val + 1) % NMOD == 0 {
