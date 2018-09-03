@@ -1,6 +1,9 @@
 pages:
   stage: deploy
+  image: rustlang/rust:nightly
   script:
+  - cargo check
+  - sh test.sh
   - cargo doc
   - cp -r target/doc public
   artifacts:
@@ -8,14 +11,3 @@ pages:
     - public
   only:
   - master
-
-
-before_script:
-  - curl https://sh.rustup.rs -sSf | sh -s -- -y
-  - export PATH="~/.cargo/bin:$PATH"
-  - cargo --version
-
-check:
-  script:
-  - cargo check
-  - cargo test -- --test-threads=1
