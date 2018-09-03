@@ -2,6 +2,7 @@ pages:
   stage: deploy
   image: rustlang/rust:nightly
   script:
+  - rustup install stable
   - cargo +stable check
   - cargo +nightly check
   - ./test.sh
