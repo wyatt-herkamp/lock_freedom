@@ -101,11 +101,6 @@ pub mod stack;
 pub mod map;
 
 /// Provides a doubly atomic reference counter.
-#[deprecated(
-    since = "0.2.0",
-    note = "this API has been found too slow, messy, and not that useful for \
-            such slowness"
-)]
 pub mod darc;
 
 #[allow(dead_code)]
