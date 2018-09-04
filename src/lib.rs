@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! A crate providing lock-free data structures and a solution for the "ABA
 //! problem" related to pointers.
 //!
@@ -98,6 +99,7 @@ pub mod queue;
 /// A lock-free stack.
 pub mod stack;
 
+/// A lock-free map.
 pub mod map;
 
 /// Provides a doubly atomic reference counter.

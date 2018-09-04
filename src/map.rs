@@ -63,6 +63,41 @@ where
     },
 }
 
+/// A lock-free map. Implemented using multi-level hash-tables (in a tree
+/// fashion) with ordered buckets.
+///
+/// # Design
+/// In order to implement this map, we shall fix a constant named `BITS`, which
+/// should be smaller than the number of bits in the hash. We chose `8` for it.
+/// Now, we define a table structure: an array of nodes with length `1 << BITS`
+/// (`256` in this case).
+///
+/// For inserting, we take the first `BITS` bits of the hash. Now, we verify
+/// the node. If it is empty, insert a new bucket with our entry (a leaf of the
+/// tree), and assign our hash to the bucket. If there is a branch (i.e. a
+/// sub-table), we shift the hash `BITS` bits to the left, but we also keep the
+/// original hash for consultation. Then we try again in the sub-table. If
+/// there is another leaf, and if the hash of the leaf's bucket is equal to
+/// ours, we insert our entry into the bucket. If the hashes are not equal, we
+/// create a sub-table, insert the old leaf into the new sub-table, and insert
+/// our pair after.
+///
+/// Entries in a bucket are a single linked list ordered by key. The ordering
+/// of the list is because of possible race conditions if e.g. new nodes were
+/// always inserted at end. And if a bucket is detected to be empty, the
+/// table will be requested to delete the bucket.
+///
+/// For searching, in a similar way, the hash is shifted and sub-tables are
+/// entered until either a node is empty or a leaf is found. If the hash of the
+/// leaf's bucket is equal to our hash, we search for the entry into the bucket.
+/// Because the bucket is ordered, we may know the entry is not present with
+/// ease.
+///
+/// Because of limitation of sharing in concurrent contexts, we do return
+/// references to the entries, neither allow the user to move out removed
+/// values, as they must be deinitialized correctly. Returning references would
+/// also imply pausing the deallocation of sensitive resources for indefinite
+/// time.
 pub struct Map<K, V, H = RandomState> {
     table: Table<K, V>,
     builder: H,
