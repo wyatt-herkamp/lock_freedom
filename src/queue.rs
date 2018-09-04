@@ -31,7 +31,7 @@ impl<T> Queue<T> {
         // Very simple schema: let's replace the back with our node, and then...
         incinerator::pause(|| {
             let ptr = self.back.swap(node, AcqRel);
-            if let Some(back) = unsafe { ptr.as_mut() } {
+            if let Some(back) = unsafe { ptr.as_ref() } {
                 // ...put our node as the "next" of the previous back, if it
                 // was not null...
                 let _next = back.next.swap(node, Release);
@@ -71,7 +71,7 @@ impl<T> Queue<T> {
                 // pointer. Of course, we only
                 // need to replace if back and front
                 // were the same.
-                self.back.compare_and_swap(ptr, null_mut(), Release);
+                let test = self.back.compare_and_swap(ptr, null_mut(), Release);
 
                 // The back might have pushed a new value before we
                 // swaped int the code above.
@@ -80,9 +80,15 @@ impl<T> Queue<T> {
                 // This will only be needed if the stored "next" was
                 // null AND if we reload the
                 // next we get null.
-                if next.is_null() {
-                    let next = unsafe { (*ptr).next.load(Acquire) };
-                    self.front.compare_and_swap(null_mut(), next, Release);
+                if next.is_null() && test != ptr {
+                    loop {
+                        let next = unsafe { (*ptr).next.load(Acquire) };
+                        if next.is_null() {
+                            continue;
+                        }
+                        self.front.compare_and_swap(null_mut(), next, Release);
+                        break;
+                    }
                 }
 
                 Some(ptr)

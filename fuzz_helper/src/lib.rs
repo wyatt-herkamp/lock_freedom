@@ -99,8 +99,7 @@ where
 
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode) {
         match byte {
-            // let's not exceed sanitizer's thread limit
-            128 if self.threads.len() < 1000 => {
+            128 => {
                 let mut new = self.machine.fork();
                 let mut bytecode = bytecode.clone();
                 self.threads.push(thread::spawn(move || {

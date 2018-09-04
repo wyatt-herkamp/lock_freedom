@@ -96,7 +96,23 @@ impl<K, V, H> Map<K, V, H> {
         key.hash(&mut hasher);
         let hash = hasher.finish();
         incinerator::pause(|| unsafe {
-            NonNull::new(self.table.insert(key, hash, val)).map(Removed::new)
+            let ptr = alloc(Pair { key, val });
+            NonNull::new(self.table.insert(ptr, hash)).map(Removed::new)
+        })
+    }
+
+    pub fn reinsert(&self, removed: Removed<K, V>) -> Option<Removed<K, V>>
+    where
+        K: Hash + Ord,
+        H: BuildHasher,
+    {
+        let mut hasher = self.builder.build_hasher();
+        removed.key().hash(&mut hasher);
+        let hash = hasher.finish();
+        incinerator::pause(|| unsafe {
+            let pair = removed.pair;
+            mem::forget(removed);
+            NonNull::new(self.table.insert(pair, hash)).map(Removed::new)
         })
     }
 
@@ -170,11 +186,14 @@ impl<K, V> Table<K, V> {
         this
     }
 
-    unsafe fn insert(&self, key: K, hash: u64, val: V) -> *mut Pair<K, V>
+    unsafe fn insert(
+        &self,
+        pair: NonNull<Pair<K, V>>,
+        hash: u64,
+    ) -> *mut Pair<K, V>
     where
         K: Ord,
     {
-        let pair = alloc(Pair { key, val });
         let entry = Entry { pair: pair.as_ptr(), next: null_mut() };
         let list = alloc(List { ptr: AtomicBox::new(entry) });
         let bucket = Bucket {
