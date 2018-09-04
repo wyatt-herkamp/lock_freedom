@@ -410,6 +410,15 @@ impl<T> fmt::Debug for AtomicBox<T> {
     }
 }
 
+impl<T> Default for AtomicBox<T>
+where
+    T: Copy + Eq + Default,
+{
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
 impl<T> From<T> for AtomicBox<T>
 where
     T: Copy + Eq,

@@ -17,9 +17,7 @@ pub struct Darc<T> {
 impl<T> Darc<T> {
     /// Creates a new `Darc` from the given `Arc`.
     pub fn new(arc: Arc<T>) -> Self {
-        Self {
-            ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _),
-        }
+        Self { ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _) }
     }
 
     /// Loads the `Darc` into an `Arc`.
@@ -198,6 +196,15 @@ impl<T> From<T> for Darc<T> {
     }
 }
 
+impl<T> Default for Darc<T>
+where
+    T: Default,
+{
+    fn default() -> Self {
+        Self::new(Arc::default())
+    }
+}
+
 fn drop_arc<T>(ptr: NonNull<T>) {
     unsafe {
         Arc::from_raw(ptr.as_ptr());
@@ -271,14 +278,8 @@ mod test {
         let y = Arc::new(6);
         let z = Arc::new(7);
         let darc = Darc::new(x.clone());
-        assert!(!Arc::ptr_eq(
-            &y,
-            &darc.compare_and_swap(y.clone(), z.clone())
-        ));
-        assert!(Arc::ptr_eq(
-            &x,
-            &darc.compare_and_swap(x.clone(), z.clone())
-        ));
+        assert!(!Arc::ptr_eq(&y, &darc.compare_and_swap(y.clone(), z.clone())));
+        assert!(Arc::ptr_eq(&x, &darc.compare_and_swap(x.clone(), z.clone())));
         assert!(Arc::ptr_eq(&z, &darc.load()));
     }
 
@@ -310,7 +311,7 @@ mod test {
         const NTHREADS: usize = 20;
         let darc = Arc::new(Darc::new(Arc::new(12)));
         let mut threads = Vec::with_capacity(NTHREADS);
-        for i in 0..NTHREADS {
+        for i in 0 .. NTHREADS {
             let darc = darc.clone();
             threads.push(thread::spawn(move || loop {
                 let inner = darc.load();
@@ -322,7 +323,7 @@ mod test {
             }));
         }
 
-        let sum = (0..NTHREADS).sum::<usize>() + 12;
+        let sum = (0 .. NTHREADS).sum::<usize>() + 12;
 
         for thread in threads {
             thread.join().expect("sub-thread failed");

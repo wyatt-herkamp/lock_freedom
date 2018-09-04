@@ -1,4 +1,3 @@
-
 [package]
 name = "lockfree-fuzz"
 version = "0.0.1"
@@ -10,6 +9,8 @@ cargo-fuzz = true
 
 [dependencies.lockfree]
 path = ".."
+[dependencies.fuzz_helper]
+path = "../fuzz_helper"
 [dependencies.libfuzzer-sys]
 git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 
@@ -18,9 +19,21 @@ git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 members = ["."]
 
 [[bin]]
-name = "stack-and-queue"
-path = "fuzz_targets/stack_and_queue.rs"
-
-[[bin]]
 name = "darc"
 path = "fuzz_targets/darc.rs"
+
+[[bin]]
+name = "queue"
+path = "fuzz_targets/queue.rs"
+
+[[bin]]
+name = "stack"
+path = "fuzz_targets/stack.rs"
+
+[[bin]]
+name = "map"
+path = "fuzz_targets/map.rs"
+
+[[bin]]
+name = "atomic_box"
+path = "fuzz_targets/atomic_box.rs"
