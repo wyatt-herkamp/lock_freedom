@@ -110,12 +110,12 @@ pub struct Removed<K, V> {
 
 impl<K, V> Map<K, V, RandomState> {
     pub fn new() -> Self {
-        Self::with_hasher_builder(RandomState::default())
+        Self::with_hasher(RandomState::default())
     }
 }
 
 impl<K, V, H> Map<K, V, H> {
-    pub fn with_hasher_builder(builder: H) -> Self
+    pub fn with_hasher(builder: H) -> Self
     where
         H: BuildHasher,
     {
@@ -636,7 +636,7 @@ where
     H: BuildHasher + Default,
 {
     fn default() -> Self {
-        Self::with_hasher_builder(H::default())
+        Self::with_hasher(H::default())
     }
 }
 
@@ -787,6 +787,16 @@ mod test {
             assert_eq!(k, "four");
             assert_eq!(*v, 4);
         });
+    }
+
+    #[test]
+    fn inserts_reinserts() {
+        let map = Map::new();
+        assert!(map.insert("four".to_owned(), 4).is_none());
+        let prev = map.insert("four".to_owned(), 40).unwrap();
+        assert_eq!(prev, ("four", 4));
+        assert_eq!(map.reinsert(prev).unwrap(), ("four", 40));
+        assert!(map.get("four", |&x| x == 4).unwrap());
     }
 
     #[test]
