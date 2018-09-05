@@ -61,7 +61,7 @@ pub struct Map<K, V, H = RandomState> {
 /// dropped by the user. Imagine that a thread would remove and drop (by user
 /// defined code) the entry after another thread began would be reading, but,
 /// in the moment of the drop, still reading. This would cause use-after-free.
-#[derive(Eq, Eq)]
+#[derive(Eq)]
 pub struct Removed<K, V> {
     pair: NonNull<Pair<K, V>>,
 }
