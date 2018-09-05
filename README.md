@@ -1,5 +1,11 @@
 # lockfree
 Lockfree data structures for Rust
 
-# Docs
+# Documentation
 <https://bzim.gitlab.io/lockfree/lockfree/>
+
+# Changelog
+See [CHANGELOG.md]
+
+# Contributing
+See [CONTRIBUTING.md]
