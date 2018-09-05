@@ -16,6 +16,56 @@ static mut _NON_NULL: u8 = 255;
 
 const BITS: usize = 8;
 
+/// A lock-free map. Implemented using multi-level hash-tables (in a tree
+/// fashion) with ordered buckets.
+///
+/// # Design
+/// In order to implement this map, we shall fix a constant named `BITS`, which
+/// should be smaller than the number of bits in the hash. We chose `8` for it.
+/// Now, we define a table structure: an array of nodes with length `1 << BITS`
+/// (`256` in this case).
+///
+/// For inserting, we take the first `BITS` bits of the hash. Now, we verify
+/// the node. If it is empty, insert a new bucket with our entry (a leaf of the
+/// tree), and assign our hash to the bucket. If there is a branch (i.e. a
+/// sub-table), we shift the hash `BITS` bits to the left, but we also keep the
+/// original hash for consultation. Then we try again in the sub-table. If
+/// there is another leaf, and if the hash of the leaf's bucket is equal to
+/// ours, we insert our entry into the bucket. If the hashes are not equal, we
+/// create a sub-table, insert the old leaf into the new sub-table, and insert
+/// our pair after.
+///
+/// Entries in a bucket are a single linked list ordered by key. The ordering
+/// of the list is because of possible race conditions if e.g. new nodes were
+/// always inserted at end. And if a bucket is detected to be empty, the
+/// table will be requested to delete the bucket.
+///
+/// For searching, in a similar way, the hash is shifted and sub-tables are
+/// entered until either a node is empty or a leaf is found. If the hash of the
+/// leaf's bucket is equal to our hash, we search for the entry into the bucket.
+/// Because the bucket is ordered, we may know the entry is not present with
+/// ease.
+///
+/// Because of limitation of sharing in concurrent contexts, we do return
+/// references to the entries, neither allow the user to move out removed
+/// values, as they must be deinitialized correctly. Returning references would
+/// also imply pausing the deallocation of sensitive resources for indefinite
+/// time.
+pub struct Map<K, V, H = RandomState> {
+    table: Table<K, V>,
+    builder: H,
+}
+
+/// A removed entry. Although the entry allows the user to immutable access key
+/// and value, it does not allow moving them. This is because it cannot be
+/// dropped by the user. Imagine that a thread would remove and drop (by user
+/// defined code) the entry after another thread began would be reading, but,
+/// in the moment of the drop, still reading. This would cause use-after-free.
+#[derive(Eq, Eq)]
+pub struct Removed<K, V> {
+    pair: NonNull<Pair<K, V>>,
+}
+
 struct Pair<K, V> {
     key: K,
     val: V,
@@ -63,58 +113,15 @@ where
     },
 }
 
-/// A lock-free map. Implemented using multi-level hash-tables (in a tree
-/// fashion) with ordered buckets.
-///
-/// # Design
-/// In order to implement this map, we shall fix a constant named `BITS`, which
-/// should be smaller than the number of bits in the hash. We chose `8` for it.
-/// Now, we define a table structure: an array of nodes with length `1 << BITS`
-/// (`256` in this case).
-///
-/// For inserting, we take the first `BITS` bits of the hash. Now, we verify
-/// the node. If it is empty, insert a new bucket with our entry (a leaf of the
-/// tree), and assign our hash to the bucket. If there is a branch (i.e. a
-/// sub-table), we shift the hash `BITS` bits to the left, but we also keep the
-/// original hash for consultation. Then we try again in the sub-table. If
-/// there is another leaf, and if the hash of the leaf's bucket is equal to
-/// ours, we insert our entry into the bucket. If the hashes are not equal, we
-/// create a sub-table, insert the old leaf into the new sub-table, and insert
-/// our pair after.
-///
-/// Entries in a bucket are a single linked list ordered by key. The ordering
-/// of the list is because of possible race conditions if e.g. new nodes were
-/// always inserted at end. And if a bucket is detected to be empty, the
-/// table will be requested to delete the bucket.
-///
-/// For searching, in a similar way, the hash is shifted and sub-tables are
-/// entered until either a node is empty or a leaf is found. If the hash of the
-/// leaf's bucket is equal to our hash, we search for the entry into the bucket.
-/// Because the bucket is ordered, we may know the entry is not present with
-/// ease.
-///
-/// Because of limitation of sharing in concurrent contexts, we do return
-/// references to the entries, neither allow the user to move out removed
-/// values, as they must be deinitialized correctly. Returning references would
-/// also imply pausing the deallocation of sensitive resources for indefinite
-/// time.
-pub struct Map<K, V, H = RandomState> {
-    table: Table<K, V>,
-    builder: H,
-}
-
-#[derive(Eq)]
-pub struct Removed<K, V> {
-    pair: NonNull<Pair<K, V>>,
-}
-
 impl<K, V> Map<K, V, RandomState> {
+    /// Creates a new empty map with a random state.
     pub fn new() -> Self {
         Self::with_hasher(RandomState::default())
     }
 }
 
 impl<K, V, H> Map<K, V, H> {
+    /// Creates a new empty map with a hash builder.
     pub fn with_hasher(builder: H) -> Self
     where
         H: BuildHasher,
@@ -122,6 +129,8 @@ impl<K, V, H> Map<K, V, H> {
         Self { table: Table::new(), builder }
     }
 
+    /// Sets the mapped value of a key, disregarding it exists or not. If it
+    /// does exists, the old pair is removed and returned.
     pub fn insert(&self, key: K, val: V) -> Option<Removed<K, V>>
     where
         K: Hash + Ord,
@@ -136,6 +145,9 @@ impl<K, V, H> Map<K, V, H> {
         })
     }
 
+    /// Reinserts a removed pair (which can have been removed from any map),
+    /// disregarding the key entry exists or not. If it does exists, the
+    /// old pair is removed and returned.
     pub fn reinsert(&self, removed: Removed<K, V>) -> Option<Removed<K, V>>
     where
         K: Hash + Ord,
@@ -151,6 +163,10 @@ impl<K, V, H> Map<K, V, H> {
         })
     }
 
+    /// Gets a reference to the mapped value of a key, it exists. Then, it
+    /// calls the `reader` function argument with the reference. Please note
+    /// that returning a reference would imply in pausing any sensitive
+    /// incinerator resource deallocation for indefinite time.
     pub fn get<Q, F, T>(&self, key: &Q, reader: F) -> Option<T>
     where
         Q: Hash + Ord + ?Sized,
@@ -166,6 +182,8 @@ impl<K, V, H> Map<K, V, H> {
         })
     }
 
+    /// Same as `get`, but calls the `reader` function argument with key and
+    /// value, respectively, instead.
     pub fn get_pair<Q, F, T>(&self, key: &Q, reader: F) -> Option<T>
     where
         Q: Hash + Ord + ?Sized,
@@ -181,6 +199,7 @@ impl<K, V, H> Map<K, V, H> {
         })
     }
 
+    /// Removes the given entry identified by the given key.
     pub fn remove<Q>(&self, key: &Q) -> Option<Removed<K, V>>
     where
         Q: Hash + Ord + ?Sized,
@@ -201,10 +220,12 @@ impl<K, V> Removed<K, V> {
         Self { pair }
     }
 
+    /// The key of this removed entry.
     pub fn key(&self) -> &K {
         &unsafe { self.pair.as_ref() }.key
     }
 
+    /// The value of this removed entry.
     pub fn val(&self) -> &V {
         &unsafe { self.pair.as_ref() }.val
     }
