@@ -14,6 +14,12 @@ pub struct Queue<T> {
     back: AtomicPtr<Node<T>>,
 }
 
+#[derive(Debug)]
+struct Node<T> {
+    val: AtomicPtr<T>,
+    next: AtomicPtr<Node<T>>,
+}
+
 impl<T> Queue<T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
@@ -27,7 +33,7 @@ impl<T> Queue<T> {
     /// wait-free.
     pub fn push(&self, val: T) {
         let node =
-            unsafe { Node::new_ptr(val, AtomicPtr::new(null_mut())).as_ptr() };
+            unsafe { Node::new_ptr(alloc(val).as_ptr(), null_mut()).as_ptr() };
         // Very simple schema: let's replace the back with our node, and then...
         incinerator::pause(|| {
             let ptr = self.back.swap(node, AcqRel);
@@ -47,63 +53,53 @@ impl<T> Queue<T> {
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let result = incinerator::pause(|| {
-                // load "ptr"
+            let result = incinerator::pause(|| unsafe {
+                // First, let's load the current pointer.
                 let ptr = self.front.load(Acquire);
-                if ptr.is_null() {
-                    // If front is null, then the queue is empty (for now).
-                    // We're done with no elements.
-                    return Some(ptr);
+                // Then, if it is null, the queue never ever had an element.
+                let nnptr = match NonNull::new(ptr) {
+                    Some(nnptr) => nnptr,
+                    None => return Some(null_mut()),
+                };
+
+                // We are really interested in this pointer
+                let item_ptr = nnptr.as_ref().val.load(Acquire);
+
+                // If it is null, this item already was removed. We need to
+                // clean it.
+                if item_ptr.is_null() {
+                    return if self.clean_front_first(nnptr) {
+                        None
+                    } else {
+                        Some(null_mut())
+                    };
                 }
 
-                let next = unsafe { (*ptr).next.load(Acquire) };
-                let res = self.front.compare_and_swap(ptr, next, Release);
+                // To remove, we simply set the item to null.
+                let res = nnptr.as_ref().val.compare_and_swap(
+                    item_ptr,
+                    null_mut(),
+                    Release,
+                );
 
-                if res != ptr {
-                    return None;
+                if res == item_ptr {
+                    // let's be polite and clean it up anyway.
+                    self.clean_front_first(nnptr);
+                    Some(item_ptr)
+                } else {
+                    None
                 }
-
-                // If the loaded pointer "ptr" still was the
-                // front, we have an element and we're done.
-
-                // Critical! We have to first replace the back's pointer
-                // before deallocating our freshly front-removed
-                // pointer. Of course, we only
-                // need to replace if back and front
-                // were the same.
-                let test = self.back.compare_and_swap(ptr, null_mut(), Release);
-
-                // The back might have pushed a new value before we
-                // swaped int the code above.
-                // So, let's check if we don't need to
-                // update the front.
-                // This will only be needed if the stored "next" was
-                // null AND if we reload the
-                // next we get null.
-                if next.is_null() && test != ptr {
-                    loop {
-                        let next = unsafe { (*ptr).next.load(Acquire) };
-                        if next.is_null() {
-                            continue;
-                        }
-                        self.front.compare_and_swap(null_mut(), next, Release);
-                        break;
-                    }
-                }
-
-                Some(ptr)
             });
 
             if let Some(ptr) = result {
                 break NonNull::new(ptr).map(|nnptr| {
                     // Also, we have to take out the value.
-                    let val =
-                        unsafe { (&nnptr.as_ref().val as *const T).read() };
+                    let val = unsafe { nnptr.as_ptr().read() };
                     unsafe {
                         // Now it is OK to dealloc. If someone loaded the
                         // pointer, the thread will also block effectively
                         // memory reclamation.
-                        incinerator::add(nnptr, Node::drop_ptr)
+                        incinerator::add(nnptr, dealloc_moved)
                     }
                     val
                 });
@@ -125,6 +121,20 @@ impl<T> Queue<T> {
     pub fn iter<'a>(&'a self) -> Iter<'a, T> {
         Iter { queue: self }
     }
+
+    unsafe fn clean_front_first(&self, expected: NonNull<Node<T>>) -> bool {
+        let next = (*expected.as_ptr()).next.load(Acquire);
+        if next.is_null() {
+            false
+        } else {
+            let res =
+                self.front.compare_and_swap(expected.as_ptr(), next, Release);
+            if res == expected.as_ptr() {
+                incinerator::add(NonNull::new_unchecked(res), dealloc);
+            }
+            true
+        }
+    }
 }
 
 impl<T> Default for Queue<T> {
@@ -136,6 +146,9 @@ impl<T> Default for Queue<T> {
 impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
         while let Some(_) = self.pop() {}
+        if let Some(nnptr) = NonNull::new(self.front.load(Acquire)) {
+            unsafe { dealloc(nnptr) }
+        }
     }
 }
 
@@ -180,19 +193,9 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-#[derive(Debug)]
-struct Node<T> {
-    val: T,
-    next: AtomicPtr<Node<T>>,
-}
-
 impl<T> Node<T> {
-    unsafe fn new_ptr(val: T, next: AtomicPtr<Self>) -> NonNull<Self> {
-        alloc(Self { val, next })
-    }
-
-    unsafe fn drop_ptr(ptr: NonNull<Self>) {
-        dealloc_moved(ptr);
+    unsafe fn new_ptr(val: *mut T, next: *mut Self) -> NonNull<Self> {
+        alloc(Self { val: AtomicPtr::new(val), next: AtomicPtr::new(next) })
     }
 }
 

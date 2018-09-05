@@ -7,7 +7,3 @@ repository = "https://gitlab.com/bzim/lockfree/"
 keywords = ["concurrency", "lock-free", "atomics", "data-structures"]
 categories = ["concurrency", "data-structures", "algorithms"]
 license = "MIT"
-
-[workspace]
-members = [".", "fuzz_helper"]
-default-members = ["."]
