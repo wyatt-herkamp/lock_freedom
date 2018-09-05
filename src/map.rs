@@ -141,7 +141,7 @@ impl<K, V, H> Map<K, V, H> {
         let hash = hasher.finish();
         incinerator::pause(|| unsafe {
             let ptr = alloc(Pair { key, val });
-            NonNull::new(self.table.insert(ptr, hash)).map(Removed::new)
+            NonNull::new(self.table.insert(ptr, hash)).map(|x| Removed::new(x))
         })
     }
 
@@ -159,7 +159,7 @@ impl<K, V, H> Map<K, V, H> {
         incinerator::pause(|| unsafe {
             let pair = removed.pair;
             mem::forget(removed);
-            NonNull::new(self.table.insert(pair, hash)).map(Removed::new)
+            NonNull::new(self.table.insert(pair, hash)).map(|x| Removed::new(x))
         })
     }
 
@@ -210,13 +210,13 @@ impl<K, V, H> Map<K, V, H> {
         key.hash(&mut hasher);
         let hash = hasher.finish();
         incinerator::pause(|| unsafe {
-            NonNull::new(self.table.remove(key, hash)).map(Removed::new)
+            NonNull::new(self.table.remove(key, hash)).map(|x| Removed::new(x))
         })
     }
 }
 
 impl<K, V> Removed<K, V> {
-    fn new(pair: NonNull<Pair<K, V>>) -> Self {
+    unsafe fn new(pair: NonNull<Pair<K, V>>) -> Self {
         Self { pair }
     }
 
