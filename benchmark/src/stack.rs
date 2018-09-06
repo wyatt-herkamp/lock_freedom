@@ -17,7 +17,7 @@ struct LockfreeTarget {
 }
 
 impl Target for MutexTarget {
-    fn round(&self) {
+    fn round(&mut self) {
         let mut stack = self.inner.lock().unwrap();
         stack.pop();
         stack.push(234);
@@ -25,7 +25,7 @@ impl Target for MutexTarget {
 }
 
 impl Target for LockfreeTarget {
-    fn round(&self) {
+    fn round(&mut self) {
         self.inner.pop();
         self.inner.push(234);
     }

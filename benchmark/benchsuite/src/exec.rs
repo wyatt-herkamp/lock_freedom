@@ -12,7 +12,7 @@ use std::{
 pub const ITER_PER_TRY: usize = 1000;
 
 pub trait Target: Clone + Send + 'static {
-    fn round(&self);
+    fn round(&mut self);
 }
 
 pub trait TargetSet {
@@ -94,7 +94,7 @@ impl Executor {
         let barrier = Arc::new(Barrier::new(self.threads + 1));
 
         for _ in 0 .. self.threads {
-            let target = target.clone();
+            let mut target = target.clone();
             let barrier = barrier.clone();
             let exit = exit.clone();
             let count = count.clone();
