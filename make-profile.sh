@@ -12,5 +12,5 @@ popd > /dev/null || exit 1
 
 export PROFILING=1
 
-perf record --call-graph=dwarf -F 2500 benchmark/target/release/"$1" \
+perf record --call-graph=dwarf -F 2000 benchmark/target/release/"$1" \
     || exit 1
