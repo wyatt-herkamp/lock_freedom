@@ -31,6 +31,9 @@ impl Target for MutexInsert {
         self.i += 1;
         let mut map = self.inner.lock().unwrap();
         map.insert(format!("{i}{i:064b}", i = i), i);
+        if i % 5 == 0 {
+            map.remove(&format!("{i}{i:064b}", i = i / 5));
+        }
     }
 }
 

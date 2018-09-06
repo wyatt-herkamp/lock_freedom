@@ -11,13 +11,13 @@ echo 'As you can see, there is a lot to improve!' >> $FILE
 echo '' >> $FILE
 echo '## QUEUE' >> $FILE
 echo '```' >> $FILE
-RUSTFLAGS=-g cargo run --bin queue --release >> $FILE
+cargo run --bin queue --release >> $FILE || exit 1
 echo '```' >> $FILE
 echo '## STACK' >> $FILE
 echo '```' >> $FILE
-RUSTFLAGS=-g cargo run --bin stack --release >> $FILE
+cargo run --bin stack --release >> $FILE || exit 1
 echo '```' >> $FILE
 echo '## MAP' >> $FILE
 echo '```' >> $FILE
-RUSTFLAGS=-g cargo run --bin map --release >> $FILE
+cargo run --bin map --release >> $FILE || exit 1
 echo '```' >> $FILE

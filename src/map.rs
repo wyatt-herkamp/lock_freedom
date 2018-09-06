@@ -272,7 +272,7 @@ impl<K, V> Table<K, V> {
             let old = table.nodes[node_index].compare_and_swap(
                 null_mut(),
                 node.as_ptr(),
-                SeqCst,
+                AcqRel,
             );
             match old.as_ref() {
                 Some(Node::Leaf(in_place)) if in_place.hash == hash => {
@@ -287,7 +287,7 @@ impl<K, V> Table<K, V> {
                             let res = table.nodes[node_index].compare_and_swap(
                                 old,
                                 node.as_ptr(),
-                                SeqCst,
+                                Release,
                             );
 
                             if res == old {
@@ -314,7 +314,7 @@ impl<K, V> Table<K, V> {
                     let res = table.nodes[node_index].compare_and_swap(
                         old,
                         branch.as_ptr(),
-                        SeqCst,
+                        Release,
                     );
 
                     if res == old {
@@ -347,7 +347,7 @@ impl<K, V> Table<K, V> {
 
         loop {
             let node_index = index as usize & (1 << BITS) - 1;
-            let in_place = table.nodes[node_index].load(SeqCst);
+            let in_place = table.nodes[node_index].load(Acquire);
             match in_place.as_ref() {
                 Some(Node::Leaf(bucket)) if bucket.hash == hash => {
                     match bucket.get(key) {
@@ -357,7 +357,7 @@ impl<K, V> Table<K, V> {
                             let res = table.nodes[node_index].compare_and_swap(
                                 in_place,
                                 null_mut(),
-                                SeqCst,
+                                Release,
                             );
 
                             if res == in_place {
@@ -391,7 +391,7 @@ impl<K, V> Table<K, V> {
 
         loop {
             let node_index = index as usize & (1 << BITS) - 1;
-            let in_place = table.nodes[node_index].load(SeqCst);
+            let in_place = table.nodes[node_index].load(Acquire);
             match in_place.as_ref() {
                 Some(Node::Leaf(bucket)) if bucket.hash == hash => match bucket
                     .remove(key)
@@ -401,7 +401,7 @@ impl<K, V> Table<K, V> {
                             let res = table.nodes[node_index].compare_and_swap(
                                 in_place,
                                 null_mut(),
-                                SeqCst,
+                                Release,
                             );
 
                             if res == in_place {
@@ -418,7 +418,7 @@ impl<K, V> Table<K, V> {
                         let res = table.nodes[node_index].compare_and_swap(
                             in_place,
                             null_mut(),
-                            SeqCst,
+                            Release,
                         );
 
                         if res == in_place {
@@ -456,7 +456,7 @@ impl<K, V> Bucket<K, V> {
                         Entry { pair: pair.as_ptr(), next: curr.next };
                     let res = (*prev.next)
                         .ptr
-                        .compare_and_swap(curr, new_entry, SeqCst);
+                        .compare_and_swap(curr, new_entry, Release);
                     if res == curr {
                         break Some(curr.pair);
                     }
@@ -473,8 +473,9 @@ impl<K, V> Bucket<K, V> {
                     let new_entry =
                         Entry { pair: prev.pair, next: list.as_ptr() };
 
-                    let res =
-                        prev_list.ptr.compare_and_swap(prev, new_entry, SeqCst);
+                    let res = prev_list
+                        .ptr
+                        .compare_and_swap(prev, new_entry, Release);
                     if res == prev {
                         break Some(null_mut());
                     }
@@ -512,8 +513,9 @@ impl<K, V> Bucket<K, V> {
                     {
                         let empty =
                             Entry { pair: null_mut(), next: null_mut() };
-                        let res =
-                            prev_list.ptr.compare_and_swap(prev, empty, SeqCst);
+                        let res = prev_list
+                            .ptr
+                            .compare_and_swap(prev, empty, Release);
 
                         if res == prev {
                             incinerator::add(
@@ -527,7 +529,7 @@ impl<K, V> Bucket<K, V> {
                             Entry { pair: prev.pair, next: curr.next };
                         let res = prev_list
                             .ptr
-                            .compare_and_swap(prev, new_entry, SeqCst);
+                            .compare_and_swap(prev, new_entry, Release);
 
                         if res == prev {
                             incinerator::add(
@@ -551,7 +553,7 @@ impl<K, V> Bucket<K, V> {
     {
         'outer: loop {
             let mut prev_list = &self.list;
-            let mut prev = prev_list.ptr.load(SeqCst);
+            let mut prev = prev_list.ptr.load(Acquire);
             if prev.pair.is_null() {
                 break FindRes::Delete;
             }
@@ -568,10 +570,11 @@ impl<K, V> Bucket<K, V> {
                     },
                 };
 
-                let next = next_list.ptr.load(SeqCst);
+                let next = next_list.ptr.load(Acquire);
                 if next.pair.is_null() {
                     let new = Entry { pair: prev.pair, next: next.next };
-                    let res = prev_list.ptr.compare_and_swap(prev, new, SeqCst);
+                    let res =
+                        prev_list.ptr.compare_and_swap(prev, new, Release);
 
                     if res != prev {
                         break;
