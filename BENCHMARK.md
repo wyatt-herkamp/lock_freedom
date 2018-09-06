@@ -1,5 +1,5 @@
 # Benchmarks
-Benchmark code under [benchmark][] directory.
+Benchmark code under [benchmark](benchmark) directory.
 More rounds per seconds is better.
 
 As you can see, there is a lot to improve!
