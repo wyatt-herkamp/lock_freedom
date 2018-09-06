@@ -4,7 +4,7 @@ cd benchmark
 FILE=../BENCHMARK.md
 
 echo '# Benchmarks' > $FILE
-echo 'Benchmark code under [../../tree/master/benchmark] directory.' >> $FILE
+echo 'Benchmark code under [benchmark][] directory.' >> $FILE
 echo 'More rounds per seconds is better.' >> $FILE
 echo '' >> $FILE
 echo 'As you can see, there is a lot to improve!' >> $FILE
