@@ -54,7 +54,7 @@ impl Target for LockfreeInsert {
 
 fn main() {
     bench! {
-        levels 1, 4, 8, 16;
+        levels 1, 4, 16, 32;
         "mutex" => MutexInsert::default(),
         "lockfree" => LockfreeInsert::default(),
     }
