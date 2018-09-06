@@ -1,10 +1,10 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
-extern crate fuzz_helper;
+extern crate fuzzsuite;
 extern crate lockfree;
 
-use fuzz_helper::*;
+use fuzzsuite::*;
 use lockfree::atomic::{
     Atomic,
     AtomicBox,
