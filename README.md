@@ -5,10 +5,10 @@ Lockfree data structures for Rust
 <https://bzim.gitlab.io/lockfree/lockfree/>
 
 # Changelog
-See (CHANGELOG.md)[CHANGELOG.md]
+See [../../blob/master/CHANGELOG.md]
 
 # Contributing
-See (CONTRIBUTING.md)[CONTRIBUTING.md]
+See [../../blob/master/CONTRIBUTING.md]
 
 # Benchmarks
-See (BENCHMARK.md)[BENCHMARK.md]
+See [../../blob/master/BENCHMARK.md]
