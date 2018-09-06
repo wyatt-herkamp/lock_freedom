@@ -55,7 +55,7 @@ impl fmt::Display for Stat {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "mean of {:.3} r/s ({} rounds in {:.3})",
+            "mean of {:.3} r/s ({} rounds in {:.3} seconds)",
             self.rounds_per_sec(),
             self.rounds,
             self.seconds()
