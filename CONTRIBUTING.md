@@ -15,11 +15,11 @@ keyword, I would like you to write a new fuzz test. To add a new fuzz test,
 just execute `cargo fuzz add <your_test_name>`, and to run
 `./fuzz-run.sh <your_test_name> --sanitizer <choose-a-sanitizer>`. Be sure
 to have installed `cargo-fuzz`. Write the test using the tiny "framework" I
-wrote, named `fuzz_helper`, available as local package. You can look at
-other fuzz tests as examples.
+wrote, named `fuzzsuite`, available as local package, in `fuzz/fuzzsuite.
+You can look at other fuzz tests as examples.
 
 # FIXME
 I don't know why, but memory sanitizer detects uninitialized value read when
-initializing `fuzz_helper`. The weird is that I have no unsafe in it and no
+initializing `fuzzsuite`. The weird is that I have no unsafe in it and no
 reason to believe it is actually problem of my code. I believe it is an  issue
 of libfuzzer itself.

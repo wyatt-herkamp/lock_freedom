@@ -1,0 +1,24 @@
+[package]
+name = "lockfree-benchmark"
+version = "0.1.0"
+authors = ["Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
+publish = false
+
+[dependencies]
+lockfree = { path = "../" }
+benchsuite = { path = "benchsuite" }
+
+[workspace]
+members = ["benchsuite", "."]
+
+[[bin]]
+name = "stack"
+path = "src/stack.rs"
+
+[[bin]]
+name = "queue"
+path = "src/queue.rs"
+
+[[bin]]
+name = "map"
+path = "src/map.rs"

@@ -1,0 +1,7 @@
+[package]
+name = "fuzzsuite"
+version = "0.1.0"
+authors = ["Bruno Zimmermann <brunoczim@gmail.com>"]
+publish = false
+
+[dependencies]

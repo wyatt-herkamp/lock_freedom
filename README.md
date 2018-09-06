@@ -9,3 +9,6 @@ See [CHANGELOG.md]
 
 # Contributing
 See [CONTRIBUTING.md]
+
+# Benchmarks
+See [BENCHMARK.md]
