@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const ITER_PER_TRY: usize = 1000;
+pub const ITER_PER_TRY: usize = 100;
 
 pub trait Target: Clone + Send + 'static {
     fn round(&mut self);
@@ -111,7 +111,7 @@ impl Executor {
             }))
         }
 
-        let until = Duration::new(2, 500_000_000);
+        let until = Duration::from_secs(3);
         while total < until {
             barrier.wait();
             let start = Instant::now();

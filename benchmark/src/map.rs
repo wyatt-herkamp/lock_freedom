@@ -9,8 +9,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-type LockfreeInner = Arc<Map<String, usize>>;
 type MutexInner = Arc<Mutex<HashMap<String, usize>>>;
+type LockfreeInner = Arc<Map<String, usize>>;
 
 #[derive(Debug, Clone, Default)]
 struct MutexInsert {
@@ -42,7 +42,7 @@ impl Target for LockfreeInsert {
     fn round(&mut self) {
         let i = self.i;
         self.i += 1;
-        self.inner.insert(format!("{i}-{i:064b}", i = i), i);
+        self.inner.insert(format!("{i}{i:064b}", i = i), i);
     }
 }
 

@@ -6,11 +6,18 @@ then
     exit 1
 fi
 
-pushd benchmark > /dev/null || exit 1
+pushd profiling > /dev/null || exit 1
 RUSTFLAGS=-g cargo build --release --bin "$1" || exit 1
 popd > /dev/null || exit 1
 
 export PROFILING=1
 
-perf record --call-graph=dwarf -F 2000 benchmark/target/release/"$1" \
+FLAGS=
+
+if [ -n "$PROF_FREQ" ]
+then
+    FLAGS=--freq="$PROF_FREQ"
+fi
+
+perf record --call-graph=dwarf $FLAGS profiling/target/release/"$1" \
     || exit 1

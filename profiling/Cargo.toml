@@ -1,0 +1,15 @@
+[package]
+name = "lockfree-profiling"
+version = "0.1.0"
+authors = ["Bruno Zimmermann <brunoczim@gmail.com>"]
+publish = false
+
+[dependencies]
+lockfree = { path = ".." }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "map"
+path = "src/map.rs"

@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::UnsafeCell,
     collections::VecDeque,
     mem::transmute,
     process::abort,
@@ -78,7 +78,7 @@ struct Garbage {
 }
 
 struct GarbageQueue {
-    inner: RefCell<VecDeque<Garbage>>,
+    inner: UnsafeCell<VecDeque<Garbage>>,
 }
 
 impl Pause {
@@ -99,15 +99,15 @@ impl Drop for Pause {
 
 impl GarbageQueue {
     fn new() -> Self {
-        Self { inner: RefCell::new(VecDeque::with_capacity(16)) }
+        Self { inner: UnsafeCell::new(VecDeque::with_capacity(16)) }
     }
 
     fn add(&self, garbage: Garbage) {
-        self.inner.borrow_mut().push_back(garbage);
+        unsafe { &mut *self.inner.get() }.push_back(garbage);
     }
 
     fn delete(&self) {
-        let mut deque = self.inner.borrow_mut();
+        let deque = unsafe { &mut *self.inner.get() };
         while let Some(garbage) = deque.pop_front() {
             unsafe {
                 (garbage.dropper)(garbage.ptr);
