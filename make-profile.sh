@@ -10,5 +10,5 @@ pushd profiling > /dev/null || exit 1
 RUSTFLAGS=-g cargo build --release --bin "$1" || exit 1
 popd > /dev/null || exit 1
 
-vallgrind --tool=callgrind --demangle=yes ./profiling/target/release/"$1" \
+valgrind --tool=callgrind --demangle=yes ./profiling/target/release/"$1" \
     || exit 1
