@@ -58,6 +58,7 @@ pub fn try_force() -> bool {
 /// No deletions of new queues will start during the execution of the given
 /// function. Inside the passed function is a good place to load and read
 /// atomic pointers.
+#[inline]
 pub fn pause<F, T>(exec: F) -> T
 where
     F: FnOnce() -> T,

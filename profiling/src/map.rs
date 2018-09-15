@@ -14,7 +14,7 @@ fn thread_main(i: usize, map: Arc<Map<String, usize>>) {
 fn main() {
     let mut threads = Vec::new();
     let map = Arc::new(Map::new());
-    for i in 0 .. 8 {
+    for i in 0 .. 4 {
         let mut map = map.clone();
         threads.push(thread::spawn(move || thread_main(i, map)))
     }

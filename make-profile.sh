@@ -1,14 +1,34 @@
 #!/usr/bin/env sh
 
+errcho () {
+    echo 1>&2 $@
+}
+
 if [ $# -eq 0 ]
 then
-    echo "Expected binary name to profile"
+    errcho "Expected binary name to profile"
     exit 1
 fi
 
+if [ $# -lt 2 ] || [ "$2" = "debug" ]
+then
+    FLAGS=
+    FOLDER=debug
+    export RUSTFLAGS=
+elif [ "$2" != "release" ]
+then
+    errcho "Invalid mode $2; Expecting either release or debug (default)"
+    exit 1
+else
+    FLAGS=--release
+    FOLDER=release
+    export RUSTFLAGS=-g
+fi
+
+
 pushd profiling > /dev/null || exit 1
-RUSTFLAGS=-g cargo build --release --bin "$1" || exit 1
+cargo build $FLAGS --bin "$1" || exit 1
 popd > /dev/null || exit 1
 
-valgrind --tool=callgrind --demangle=yes ./profiling/target/release/"$1" \
+valgrind --tool=callgrind --demangle=yes ./profiling/target/$FOLDER/"$1" \
     || exit 1

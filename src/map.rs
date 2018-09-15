@@ -91,7 +91,7 @@ struct Table<K, V> {
 
 enum Node<K, V> {
     Leaf(Bucket<K, V>),
-    Branch(Table<K, V>),
+    Branch(NonNull<Table<K, V>>),
 }
 
 enum FindRes<'list, K, V>
@@ -234,12 +234,14 @@ impl<K, V> Removed<K, V> {
 impl<K, V> Table<K, V> {
     fn new() -> Self {
         let mut this = Self { nodes: unsafe { mem::uninitialized() } };
-        for node in &mut this.nodes as &mut [_] {
-            unsafe {
-                (node as *mut AtomicPtr<_>).write(AtomicPtr::new(null_mut()))
-            }
-        }
+        unsafe { Self::write_new(NonNull::from(&mut this)) }
         this
+    }
+
+    unsafe fn write_new(mut ptr: NonNull<Self>) {
+        for node in &mut ptr.as_mut().nodes as &mut [_] {
+            (node as *mut AtomicPtr<_>).write(AtomicPtr::new(null_mut()))
+        }
     }
 
     unsafe fn insert(
@@ -262,6 +264,8 @@ impl<K, V> Table<K, V> {
             },
         };
         let node = alloc(Node::Leaf(bucket));
+        let mut table_ptr = CachedAlloc::empty();
+        let mut branch_ptr = CachedAlloc::<Node<K, V>>::empty();
 
         let mut table = self;
         let mut index = hash;
@@ -302,11 +306,11 @@ impl<K, V> Table<K, V> {
                 },
 
                 Some(Node::Leaf(in_place)) => {
-                    let branch = alloc(Node::Branch(Table::new()));
-                    let new_table = match &*branch.as_ptr() {
-                        Node::Branch(t) => t,
-                        _ => unreachable!(),
-                    };
+                    let nnptr = table_ptr.get_or(|x| Table::write_new(x));
+                    let branch = branch_ptr
+                        .get_or(|x| x.as_ptr().write(Node::Branch(nnptr)));
+                    let new_table = &*nnptr.as_ptr();
+
                     let shifted = in_place.hash >> (depth * BITS as u64);
                     let in_place_index = shifted as usize & (1 << BITS) - 1;
 
@@ -321,13 +325,16 @@ impl<K, V> Table<K, V> {
                         table = new_table;
                         index >>= BITS as u64;
                         depth += 1;
+                        table_ptr.take();
+                        branch_ptr.take();
                     } else {
-                        dealloc(branch);
+                        new_table.nodes[in_place_index]
+                            .store(null_mut(), Relaxed);
                     }
                 },
 
                 Some(Node::Branch(new_table)) => {
-                    table = new_table;
+                    table = &*new_table.as_ptr();
                     index >>= BITS as u64;
                     depth += 1;
                 },
@@ -372,7 +379,7 @@ impl<K, V> Table<K, V> {
                 },
 
                 Some(Node::Branch(new_table)) => {
-                    table = new_table;
+                    table = &*new_table.as_ptr();
                     index >>= BITS as u64;
                 },
 
@@ -429,7 +436,7 @@ impl<K, V> Table<K, V> {
                 },
 
                 Some(Node::Branch(new_table)) => {
-                    table = new_table;
+                    table = &*new_table.as_ptr();
                     index >>= BITS as u64;
                 },
 
@@ -635,12 +642,14 @@ impl<K, V, H> Drop for Map<K, V, H> {
                 },
 
                 Node::Branch(table) => {
-                    for node in &table.nodes as &[AtomicPtr<_>] {
+                    let nodes = unsafe { &(*table.as_ptr()).nodes };
+                    for node in nodes as &[AtomicPtr<_>] {
                         let loaded = node.load(Acquire);
                         if let Some(nnptr) = NonNull::new(loaded) {
                             node_ptrs.push(nnptr);
                         }
                     }
+                    unsafe { dealloc(*table) }
                 },
             }
 
@@ -782,14 +791,14 @@ unsafe impl<K, V, H> Send for Map<K, V, H>
 where
     K: Send + Sync,
     V: Send + Sync,
-    H: Send + Sync,
+    H: Send,
 {}
 
 unsafe impl<K, V, H> Sync for Map<K, V, H>
 where
     K: Send + Sync,
     V: Send + Sync,
-    H: Send + Sync,
+    H: Sync,
 {}
 
 #[cfg(test)]
