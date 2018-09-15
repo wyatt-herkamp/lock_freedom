@@ -22,6 +22,12 @@
 //! - [x] Map
 //! - [ ] Set
 
+#[allow(dead_code)]
+mod stat;
+
+#[allow(dead_code)]
+mod alloc;
+
 /// Provides convenient re-exports.
 pub mod prelude;
 
@@ -104,6 +110,3 @@ pub mod map;
 
 /// Provides a doubly atomic reference counter.
 pub mod darc;
-
-#[allow(dead_code)]
-mod alloc;

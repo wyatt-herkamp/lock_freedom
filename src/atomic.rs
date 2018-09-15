@@ -13,34 +13,8 @@ use std::{
     },
 };
 
-/// A box which can atomically load/store non-word-sized but Copy values.
-/// # Example
-/// ```rust
-/// extern crate lockfree;
-/// use lockfree::atomic::{Atomic, AtomicBox, Ordering::*};
-/// use std::{sync::Arc, thread};
-///
-/// let atomic = Arc::new(AtomicBox::new((0u128, 2u128)));
-/// let mut threads = Vec::new();
-/// for i in 1 ..= 10 {
-///     let atomic = atomic.clone();
-///     threads.push(thread::spawn(move || {
-///         let loaded = atomic.load(Acquire);
-///         atomic.cas_loop(loaded, |(x, y)| Some((x + i, y + 1 + i)), AcqRel);
-///     }));
-/// }
-///
-/// for thread in threads {
-///     thread.join().expect("thread failed");
-/// }
-/// assert_eq!(atomic.load(Relaxed), (55, 67));
-/// ```
-pub struct AtomicBox<T> {
-    ptr: AtomicPtr<T>,
-}
-
 /// Specifies conversion between a type and its atomic form.
-pub trait IntoAtomic: Copy + Eq {
+pub trait IntoAtomic: Copy + PartialEq {
     /// The target atomic type, which must have itself as inner type.
     type Target: Atomic<Inner = Self>;
 
@@ -53,7 +27,7 @@ pub trait IntoAtomic: Copy + Eq {
 /// Speicifies atomic operations on a given type.
 pub trait Atomic: Send + Sync {
     /// The inner type of atomic operations.
-    type Inner: Copy + Eq;
+    type Inner: Copy + PartialEq;
 
     /// Creates a new atomic value from the inner type's value.
     fn new(init: Self::Inner) -> Self;
@@ -232,9 +206,35 @@ impl<T> IntoAtomic for *mut T {
     type Target = AtomicPtr<T>;
 }
 
+/// A box which can atomically load/store non-word-sized but Copy values.
+/// # Example
+/// ```rust
+/// extern crate lockfree;
+/// use lockfree::atomic::{Atomic, AtomicBox, Ordering::*};
+/// use std::{sync::Arc, thread};
+///
+/// let atomic = Arc::new(AtomicBox::new((0u128, 2u128)));
+/// let mut threads = Vec::new();
+/// for i in 1 ..= 10 {
+///     let atomic = atomic.clone();
+///     threads.push(thread::spawn(move || {
+///         let loaded = atomic.load(Acquire);
+///         atomic.cas_loop(loaded, |(x, y)| Some((x + i, y + 1 + i)), AcqRel);
+///     }));
+/// }
+///
+/// for thread in threads {
+///     thread.join().expect("thread failed");
+/// }
+/// assert_eq!(atomic.load(Relaxed), (55, 67));
+/// ```
+pub struct AtomicBox<T> {
+    ptr: AtomicPtr<T>,
+}
+
 impl<T> Atomic for AtomicBox<T>
 where
-    T: Copy + Eq,
+    T: Copy + PartialEq,
 {
     type Inner = T;
 
@@ -367,7 +367,7 @@ where
     where
         F: FnMut(Self::Inner) -> Option<Self::Inner>,
     {
-        let new_ptr = unsafe { alloc_uninit() }.as_ptr();
+        let mut new_cache = CachedAlloc::empty();
 
         let (result, ptr) = incinerator::pause(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
@@ -375,16 +375,20 @@ where
             loop {
                 let loaded = unsafe { *loaded_ptr };
                 if let Some(new) = update(loaded) {
-                    unsafe { *new_ptr = new }
-                    let res_ptr =
-                        self.ptr.compare_and_swap(loaded_ptr, new_ptr, cas_ord);
+                    let new_ptr = unsafe { new_cache.get_or(|_| {}) };
+                    unsafe { *new_ptr.as_ptr() = new }
+                    let res_ptr = self.ptr.compare_and_swap(
+                        loaded_ptr,
+                        new_ptr.as_ptr(),
+                        cas_ord,
+                    );
                     if res_ptr == loaded_ptr {
+                        unsafe { new_cache.take() };
                         break (Ok(loaded), res_ptr);
                     } else {
                         loaded_ptr = res_ptr;
                     }
                 } else {
-                    unsafe { dealloc(NonNull::new_unchecked(new_ptr)) }
                     break (Err(loaded), null_mut());
                 }
             }
@@ -412,7 +416,7 @@ impl<T> fmt::Debug for AtomicBox<T> {
 
 impl<T> Default for AtomicBox<T>
 where
-    T: Copy + Eq + Default,
+    T: Copy + PartialEq + Default,
 {
     fn default() -> Self {
         Self::new(T::default())
@@ -421,7 +425,7 @@ where
 
 impl<T> From<T> for AtomicBox<T>
 where
-    T: Copy + Eq,
+    T: Copy + PartialEq,
 {
     fn from(val: T) -> Self {
         Self::new(val)

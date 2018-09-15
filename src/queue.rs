@@ -14,12 +14,6 @@ pub struct Queue<T> {
     back: AtomicPtr<Node<T>>,
 }
 
-#[derive(Debug)]
-struct Node<T> {
-    val: AtomicPtr<T>,
-    next: AtomicPtr<Node<T>>,
-}
-
 impl<T> Queue<T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
@@ -191,6 +185,12 @@ impl<'a, T> Iterator for Iter<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.queue.pop()
     }
+}
+
+#[derive(Debug)]
+struct Node<T> {
+    val: AtomicPtr<T>,
+    next: AtomicPtr<Node<T>>,
 }
 
 impl<T> Node<T> {

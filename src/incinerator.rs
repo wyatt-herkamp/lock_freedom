@@ -7,6 +7,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering::*},
 };
 
+static PAUSED_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 /// Adds the given pointer and drop function to the local deletion queue.
 /// If there is no critical code executing (i.e. the incinerator is not
 /// paused), all local queue items are deleted. This function is unsafe because
@@ -73,15 +75,6 @@ where
 
 struct Pause;
 
-struct Garbage {
-    ptr: NonNull<u8>,
-    dropper: unsafe fn(NonNull<u8>),
-}
-
-struct GarbageQueue {
-    inner: UnsafeCell<VecDeque<Garbage>>,
-}
-
 impl Pause {
     pub fn new() -> Self {
         // prevent count from overflowing and creating bugs
@@ -96,6 +89,15 @@ impl Drop for Pause {
     fn drop(&mut self) {
         PAUSED_COUNT.fetch_sub(1, Release);
     }
+}
+
+struct Garbage {
+    ptr: NonNull<u8>,
+    dropper: unsafe fn(NonNull<u8>),
+}
+
+struct GarbageQueue {
+    inner: UnsafeCell<VecDeque<Garbage>>,
 }
 
 impl GarbageQueue {
@@ -127,8 +129,6 @@ impl Drop for GarbageQueue {
 thread_local! {
     static LOCAL_DELETION: GarbageQueue = GarbageQueue::new();
 }
-
-static PAUSED_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 // Testing the safety of `unsafe` in this module is done with random operations
 // via fuzzing

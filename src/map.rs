@@ -1,6 +1,7 @@
 use alloc::*;
 use atomic::{Atomic, AtomicBox};
 use incinerator;
+use stat::*;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -54,63 +55,7 @@ const BITS: usize = 8;
 pub struct Map<K, V, H = RandomState> {
     table: Table<K, V>,
     builder: H,
-}
-
-/// A removed entry. Although the entry allows the user to immutable access key
-/// and value, it does not allow moving them. This is because it cannot be
-/// dropped by the user. Imagine that a thread would remove and drop (by user
-/// defined code) the entry after another thread began would be reading, but,
-/// in the moment of the drop, still reading. This would cause use-after-free.
-#[derive(Eq)]
-pub struct Removed<K, V> {
-    pair: NonNull<Pair<K, V>>,
-}
-
-struct Pair<K, V> {
-    key: K,
-    val: V,
-}
-
-struct Entry<K, V> {
-    pair: *mut Pair<K, V>,
-    next: *mut List<K, V>,
-}
-
-struct List<K, V> {
-    ptr: AtomicBox<Entry<K, V>>,
-}
-
-struct Bucket<K, V> {
-    hash: u64,
-    list: List<K, V>,
-}
-
-struct Table<K, V> {
-    nodes: [AtomicPtr<Node<K, V>>; 1 << BITS],
-}
-
-enum Node<K, V> {
-    Leaf(Bucket<K, V>),
-    Branch(NonNull<Table<K, V>>),
-}
-
-enum FindRes<'list, K, V>
-where
-    K: 'list,
-    V: 'list,
-{
-    Delete,
-    Eq {
-        prev_list: &'list List<K, V>,
-        prev: Entry<K, V>,
-        curr: Entry<K, V>,
-    },
-    Between {
-        prev_list: &'list List<K, V>,
-        prev: Entry<K, V>,
-        #[allow(dead_code)]
-        next: Option<Entry<K, V>>,
-    },
+    _stat: Stats,
 }
 
 impl<K, V> Map<K, V, RandomState> {
@@ -126,7 +71,7 @@ impl<K, V, H> Map<K, V, H> {
     where
         H: BuildHasher,
     {
-        Self { table: Table::new(), builder }
+        Self { table: Table::new(), builder, _stat: Stats::new() }
     }
 
     /// Sets the mapped value of a key, disregarding it exists or not. If it
@@ -216,20 +161,90 @@ impl<K, V, H> Map<K, V, H> {
     }
 }
 
-impl<K, V> Removed<K, V> {
-    unsafe fn new(pair: NonNull<Pair<K, V>>) -> Self {
-        Self { pair }
-    }
+impl<K, V, H> Drop for Map<K, V, H> {
+    fn drop(&mut self) {
+        let mut node_ptrs = Vec::new();
+        for node in &self.table.nodes as &[AtomicPtr<_>] {
+            let loaded = node.load(Acquire);
+            if let Some(nnptr) = NonNull::new(loaded) {
+                node_ptrs.push(nnptr);
+            }
+        }
 
-    /// The key of this removed entry.
-    pub fn key(&self) -> &K {
-        &unsafe { self.pair.as_ref() }.key
-    }
+        while let Some(node_ptr) = node_ptrs.pop() {
+            match unsafe { node_ptr.as_ref() } {
+                Node::Leaf(bucket) => {
+                    let mut list = bucket.list.ptr.load(Relaxed).next;
+                    while let Some(nnptr) = NonNull::new(list) {
+                        let entry = unsafe { nnptr.as_ref().ptr.load(Relaxed) };
+                        if let Some(nnptr) = NonNull::new(entry.pair) {
+                            unsafe { dealloc(nnptr) }
+                        }
+                        unsafe { dealloc(nnptr) }
+                        list = entry.next;
+                    }
+                },
 
-    /// The value of this removed entry.
-    pub fn val(&self) -> &V {
-        &unsafe { self.pair.as_ref() }.val
+                Node::Branch(table) => {
+                    let nodes = unsafe { &(*table.as_ptr()).nodes };
+                    for node in nodes as &[AtomicPtr<_>] {
+                        let loaded = node.load(Acquire);
+                        if let Some(nnptr) = NonNull::new(loaded) {
+                            node_ptrs.push(nnptr);
+                        }
+                    }
+                    unsafe { dealloc(*table) }
+                },
+            }
+
+            unsafe { dealloc(node_ptr) }
+        }
     }
+}
+
+impl<K, V, H> Default for Map<K, V, H>
+where
+    H: BuildHasher + Default,
+{
+    fn default() -> Self {
+        Self::with_hasher(H::default())
+    }
+}
+
+unsafe impl<K, V, H> Send for Map<K, V, H>
+where
+    K: Send + Sync,
+    V: Send + Sync,
+    H: Send,
+{}
+
+unsafe impl<K, V, H> Sync for Map<K, V, H>
+where
+    K: Send + Sync,
+    V: Send + Sync,
+    H: Sync,
+{}
+
+impl<K, V, H> fmt::Debug for Map<K, V, H>
+where
+    H: fmt::Debug,
+{
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmtr,
+            "Map {} hasher_builder = {:?}, entries = ... {}",
+            '{', self.builder, '}'
+        )
+    }
+}
+
+enum Node<K, V> {
+    Leaf(Bucket<K, V>),
+    Branch(NonNull<Table<K, V>>),
+}
+
+struct Table<K, V> {
+    nodes: [AtomicPtr<Node<K, V>>; 1 << BITS],
 }
 
 impl<K, V> Table<K, V> {
@@ -447,6 +462,60 @@ impl<K, V> Table<K, V> {
     }
 }
 
+struct Pair<K, V> {
+    key: K,
+    val: V,
+}
+
+struct Entry<K, V> {
+    pair: *mut Pair<K, V>,
+    next: *mut List<K, V>,
+}
+
+impl<K, V> PartialEq for Entry<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.pair == other.pair && self.next == other.next
+    }
+}
+
+impl<K, V> Eq for Entry<K, V> {}
+
+impl<K, V> Clone for Entry<K, V> {
+    fn clone(&self) -> Self {
+        Self { pair: self.pair, next: self.next }
+    }
+}
+
+impl<K, V> Copy for Entry<K, V> {}
+
+struct List<K, V> {
+    ptr: AtomicBox<Entry<K, V>>,
+}
+
+enum FindRes<'list, K, V>
+where
+    K: 'list,
+    V: 'list,
+{
+    Delete,
+    Eq {
+        prev_list: &'list List<K, V>,
+        prev: Entry<K, V>,
+        curr: Entry<K, V>,
+    },
+    Between {
+        prev_list: &'list List<K, V>,
+        prev: Entry<K, V>,
+        #[allow(dead_code)]
+        next: Option<Entry<K, V>>,
+    },
+}
+
+struct Bucket<K, V> {
+    hash: u64,
+    list: List<K, V>,
+}
+
 impl<K, V> Bucket<K, V> {
     unsafe fn insert(
         &self,
@@ -618,88 +687,35 @@ impl<K, V> Bucket<K, V> {
     }
 }
 
-impl<K, V, H> Drop for Map<K, V, H> {
-    fn drop(&mut self) {
-        let mut node_ptrs = Vec::new();
-        for node in &self.table.nodes as &[AtomicPtr<_>] {
-            let loaded = node.load(Acquire);
-            if let Some(nnptr) = NonNull::new(loaded) {
-                node_ptrs.push(nnptr);
-            }
-        }
+/// A removed entry. Although the entry allows the user to immutable access key
+/// and value, it does not allow moving them. This is because it cannot be
+/// dropped by the user. Imagine that a thread would remove and drop (by user
+/// defined code) the entry after another thread began would be reading, but,
+/// in the moment of the drop, still reading. This would cause use-after-free.
+#[derive(Eq)]
+pub struct Removed<K, V> {
+    pair: NonNull<Pair<K, V>>,
+}
 
-        while let Some(node_ptr) = node_ptrs.pop() {
-            match unsafe { node_ptr.as_ref() } {
-                Node::Leaf(bucket) => {
-                    let mut list = bucket.list.ptr.load(Relaxed).next;
-                    while let Some(nnptr) = NonNull::new(list) {
-                        let entry = unsafe { nnptr.as_ref().ptr.load(Relaxed) };
-                        if let Some(nnptr) = NonNull::new(entry.pair) {
-                            unsafe { dealloc(nnptr) }
-                        }
-                        unsafe { dealloc(nnptr) }
-                        list = entry.next;
-                    }
-                },
+impl<K, V> Removed<K, V> {
+    unsafe fn new(pair: NonNull<Pair<K, V>>) -> Self {
+        Self { pair }
+    }
 
-                Node::Branch(table) => {
-                    let nodes = unsafe { &(*table.as_ptr()).nodes };
-                    for node in nodes as &[AtomicPtr<_>] {
-                        let loaded = node.load(Acquire);
-                        if let Some(nnptr) = NonNull::new(loaded) {
-                            node_ptrs.push(nnptr);
-                        }
-                    }
-                    unsafe { dealloc(*table) }
-                },
-            }
+    /// The key of this removed entry.
+    pub fn key(&self) -> &K {
+        &unsafe { self.pair.as_ref() }.key
+    }
 
-            unsafe { dealloc(node_ptr) }
-        }
+    /// The value of this removed entry.
+    pub fn val(&self) -> &V {
+        &unsafe { self.pair.as_ref() }.val
     }
 }
 
 impl<K, V> Drop for Removed<K, V> {
     fn drop(&mut self) {
         unsafe { incinerator::add(self.pair, dealloc) }
-    }
-}
-
-impl<K, V, H> Default for Map<K, V, H>
-where
-    H: BuildHasher + Default,
-{
-    fn default() -> Self {
-        Self::with_hasher(H::default())
-    }
-}
-
-impl<K, V> PartialEq for Entry<K, V> {
-    fn eq(&self, other: &Self) -> bool {
-        self.pair == other.pair && self.next == other.next
-    }
-}
-
-impl<K, V> Eq for Entry<K, V> {}
-
-impl<K, V> Clone for Entry<K, V> {
-    fn clone(&self) -> Self {
-        Self { pair: self.pair, next: self.next }
-    }
-}
-
-impl<K, V> Copy for Entry<K, V> {}
-
-impl<K, V, H> fmt::Debug for Map<K, V, H>
-where
-    H: fmt::Debug,
-{
-    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmtr,
-            "Map {} hasher_builder = {:?}, entries = ... {}",
-            '{', self.builder, '}'
-        )
     }
 }
 
@@ -788,19 +804,21 @@ where
     }
 }
 
-unsafe impl<K, V, H> Send for Map<K, V, H>
-where
-    K: Send + Sync,
-    V: Send + Sync,
-    H: Send,
-{}
+#[derive(Debug)]
+struct Stats {
+    table_insert_loops: Stat,
+    bucket_insert_loops: Stat,
+}
 
-unsafe impl<K, V, H> Sync for Map<K, V, H>
-where
-    K: Send + Sync,
-    V: Send + Sync,
-    H: Sync,
-{}
+impl Stats {
+    #[inline(always)]
+    fn new() -> Self {
+        Self {
+            table_insert_loops: Stat::new("Table<K, V>::insert loops"),
+            bucket_insert_loops: Stat::new("Bucket<K, V>::insert loops"),
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
