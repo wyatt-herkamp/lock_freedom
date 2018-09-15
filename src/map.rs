@@ -12,7 +12,7 @@ use std::{
     sync::atomic::{AtomicPtr, Ordering::*},
 };
 
-static mut _NON_NULL: u8 = 255;
+static mut _NON_NULL: u8 = 0;
 
 const BITS: usize = 8;
 
@@ -136,9 +136,7 @@ impl<K, V, H> Map<K, V, H> {
         K: Hash + Ord,
         H: BuildHasher,
     {
-        let mut hasher = self.builder.build_hasher();
-        key.hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = self.hash_of(&key);
         incinerator::pause(|| unsafe {
             let ptr = alloc(Pair { key, val });
             NonNull::new(self.table.insert(ptr, hash)).map(|x| Removed::new(x))
@@ -153,9 +151,7 @@ impl<K, V, H> Map<K, V, H> {
         K: Hash + Ord,
         H: BuildHasher,
     {
-        let mut hasher = self.builder.build_hasher();
-        removed.key().hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = self.hash_of(removed.key());
         incinerator::pause(|| unsafe {
             let pair = removed.pair;
             mem::forget(removed);
@@ -174,9 +170,7 @@ impl<K, V, H> Map<K, V, H> {
         H: BuildHasher,
         F: FnOnce(&V) -> T,
     {
-        let mut hasher = self.builder.build_hasher();
-        key.hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
             self.table.get(key, hash).as_ref().map(|x| reader(&x.val))
         })
@@ -191,9 +185,7 @@ impl<K, V, H> Map<K, V, H> {
         H: BuildHasher,
         F: FnOnce(&K, &V) -> T,
     {
-        let mut hasher = self.builder.build_hasher();
-        key.hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
             self.table.get(key, hash).as_ref().map(|x| reader(&x.key, &x.val))
         })
@@ -206,12 +198,21 @@ impl<K, V, H> Map<K, V, H> {
         K: Borrow<Q>,
         H: BuildHasher,
     {
-        let mut hasher = self.builder.build_hasher();
-        key.hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
             NonNull::new(self.table.remove(key, hash)).map(|x| Removed::new(x))
         })
+    }
+
+    #[inline]
+    fn hash_of<Q>(&self, key: &Q) -> u64
+    where
+        Q: Hash + ?Sized,
+        H: BuildHasher,
+    {
+        let mut hasher = self.builder.build_hasher();
+        key.hash(&mut hasher);
+        hasher.finish()
     }
 }
 
