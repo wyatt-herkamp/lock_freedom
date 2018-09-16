@@ -14,7 +14,6 @@ if [ $# -lt 2 ] || [ "$2" = "debug" ]
 then
     FLAGS=
     FOLDER=debug
-    export RUSTFLAGS=
 elif [ "$2" != "release" ]
 then
     errcho "Invalid mode $2; Expecting either release or debug (default)"
@@ -22,7 +21,7 @@ then
 else
     FLAGS=--release
     FOLDER=release
-    export RUSTFLAGS=-g
+    export RUSTFLAGS='-g '"$RUSTFLAGS"
 fi
 
 

@@ -21,9 +21,10 @@
 //! - [ ] Deque
 //! - [x] Map
 //! - [ ] Set
-
-#[allow(dead_code)]
-mod stat;
+//!
+//! # Performance Guide
+//! In order to achieve a better time performance with lockfree, it is
+//! recommended to avoid global locking things like heap allocation.
 
 #[allow(dead_code)]
 mod alloc;

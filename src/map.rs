@@ -1,7 +1,6 @@
 use alloc::*;
 use atomic::{Atomic, AtomicBox};
 use incinerator;
-use stat::*;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -13,7 +12,7 @@ use std::{
     sync::atomic::{AtomicPtr, Ordering::*},
 };
 
-static mut _NON_NULL: u8 = 0;
+static _NON_NULL: u8 = 0;
 
 const BITS: usize = 8;
 
@@ -55,7 +54,6 @@ const BITS: usize = 8;
 pub struct Map<K, V, H = RandomState> {
     table: Table<K, V>,
     builder: H,
-    _stat: Stats,
 }
 
 impl<K, V> Map<K, V, RandomState> {
@@ -71,7 +69,7 @@ impl<K, V, H> Map<K, V, H> {
     where
         H: BuildHasher,
     {
-        Self { table: Table::new(), builder, _stat: Stats::new() }
+        Self { table: Table::new(), builder }
     }
 
     /// Sets the mapped value of a key, disregarding it exists or not. If it
@@ -84,7 +82,8 @@ impl<K, V, H> Map<K, V, H> {
         let hash = self.hash_of(&key);
         incinerator::pause(|| unsafe {
             let ptr = alloc(Pair { key, val });
-            NonNull::new(self.table.insert(ptr, hash)).map(|x| Removed::new(x))
+            let res = self.table.insert(ptr, hash);
+            NonNull::new(res).map(|x| Removed::new(x))
         })
     }
 
@@ -100,7 +99,8 @@ impl<K, V, H> Map<K, V, H> {
         incinerator::pause(|| unsafe {
             let pair = removed.pair;
             mem::forget(removed);
-            NonNull::new(self.table.insert(pair, hash)).map(|x| Removed::new(x))
+            let res = self.table.insert(pair, hash);
+            NonNull::new(res).map(|x| Removed::new(x))
         })
     }
 
@@ -117,7 +117,8 @@ impl<K, V, H> Map<K, V, H> {
     {
         let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
-            self.table.get(key, hash).as_ref().map(|x| reader(&x.val))
+            let res = self.table.get(key, hash);
+            res.as_ref().map(|x| reader(&x.val))
         })
     }
 
@@ -132,7 +133,8 @@ impl<K, V, H> Map<K, V, H> {
     {
         let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
-            self.table.get(key, hash).as_ref().map(|x| reader(&x.key, &x.val))
+            let res = self.table.get(key, hash);
+            res.as_ref().map(|x| reader(&x.key, &x.val))
         })
     }
 
@@ -145,7 +147,8 @@ impl<K, V, H> Map<K, V, H> {
     {
         let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
-            NonNull::new(self.table.remove(key, hash)).map(|x| Removed::new(x))
+            let res = self.table.remove(key, hash);
+            NonNull::new(res).map(|x| Removed::new(x))
         })
     }
 
@@ -274,7 +277,7 @@ impl<K, V> Table<K, V> {
             hash,
             list: List {
                 ptr: AtomicBox::new(Entry {
-                    pair: &mut _NON_NULL as *mut _ as _,
+                    pair: &_NON_NULL as *const _ as *mut _,
                     next: list.as_ptr(),
                 }),
             },
@@ -445,7 +448,10 @@ impl<K, V> Table<K, V> {
                         );
 
                         if res == in_place {
-                            dealloc(NonNull::new_unchecked(res));
+                            incinerator::add(
+                                NonNull::new_unchecked(res),
+                                dealloc,
+                            );
                             break null_mut();
                         }
                     },
@@ -470,6 +476,12 @@ struct Pair<K, V> {
 struct Entry<K, V> {
     pair: *mut Pair<K, V>,
     next: *mut List<K, V>,
+}
+
+impl<K, V> Entry<K, V> {
+    fn is_empty(&self) -> bool {
+        self.pair == &_NON_NULL as *const _ as *mut _ && self.next.is_null()
+    }
 }
 
 impl<K, V> PartialEq for Entry<K, V> {
@@ -499,6 +511,7 @@ where
 {
     Delete,
     Eq {
+        #[allow(dead_code)]
         prev_list: &'list List<K, V>,
         prev: Entry<K, V>,
         curr: Entry<K, V>,
@@ -510,6 +523,28 @@ where
         next: Option<Entry<K, V>>,
     },
 }
+
+impl<'list, K, V> PartialEq for FindRes<'list, K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (FindRes::Delete, FindRes::Delete) => true,
+
+            (
+                FindRes::Eq { prev: p0, curr: c0, .. },
+                FindRes::Eq { prev: p1, curr: c1, .. },
+            ) => p0 == p1 && c0 == c1,
+
+            (
+                FindRes::Between { prev: p0, next: n0, .. },
+                FindRes::Between { prev: p1, next: n1, .. },
+            ) => p0 == p1 && n0 == n1,
+
+            _ => false,
+        }
+    }
+}
+
+impl<'list, K, V> Eq for FindRes<'list, K, V> {}
 
 struct Bucket<K, V> {
     hash: u64,
@@ -584,41 +619,52 @@ impl<K, V> Bucket<K, V> {
             match self.find(key) {
                 FindRes::Delete => break None,
 
-                FindRes::Eq { prev_list, prev, curr } => {
-                    if prev.pair == &mut _NON_NULL as *mut _ as _
-                        && curr.next.is_null()
-                    {
-                        let empty =
-                            Entry { pair: null_mut(), next: null_mut() };
-                        let res = prev_list
-                            .ptr
-                            .compare_and_swap(prev, empty, Release);
+                FindRes::Eq { prev, curr, .. } => {
+                    let new_entry = Entry { pair: null_mut(), next: curr.next };
+                    let res = (*prev.next)
+                        .ptr
+                        .compare_and_swap(curr, new_entry, Release);
 
-                        if res == prev {
-                            incinerator::add(
-                                NonNull::new_unchecked(prev.next),
-                                dealloc,
-                            );
-                            break Some((curr.pair, true));
-                        }
-                    } else {
-                        let new_entry =
-                            Entry { pair: prev.pair, next: curr.next };
-                        let res = prev_list
-                            .ptr
-                            .compare_and_swap(prev, new_entry, Release);
-
-                        if res == prev {
-                            incinerator::add(
-                                NonNull::new_unchecked(prev.next),
-                                dealloc,
-                            );
-                            break Some((curr.pair, false));
-                        }
+                    if res == curr {
+                        break Some((
+                            curr.pair,
+                            Entry { pair: prev.pair, next: curr.next }
+                                .is_empty()
+                                && self.try_clean_first(),
+                        ));
                     }
                 },
 
                 _ => break Some((null_mut(), false)),
+            }
+        }
+    }
+
+    unsafe fn try_clean_first(&self) -> bool {
+        loop {
+            let prev_list = &self.list;
+            let prev = prev_list.ptr.load(Acquire);
+            let next_list = match prev.next.as_ref() {
+                Some(next) => next,
+                None => break true,
+            };
+
+            let next = next_list.ptr.load(Acquire);
+            if next.pair.is_null() {
+                let new = Entry { pair: prev.pair, next: next.next };
+                let res = prev_list.ptr.compare_and_swap(prev, new, Release);
+
+                if res != prev {
+                    break false;
+                }
+
+                incinerator::add(NonNull::new_unchecked(prev.next), dealloc);
+
+                if new.is_empty() {
+                    break true;
+                }
+            } else {
+                break false;
             }
         }
     }
@@ -631,7 +677,7 @@ impl<K, V> Bucket<K, V> {
         'outer: loop {
             let mut prev_list = &self.list;
             let mut prev = prev_list.ptr.load(Acquire);
-            if prev.pair.is_null() {
+            if prev.is_empty() {
                 break FindRes::Delete;
             }
 
@@ -661,6 +707,11 @@ impl<K, V> Bucket<K, V> {
                         NonNull::new_unchecked(prev.next),
                         dealloc,
                     );
+
+                    if new.is_empty() {
+                        break 'outer FindRes::Delete;
+                    }
+
                     continue;
                 }
 
@@ -801,22 +852,6 @@ where
     {
         self.key().hash(state);
         self.val().hash(state);
-    }
-}
-
-#[derive(Debug)]
-struct Stats {
-    table_insert_loops: Stat,
-    bucket_insert_loops: Stat,
-}
-
-impl Stats {
-    #[inline(always)]
-    fn new() -> Self {
-        Self {
-            table_insert_loops: Stat::new("Table<K, V>::insert loops"),
-            bucket_insert_loops: Stat::new("Bucket<K, V>::insert loops"),
-        }
     }
 }
 
