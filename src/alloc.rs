@@ -65,6 +65,12 @@ impl<T> CachedAlloc<T> {
         }
     }
 
+    pub unsafe fn swap(&mut self, ptr: NonNull<T>) -> Option<NonNull<T>> {
+        let old = self.take();
+        self.ptr = Some(ptr);
+        old
+    }
+
     pub unsafe fn take(&mut self) -> Option<NonNull<T>> {
         self.ptr.take()
     }

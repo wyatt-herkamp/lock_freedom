@@ -219,18 +219,24 @@ fn main() {
     bench! {
         levels 1, 4, 16, 32;
         "mutex remove" => MutexRemove {
-            inner: mutex,
+            inner: mutex.clone(),
             i: 0,
         },
         "lockfree remove" => LockfreeRemove {
-            inner: lockfree,
+            inner: lockfree.clone(),
             i: 0
         },
     }
 
     bench! {
         levels 1, 4, 16, 32;
-        "mutex mixed" => MutexMixed::default(),
-        "lockfree mixed" => LockfreeMixed::default(),
+        "mutex mixed" => MutexMixed {
+            inner: mutex,
+            i: 0,
+        },
+        "lockfree mixed" => LockfreeMixed {
+            inner: lockfree,
+            i: 0,
+        },
     }
 }
