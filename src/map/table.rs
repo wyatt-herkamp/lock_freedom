@@ -1,4 +1,7 @@
-use super::bucket::{Bucket, Entry, List, Pair};
+use super::{
+    bucket::{Bucket, Entry, GetRes, InsertRes, List, Pair, RemoveRes},
+    insertion::{Inserter, PreviewAlloc},
+};
 use alloc::*;
 use incinerator;
 use std::{
@@ -40,15 +43,21 @@ impl<K, V> Table<K, V> {
         &mut self.nodes
     }
 
-    pub unsafe fn insert(
+    pub unsafe fn insert<I>(
         &self,
-        pair: NonNull<Pair<K, V>>,
         hash: u64,
-    ) -> *mut Pair<K, V>
+        preview: &mut PreviewAlloc<K, V>,
+        inserter: &mut I,
+    ) -> Option<NonNull<Pair<K, V>>>
     where
         K: Ord,
+        I: Inserter<K, V>,
     {
-        let entry = Entry::new(pair.as_ptr(), null_mut());
+        if !inserter.update_and_test(preview, None) {
+            return self.insert_non_new(hash, preview, inserter);
+        }
+
+        let entry = Entry::new(preview.ptr().as_ptr(), null_mut());
         let list = alloc(List::new(entry));
         let root = Entry::root(list.as_ptr());
         let bucket = Bucket::new(hash, List::new(root));
@@ -69,14 +78,21 @@ impl<K, V> Table<K, V> {
             );
             match old.as_ref() {
                 Some(Node::Leaf(in_place)) if in_place.hash() == hash => {
-                    match in_place.insert(pair) {
-                        Some(ptr) => {
+                    match in_place.insert(preview, inserter) {
+                        InsertRes::Updated(ptr) => {
                             dealloc(node);
                             dealloc(list);
-                            break ptr;
+                            break Some(ptr);
                         },
 
-                        None => {
+                        InsertRes::Created => break None,
+
+                        InsertRes::Failed => {
+                            preview.discard();
+                            break None;
+                        },
+
+                        InsertRes::Delete => {
                             let res = table.nodes[node_index].compare_and_swap(
                                 old,
                                 node.as_ptr(),
@@ -88,7 +104,7 @@ impl<K, V> Table<K, V> {
                                     NonNull::new_unchecked(res),
                                     dealloc,
                                 );
-                                break null_mut();
+                                break None;
                             }
                         },
                     }
@@ -128,12 +144,78 @@ impl<K, V> Table<K, V> {
                     depth += 1;
                 },
 
-                None => break null_mut(),
+                None => break None,
             }
         }
     }
 
-    pub unsafe fn get<Q>(&self, key: &Q, hash: u64) -> *mut Pair<K, V>
+    unsafe fn insert_non_new<I>(
+        &self,
+        hash: u64,
+        preview: &mut PreviewAlloc<K, V>,
+        inserter: &mut I,
+    ) -> Option<NonNull<Pair<K, V>>>
+    where
+        K: Ord,
+        I: Inserter<K, V>,
+    {
+        let mut table = self;
+        let mut index = hash;
+        let mut depth = 1;
+
+        loop {
+            let node_index = index as usize & (1 << BITS) - 1;
+            let in_place = table.nodes[node_index].load(Acquire);
+            match in_place.as_ref() {
+                Some(Node::Leaf(bucket)) if bucket.hash() == hash => {
+                    match bucket.insert(preview, inserter) {
+                        InsertRes::Updated(ptr) => break Some(ptr),
+
+                        InsertRes::Created => break None,
+
+                        InsertRes::Failed => {
+                            preview.discard();
+                            break None;
+                        },
+
+                        InsertRes::Delete => {
+                            let res = table.nodes[node_index].compare_and_swap(
+                                in_place,
+                                null_mut(),
+                                Release,
+                            );
+
+                            if res == in_place {
+                                incinerator::add(
+                                    NonNull::new_unchecked(res),
+                                    dealloc,
+                                );
+                                preview.discard();
+                                break None;
+                            }
+                        },
+                    }
+                },
+
+                Some(Node::Branch(new_table)) => {
+                    table = &*new_table.as_ptr();
+                    index >>= BITS as u64;
+                    depth += 1;
+                },
+
+                _ => {
+                    preview.discard();
+                    break None;
+                },
+            }
+        }
+    }
+
+    pub unsafe fn get<Q>(
+        &self,
+        key: &Q,
+        hash: u64,
+    ) -> Option<NonNull<Pair<K, V>>>
     where
         Q: Ord + ?Sized,
         K: Borrow<Q>,
@@ -147,9 +229,11 @@ impl<K, V> Table<K, V> {
             match in_place.as_ref() {
                 Some(Node::Leaf(bucket)) if bucket.hash() == hash => {
                     match bucket.get(key) {
-                        Some(x) => break x,
+                        GetRes::Found(x) => break Some(x),
 
-                        None => {
+                        GetRes::NotFound => break None,
+
+                        GetRes::Delete => {
                             let res = table.nodes[node_index].compare_and_swap(
                                 in_place,
                                 null_mut(),
@@ -161,7 +245,7 @@ impl<K, V> Table<K, V> {
                                     NonNull::new_unchecked(res),
                                     dealloc,
                                 );
-                                break null_mut();
+                                break None;
                             }
                         },
                     }
@@ -172,12 +256,16 @@ impl<K, V> Table<K, V> {
                     index >>= BITS as u64;
                 },
 
-                _ => break null_mut(),
+                _ => break None,
             }
         }
     }
 
-    pub unsafe fn remove<Q>(&self, key: &Q, hash: u64) -> *mut Pair<K, V>
+    pub unsafe fn remove<Q>(
+        &self,
+        key: &Q,
+        hash: u64,
+    ) -> Option<NonNull<Pair<K, V>>>
     where
         Q: Ord + ?Sized,
         K: Borrow<Q>,
@@ -191,7 +279,7 @@ impl<K, V> Table<K, V> {
             match in_place.as_ref() {
                 Some(Node::Leaf(bucket)) if bucket.hash() == hash => {
                     match bucket.remove(key) {
-                        Some((pair, delete)) => {
+                        RemoveRes::Removed { pair, delete } => {
                             if delete {
                                 let res = table.nodes[node_index]
                                     .compare_and_swap(
@@ -207,10 +295,12 @@ impl<K, V> Table<K, V> {
                                     );
                                 }
                             }
-                            break pair;
+                            break Some(pair);
                         },
 
-                        None => {
+                        RemoveRes::NotFound => break None,
+
+                        RemoveRes::Delete => {
                             let res = table.nodes[node_index].compare_and_swap(
                                 in_place,
                                 null_mut(),
@@ -222,7 +312,7 @@ impl<K, V> Table<K, V> {
                                     NonNull::new_unchecked(res),
                                     dealloc,
                                 );
-                                break null_mut();
+                                break None;
                             }
                         },
                     }
@@ -233,7 +323,7 @@ impl<K, V> Table<K, V> {
                     index >>= BITS as u64;
                 },
 
-                _ => break null_mut(),
+                _ => break None,
             }
         }
     }

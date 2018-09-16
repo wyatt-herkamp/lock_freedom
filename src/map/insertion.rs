@@ -1,9 +1,6 @@
 use super::{bucket::Pair, removed::Removed};
 use alloc::*;
-use std::{
-    mem,
-    ptr::{null_mut, NonNull},
-};
+use std::{mem, ptr::NonNull};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Insertion<K, V, E> {
@@ -49,25 +46,127 @@ impl<K, V, E> Insertion<K, V, E> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum ValStatus {
+    Uninited,
+    Discarded,
+    Kept,
+}
+
+#[derive(Debug)]
+pub struct PreviewAlloc<K, V> {
+    ptr: NonNull<Pair<K, V>>,
+    status: ValStatus,
+}
+
+impl<K, V> PreviewAlloc<K, V> {
+    pub fn from_key(key: K) -> Self {
+        Self {
+            ptr: unsafe { alloc(Pair { key, val: { mem::uninitialized() } }) },
+            status: ValStatus::Uninited,
+        }
+    }
+
+    pub fn from_key_val(key: K, val: V) -> Self {
+        Self {
+            ptr: unsafe { alloc(Pair { key, val }) },
+            status: ValStatus::Kept,
+        }
+    }
+
+    pub unsafe fn from_alloc(ptr: NonNull<Pair<K, V>>, has_val: bool) -> Self {
+        Self {
+            ptr,
+            status: if has_val {
+                ValStatus::Kept
+            } else {
+                ValStatus::Discarded
+            },
+        }
+    }
+
+    pub fn is_val_kept(&self) -> bool {
+        self.status == ValStatus::Kept
+    }
+
+    pub fn is_val_uninited(&self) -> bool {
+        self.status == ValStatus::Uninited
+    }
+
+    pub fn key(&self) -> &K {
+        unsafe { &self.ptr.as_ref().key }
+    }
+
+    pub fn val(&self) -> Option<&V> {
+        if self.is_val_kept() {
+            Some(unsafe { &self.ptr.as_ref().val })
+        } else {
+            None
+        }
+    }
+
+    pub fn ptr(&self) -> NonNull<Pair<K, V>> {
+        self.ptr
+    }
+
+    pub fn set_val(&mut self, val: V) {
+        if self.is_val_uninited() {
+            unsafe { (&mut self.ptr.as_mut().val as *mut V).write(val) }
+        } else {
+            unsafe { self.ptr.as_mut().val = val }
+        }
+        self.status = ValStatus::Kept;
+    }
+
+    pub fn discard(&mut self) {
+        if self.is_val_kept() {
+            self.status = ValStatus::Discarded
+        }
+    }
+
+    pub fn keep(&mut self) {
+        if self.is_val_uninited() {
+            panic!("Cannot keep uninitialized value")
+        }
+        self.status = ValStatus::Kept;
+    }
+}
+
+impl<K, V> Drop for PreviewAlloc<K, V> {
+    fn drop(&mut self) {
+        if self.is_val_uninited() {
+            unsafe {
+                (&mut self.ptr.as_mut().key as *mut K).drop_in_place();
+                dealloc_moved(self.ptr)
+            }
+        } else {
+            unsafe { dealloc(self.ptr) }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Preview<'curr, V> {
+pub enum Preview<V> {
     Discard,
-    Keep(&'curr V),
+    Keep,
     New(V),
 }
 
 pub trait Inserter<K, V> {
-    unsafe fn test_create(
+    unsafe fn update(
         &mut self,
-        key: K,
-        stored: *mut Pair<K, V>,
-    ) -> Result<NonNull<Pair<K, V>>, K>;
+        created: &mut PreviewAlloc<K, V>,
+        stored: Option<NonNull<Pair<K, V>>>,
+    );
 
-    unsafe fn test_update(
+    unsafe fn update_and_test(
         &mut self,
-        created: NonNull<Pair<K, V>>,
-        stored: *mut Pair<K, V>,
-    ) -> *mut Pair<K, V>;
+        created: &mut PreviewAlloc<K, V>,
+        stored: Option<NonNull<Pair<K, V>>>,
+    ) -> bool {
+        self.update(created, stored);
+        created.is_val_kept()
+    }
 }
 
 pub struct NewInserter<F> {
@@ -75,43 +174,31 @@ pub struct NewInserter<F> {
 }
 
 impl<F> NewInserter<F> {
-    pub fn new(update: F) -> Self {
+    pub fn new<K, V>(update: F) -> Self
+    where
+        F: for<'a> FnMut(&'a K, Option<&'a V>, Option<&'a V>) -> Preview<V>,
+    {
         Self { update }
     }
 }
 
 impl<K, V, F> Inserter<K, V> for NewInserter<F>
 where
-    F: for<'new> FnMut(&K, Option<&V>, Option<&'new V>) -> Preview<'new, V>,
+    F: for<'a> FnMut(&'a K, Option<&'a V>, Option<&'a V>) -> Preview<V>,
 {
-    unsafe fn test_create(
+    unsafe fn update(
         &mut self,
-        key: K,
-        stored: *mut Pair<K, V>,
-    ) -> Result<NonNull<Pair<K, V>>, K> {
-        match (self.update)(&key, stored.as_ref().map(|p| &p.val), None) {
-            Preview::Discard => Err(key),
-            Preview::Keep(_) => unreachable!(),
-            Preview::New(val) => Ok(alloc(Pair { key, val })),
-        }
-    }
-
-    unsafe fn test_update(
-        &mut self,
-        mut created: NonNull<Pair<K, V>>,
-        stored: *mut Pair<K, V>,
-    ) -> *mut Pair<K, V> {
+        created: &mut PreviewAlloc<K, V>,
+        stored: Option<NonNull<Pair<K, V>>>,
+    ) {
         match (self.update)(
-            &created.as_ref().key,
-            stored.as_ref().map(|p| &p.val),
-            Some(&created.as_ref().val),
+            created.key(),
+            stored.map(|p| &*p.as_ptr()).map(|p| &p.val),
+            created.val(),
         ) {
-            Preview::Discard => null_mut(),
-            Preview::Keep(_) => created.as_ptr(),
-            Preview::New(val) => {
-                created.as_mut().val = val;
-                created.as_ptr()
-            },
+            Preview::Keep => (),
+            Preview::Discard => created.discard(),
+            Preview::New(val) => created.set_val(val),
         }
     }
 }
@@ -121,35 +208,32 @@ pub struct Reinserter<F> {
 }
 
 impl<F> Reinserter<F> {
-    pub fn new(pred: F) -> Self {
+    pub fn new<K, V>(pred: F) -> Self
+    where
+        F: for<'a> FnMut(&'a Removed<K, V>, Option<&'a V>) -> bool,
+    {
         Self { pred }
     }
 }
 
 impl<K, V, F> Inserter<K, V> for Reinserter<F>
 where
-    F: FnMut(&Removed<K, V>, Option<&V>) -> bool,
+    F: for<'a> FnMut(&'a Removed<K, V>, Option<&'a V>) -> bool,
 {
-    unsafe fn test_create(
+    unsafe fn update(
         &mut self,
-        _key: K,
-        _stored: *mut Pair<K, V>,
-    ) -> Result<NonNull<Pair<K, V>>, K> {
-        unreachable!()
-    }
-
-    unsafe fn test_update(
-        &mut self,
-        created: NonNull<Pair<K, V>>,
-        stored: *mut Pair<K, V>,
-    ) -> *mut Pair<K, V> {
-        let removed = Removed::new(created);
-        let ret = if (self.pred)(&removed, stored.as_ref().map(|p| &p.val)) {
-            created.as_ptr()
-        } else {
-            null_mut()
-        };
+        created: &mut PreviewAlloc<K, V>,
+        stored: Option<NonNull<Pair<K, V>>>,
+    ) {
+        debug_assert!(!created.is_val_uninited());
+        let removed = Removed::new(created.ptr());
+        let keep =
+            (self.pred)(&removed, stored.map(|p| &*p.as_ptr()).map(|p| &p.val));
         mem::forget(removed);
-        ret
+        if keep {
+            created.keep();
+        } else {
+            created.discard();
+        }
     }
 }

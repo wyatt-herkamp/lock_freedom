@@ -8,8 +8,10 @@ pub use self::{
     removed::Removed,
 };
 
+use self::insertion::{NewInserter, PreviewAlloc, Reinserter};
+
 use alloc::*;
-use atomic::{Atomic, AtomicBox};
+use atomic::Atomic;
 use incinerator;
 use std::{
     borrow::Borrow,
@@ -17,7 +19,7 @@ use std::{
     fmt,
     hash::{BuildHasher, Hash, Hasher},
     mem,
-    ptr::{null_mut, NonNull},
+    ptr::NonNull,
     sync::atomic::Ordering::*,
 };
 
@@ -86,9 +88,15 @@ impl<K, V, H> Map<K, V, H> {
     {
         let hash = self.hash_of(&key);
         incinerator::pause(|| unsafe {
-            let ptr = alloc(bucket::Pair { key, val });
-            let res = self.table.insert(ptr, hash);
-            NonNull::new(res).map(|x| Removed::new(x))
+            let mut alloc = PreviewAlloc::from_key_val(key, val);
+            let res = self.table.insert(
+                hash,
+                &mut alloc,
+                &mut NewInserter::new(|_, _, _| Preview::Keep),
+            );
+            debug_assert!(alloc.is_val_kept());
+            mem::forget(alloc);
+            res.map(|x| Removed::new(x))
         })
     }
 
@@ -102,10 +110,16 @@ impl<K, V, H> Map<K, V, H> {
     {
         let hash = self.hash_of(removed.key());
         incinerator::pause(|| unsafe {
-            let pair = removed.pair_ptr();
+            let mut alloc = PreviewAlloc::from_alloc(removed.ptr(), true);
             mem::forget(removed);
-            let res = self.table.insert(pair, hash);
-            NonNull::new(res).map(|x| Removed::new(x))
+            let res = self.table.insert(
+                hash,
+                &mut alloc,
+                &mut Reinserter::new(|_, _| true),
+            );
+            debug_assert!(alloc.is_val_kept());
+            mem::forget(alloc);
+            res.map(|x| Removed::new(x))
         })
     }
 
@@ -123,7 +137,7 @@ impl<K, V, H> Map<K, V, H> {
         let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
             let res = self.table.get(key, hash);
-            res.as_ref().map(|x| reader(&x.val))
+            res.map(|x| &*x.as_ptr()).map(|x| reader(&x.val))
         })
     }
 
@@ -139,7 +153,7 @@ impl<K, V, H> Map<K, V, H> {
         let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
             let res = self.table.get(key, hash);
-            res.as_ref().map(|x| reader(&x.key, &x.val))
+            res.map(|x| &*x.as_ptr()).as_ref().map(|x| reader(&x.key, &x.val))
         })
     }
 
@@ -152,8 +166,7 @@ impl<K, V, H> Map<K, V, H> {
     {
         let hash = self.hash_of(key);
         incinerator::pause(|| unsafe {
-            let res = self.table.remove(key, hash);
-            NonNull::new(res).map(|x| Removed::new(x))
+            self.table.remove(key, hash).map(|x| Removed::new(x))
         })
     }
 

@@ -23,7 +23,7 @@ impl<K, V> Removed<K, V> {
         Self { pair }
     }
 
-    pub(crate) fn pair_ptr(&self) -> NonNull<Pair<K, V>> {
+    pub(crate) fn ptr(&self) -> NonNull<Pair<K, V>> {
         self.pair
     }
 

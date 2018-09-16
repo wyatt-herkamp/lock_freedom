@@ -1,3 +1,4 @@
+use super::insertion::{Inserter, PreviewAlloc};
 use alloc::*;
 use atomic::{Atomic, AtomicBox};
 use incinerator;
@@ -136,35 +137,46 @@ impl<K, V> Bucket<K, V> {
         &self.list
     }
 
-    pub unsafe fn insert(
+    pub unsafe fn insert<I>(
         &self,
-        pair: NonNull<Pair<K, V>>,
-    ) -> Option<*mut Pair<K, V>>
+        preview: &mut PreviewAlloc<K, V>,
+        inserter: &mut I,
+    ) -> InsertRes<K, V>
     where
         K: Ord,
+        I: Inserter<K, V>,
     {
         loop {
-            match self.find(&pair.as_ref().key) {
-                FindRes::Delete => break None,
+            match self.find(&preview.key()) {
+                FindRes::Delete => break InsertRes::Delete,
 
                 FindRes::Eq { prev, curr, .. } => {
+                    if !inserter
+                        .update_and_test(preview, NonNull::new(curr.pair))
+                    {
+                        break InsertRes::Failed;
+                    }
                     let new_entry =
-                        Entry { pair: pair.as_ptr(), next: curr.next };
+                        Entry { pair: preview.ptr().as_ptr(), next: curr.next };
                     let res = (*prev.next)
                         .ptr
                         .compare_and_swap(curr, new_entry, Release);
                     if res == curr {
-                        break Some(curr.pair);
+                        break InsertRes::Updated(NonNull::new_unchecked(
+                            curr.pair,
+                        ));
                     }
                 },
 
                 FindRes::Between { prev_list, prev, .. } => {
-                    let list = alloc(List {
-                        ptr: AtomicBox::new(Entry {
-                            pair: pair.as_ptr(),
-                            next: prev.next,
-                        }),
-                    });
+                    if !inserter.update_and_test(preview, None) {
+                        break InsertRes::Failed;
+                    }
+
+                    let list = alloc(List::new(Entry::new(
+                        preview.ptr().as_ptr(),
+                        prev.next,
+                    )));
 
                     let new_entry =
                         Entry { pair: prev.pair, next: list.as_ptr() };
@@ -173,7 +185,7 @@ impl<K, V> Bucket<K, V> {
                         .ptr
                         .compare_and_swap(prev, new_entry, Release);
                     if res == prev {
-                        break Some(null_mut());
+                        break InsertRes::Created;
                     }
 
                     dealloc(list);
@@ -182,26 +194,28 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
-    pub unsafe fn get<Q>(&self, key: &Q) -> Option<*mut Pair<K, V>>
+    pub unsafe fn get<Q>(&self, key: &Q) -> GetRes<K, V>
     where
         Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         match self.find(key) {
-            FindRes::Delete => None,
-            FindRes::Eq { curr, .. } => Some(curr.pair),
-            _ => Some(null_mut()),
+            FindRes::Delete => GetRes::Delete,
+            FindRes::Eq { curr, .. } => {
+                GetRes::Found(NonNull::new_unchecked(curr.pair))
+            },
+            _ => GetRes::NotFound,
         }
     }
 
-    pub unsafe fn remove<Q>(&self, key: &Q) -> Option<(*mut Pair<K, V>, bool)>
+    pub unsafe fn remove<Q>(&self, key: &Q) -> RemoveRes<K, V>
     where
         Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         loop {
             match self.find(key) {
-                FindRes::Delete => break None,
+                FindRes::Delete => break RemoveRes::Delete,
 
                 FindRes::Eq { prev, curr, .. } => {
                     let new_entry = Entry { pair: null_mut(), next: curr.next };
@@ -210,16 +224,16 @@ impl<K, V> Bucket<K, V> {
                         .compare_and_swap(curr, new_entry, Release);
 
                     if res == curr {
-                        break Some((
-                            curr.pair,
-                            Entry { pair: prev.pair, next: curr.next }
+                        break RemoveRes::Removed {
+                            pair: NonNull::new_unchecked(curr.pair),
+                            delete: Entry { pair: prev.pair, next: curr.next }
                                 .is_empty()
                                 && self.try_clean_first(),
-                        ));
+                        };
                     }
                 },
 
-                _ => break Some((null_mut(), false)),
+                _ => break RemoveRes::NotFound,
             }
         }
     }
@@ -320,4 +334,26 @@ impl<K, V> Bucket<K, V> {
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub enum InsertRes<K, V> {
+    Delete,
+    Created,
+    Updated(NonNull<Pair<K, V>>),
+    Failed,
+}
+
+#[derive(Debug)]
+pub enum GetRes<K, V> {
+    Delete,
+    NotFound,
+    Found(NonNull<Pair<K, V>>),
+}
+
+#[derive(Debug)]
+pub enum RemoveRes<K, V> {
+    Delete,
+    NotFound,
+    Removed { pair: NonNull<Pair<K, V>>, delete: bool },
 }
