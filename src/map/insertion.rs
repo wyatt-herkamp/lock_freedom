@@ -176,7 +176,7 @@ pub struct NewInserter<F> {
 impl<F> NewInserter<F> {
     pub fn new<K, V>(update: F) -> Self
     where
-        F: for<'a> FnMut(&'a K, Option<&'a V>, Option<&'a V>) -> Preview<V>,
+        F: FnMut(&K, Option<&V>, Option<&V>) -> Preview<V>,
     {
         Self { update }
     }
@@ -184,7 +184,7 @@ impl<F> NewInserter<F> {
 
 impl<K, V, F> Inserter<K, V> for NewInserter<F>
 where
-    F: for<'a> FnMut(&'a K, Option<&'a V>, Option<&'a V>) -> Preview<V>,
+    F: FnMut(&K, Option<&V>, Option<&V>) -> Preview<V>,
 {
     unsafe fn update(
         &mut self,
@@ -210,7 +210,7 @@ pub struct Reinserter<F> {
 impl<F> Reinserter<F> {
     pub fn new<K, V>(pred: F) -> Self
     where
-        F: for<'a> FnMut(&'a Removed<K, V>, Option<&'a V>) -> bool,
+        F: FnMut(&Removed<K, V>, Option<&V>) -> bool,
     {
         Self { pred }
     }
@@ -218,7 +218,7 @@ impl<F> Reinserter<F> {
 
 impl<K, V, F> Inserter<K, V> for Reinserter<F>
 where
-    F: for<'a> FnMut(&'a Removed<K, V>, Option<&'a V>) -> bool,
+    F: FnMut(&Removed<K, V>, Option<&V>) -> bool,
 {
     unsafe fn update(
         &mut self,

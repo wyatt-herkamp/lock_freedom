@@ -100,6 +100,46 @@ impl<K, V, H> Map<K, V, H> {
         })
     }
 
+    pub fn insert_with<F>(
+        &self,
+        key: K,
+        update: F,
+    ) -> Insertion<K, V, (K, Option<V>)>
+    where
+        K: Hash + Ord,
+        H: BuildHasher,
+        F: FnMut(&K, Option<&V>, Option<&V>) -> Preview<V>,
+    {
+        let hash = self.hash_of(&key);
+        incinerator::pause(|| unsafe {
+            let mut alloc = PreviewAlloc::from_key(key);
+            let res = self.table.insert(
+                hash,
+                &mut alloc,
+                &mut NewInserter::new(update),
+            );
+
+            let ret = if alloc.is_val_kept() {
+                match res {
+                    Some(ptr) => Insertion::Updated(Removed::new(ptr)),
+                    None => Insertion::Created,
+                }
+            } else {
+                let key = (&alloc.ptr().as_ref().key as *const K).read();
+                let val = if alloc.is_val_uninited() {
+                    None
+                } else {
+                    Some((&alloc.ptr().as_ref().val as *const V).read())
+                };
+                dealloc_moved(alloc.ptr());
+                Insertion::Failed((key, val))
+            };
+
+            mem::forget(alloc);
+            ret
+        })
+    }
+
     /// Reinserts a removed pair (which can have been removed from any map),
     /// disregarding the key entry exists or not. If it does exists, the
     /// old pair is removed and returned.
@@ -120,6 +160,39 @@ impl<K, V, H> Map<K, V, H> {
             debug_assert!(alloc.is_val_kept());
             mem::forget(alloc);
             res.map(|x| Removed::new(x))
+        })
+    }
+
+    pub fn reinsert_with<F>(
+        &self,
+        removed: Removed<K, V>,
+        validate: F,
+    ) -> Insertion<K, V, Removed<K, V>>
+    where
+        K: Hash + Ord,
+        H: BuildHasher,
+        F: FnMut(&Removed<K, V>, Option<&V>) -> bool,
+    {
+        let hash = self.hash_of(removed.key());
+        incinerator::pause(|| unsafe {
+            let mut alloc = PreviewAlloc::from_alloc(removed.ptr(), true);
+            let res = self.table.insert(
+                hash,
+                &mut alloc,
+                &mut Reinserter::new(validate),
+            );
+
+            let ret = if alloc.is_val_kept() {
+                match res {
+                    Some(ptr) => Insertion::Updated(Removed::new(ptr)),
+                    None => Insertion::Created,
+                }
+            } else {
+                Insertion::Failed(Removed::new(alloc.ptr()))
+            };
+
+            mem::forget(alloc);
+            ret
         })
     }
 
