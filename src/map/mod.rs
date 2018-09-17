@@ -278,11 +278,6 @@ impl<K, V, H> Map<K, V, H> {
         ret
     }
 
-    /// The hasher builder with which this map was created.
-    pub fn hasher(&self) -> &H {
-        &self.builder
-    }
-
     /// Iterates over the map with a given reader. The reader must be a
     /// function/closure. This methods is just a specific version of
     /// `iter_with_reader` due to Rust limitations on inference of closures
@@ -304,6 +299,11 @@ impl<K, V, H> Map<K, V, H> {
         R: IterReader<K, V>,
     {
         Iter::with_table(&self.table, reader)
+    }
+
+    /// The hasher builder with which this map was created.
+    pub fn hasher(&self) -> &H {
+        &self.builder
     }
 
     #[inline]
