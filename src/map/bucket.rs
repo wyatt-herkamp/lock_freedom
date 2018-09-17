@@ -238,6 +238,48 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
+    pub unsafe fn collect(&self) -> Vec<(&K, &V)> {
+        let mut vec = Vec::new();
+        'outer: loop {
+            let mut prev_list = &self.list;
+            let mut prev = prev_list.ptr.load(Acquire);
+            if prev.is_empty() {
+                break vec;
+            }
+
+            loop {
+                let next_list = match prev.next.as_ref() {
+                    Some(next) => next,
+                    None => break 'outer vec,
+                };
+
+                let next = next_list.ptr.load(Acquire);
+                if next.pair.is_null() {
+                    let new = Entry { pair: prev.pair, next: next.next };
+                    let res =
+                        prev_list.ptr.compare_and_swap(prev, new, Release);
+
+                    if res != prev {
+                        vec.clear();
+                        break;
+                    }
+
+                    incinerator::add(
+                        NonNull::new_unchecked(prev.next),
+                        dealloc,
+                    );
+
+                    continue;
+                }
+
+                vec.push((&(*next.pair).key, (&(*next.pair).val)));
+
+                prev_list = next_list;
+                prev = next;
+            }
+        }
+    }
+
     unsafe fn try_clean_first(&self) -> bool {
         loop {
             let prev_list = &self.list;

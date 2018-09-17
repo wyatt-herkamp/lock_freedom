@@ -1,5 +1,5 @@
 pub use map::RandomState;
-use map::{Insertion, Map, Preview, Removed as MapRemoved};
+use map::{Insertion, Iter as MapIter, Map, Preview, Removed as MapRemoved};
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -192,6 +192,24 @@ impl<T> Borrow<T> for Removed<T> {
 impl<T> AsRef<T> for Removed<T> {
     fn as_ref(&self) -> &T {
         self.deref()
+    }
+}
+
+/// An iterator over `Set`. The `Item` of this iterator is a vector of set
+/// elements with the same hash. It is like that because there are some
+/// limitations on how the iterator can stop navigating the set.
+pub struct Iter<'set, T>
+where
+    T: 'set,
+{
+    inner: MapIter<'set, T, ()>,
+}
+
+impl<'set, T> Iterator for Iter<'set, T> {
+    type Item = Vec<&'set T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|vec| vec.into_iter().map(|(k, _)| k).collect())
     }
 }
 

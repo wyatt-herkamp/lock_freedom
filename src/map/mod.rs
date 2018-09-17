@@ -2,9 +2,11 @@ mod table;
 mod bucket;
 mod insertion;
 mod removed;
+mod iter;
 
 pub use self::{
     insertion::{Insertion, Preview},
+    iter::Iter,
     removed::Removed,
 };
 
@@ -354,10 +356,20 @@ where
     }
 }
 
+impl<'map, K, V, H> IntoIterator for &'map Map<K, V, H> {
+    type Item = Vec<(&'map K, &'map V)>;
+
+    type IntoIter = Iter<'map, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter::with_table(&self.table)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::{sync::Arc, thread};
+    use std::{collections::HashMap, sync::Arc, thread};
 
     #[test]
     fn inserts_and_gets() {
@@ -524,6 +536,31 @@ mod test {
         let map = Map::new();
         assert!(map.insert("five".to_owned(), 5).is_none());
         assert!(*map.insert("five".to_owned(), 5).unwrap().val() == 5);
+    }
+
+    #[test]
+    fn iter_valid_items() {
+        let map = Map::new();
+        for i in 0 .. 10u128 {
+            for j in 0 .. 32 {
+                map.insert((i, j), i << j);
+            }
+        }
+
+        let mut result = HashMap::new();
+        for bucket in &map {
+            for (&k, &v) in bucket {
+                let in_place = result.get(&(k, v)).map_or(0, |&x| x);
+                result.insert((k, v), in_place + 1);
+            }
+        }
+
+        for i in 0 .. 10 {
+            for j in 0 .. 32 {
+                let pair = ((i, j), i << j);
+                assert_eq!(*result.get(&pair).unwrap(), 1);
+            }
+        }
     }
 
     #[test]

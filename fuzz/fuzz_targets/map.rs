@@ -59,7 +59,7 @@ impl Machine for MapMachine {
     }
 
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode) {
-        match byte % 9 {
+        match byte % 10 {
             0 => {
                 self.key = bytecode.next().unwrap_or(0);
                 self.val = bytecode.next().unwrap_or(0);
@@ -142,6 +142,16 @@ impl Machine for MapMachine {
                         _ => unreachable!(),
                     },
                 );
+            },
+
+            9 => {
+                let mut sum = 0u128;
+                for vec in &*self.map {
+                    for (&k, &v) in vec {
+                        sum += k.0.wrapping_add(v as u128);
+                    }
+                }
+                self.key = sum as u8;
             },
 
             _ => unreachable!(),
