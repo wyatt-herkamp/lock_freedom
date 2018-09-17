@@ -30,13 +30,15 @@ impl Hash for BadHash {
     }
 }
 
-impl<'sym> From<&'sym [u8]> for BadHash {
-    fn from(sym: &'sym [u8]) -> Self {
+impl BadHash {
+    fn from_symbol(sym: &[u8], decision: u8) -> Self {
         let mut i = 0xA91C;
         for &byte in sym {
             i = (byte as u128)
                 .wrapping_mul(i ^ i >> 16 ^ byte as u128 >> 2)
-                .wrapping_add(i);
+                .wrapping_add(i)
+                .wrapping_add((decision ^ byte) as u128)
+                .wrapping_mul((decision ^ byte) as u128);
         }
         BadHash(i)
     }
@@ -47,6 +49,7 @@ struct MapMachine {
     map: Arc<Map<BadHash, u8>>,
     key: u8,
     val: u8,
+    decision: u8,
 }
 
 impl Machine for MapMachine {
@@ -63,29 +66,44 @@ impl Machine for MapMachine {
             0 => {
                 self.key = bytecode.next().unwrap_or(0);
                 self.val = bytecode.next().unwrap_or(0);
+                self.decision = bytecode.next().unwrap_or(0);
             },
 
             1 | 5 => {
-                let key = bytecode.symbol(self.key).into();
+                let key = BadHash::from_symbol(
+                    bytecode.symbol(self.key),
+                    self.decision,
+                );
                 self.map.insert(key, self.val);
             },
 
             2 => {
                 self.key = bytecode.next().unwrap_or(0);
-                let key = bytecode.symbol(self.key).into();
+                let key = BadHash::from_symbol(
+                    bytecode.symbol(self.key),
+                    self.decision,
+                );
                 self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
             },
 
             3 => {
-                let key = bytecode.symbol(self.key).into();
+                let key = BadHash::from_symbol(
+                    bytecode.symbol(self.key),
+                    self.decision,
+                );;
                 self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
                 self.key = bytecode.next().unwrap_or(0);
+                self.decision ^= self.key;
             },
 
             4 => {
-                let key = bytecode.symbol(self.key).into();
+                let key = BadHash::from_symbol(
+                    bytecode.symbol(self.key),
+                    self.decision,
+                );;
                 self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
                 self.key = bytecode.next().unwrap_or(0);
+                self.decision ^= self.val;
             },
 
             6 => {
@@ -93,7 +111,10 @@ impl Machine for MapMachine {
             },
 
             7 => {
-                let key = bytecode.symbol(self.key).into();
+                let key = BadHash::from_symbol(
+                    bytecode.symbol(self.key),
+                    self.decision,
+                );
                 let decision = bytecode.next().unwrap_or(0);
                 let inc = bytecode.next().unwrap_or(0);
                 self.map.insert_with(key, |key, stored, prev| {
@@ -119,7 +140,10 @@ impl Machine for MapMachine {
             },
 
             8 => {
-                let key = bytecode.symbol(self.key).into();
+                let key = BadHash::from_symbol(
+                    bytecode.symbol(self.key),
+                    self.decision,
+                );;
                 let removed = match self.map.remove(&key) {
                     Some(x) => x,
                     None => return (),
