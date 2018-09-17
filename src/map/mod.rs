@@ -88,7 +88,7 @@ impl<K, V, H> Map<K, V, H> {
         H: BuildHasher,
     {
         let hash = self.hash_of(&key);
-        incinerator::pause(|| unsafe {
+        let ret = incinerator::pause(|| unsafe {
             let mut alloc = PreviewAlloc::from_key_val(key, val);
             let res = self.table.insert(
                 hash,
@@ -98,7 +98,9 @@ impl<K, V, H> Map<K, V, H> {
             debug_assert!(alloc.is_val_kept());
             mem::forget(alloc);
             res.map(|x| Removed::new(x))
-        })
+        });
+        incinerator::try_force();
+        ret
     }
 
     /// An _interactive_ insertion. Instead of providing a key and value, one
@@ -121,7 +123,7 @@ impl<K, V, H> Map<K, V, H> {
         F: FnMut(&K, Option<&V>, Option<&V>) -> Preview<V>,
     {
         let hash = self.hash_of(&key);
-        incinerator::pause(|| unsafe {
+        let ret = incinerator::pause(|| unsafe {
             let mut alloc = PreviewAlloc::from_key(key);
             let res = self.table.insert(
                 hash,
@@ -147,7 +149,10 @@ impl<K, V, H> Map<K, V, H> {
 
             mem::forget(alloc);
             ret
-        })
+        });
+
+        incinerator::try_force();
+        ret
     }
 
     /// Reinserts a removed pair (which can have been removed from any map),
@@ -159,7 +164,7 @@ impl<K, V, H> Map<K, V, H> {
         H: BuildHasher,
     {
         let hash = self.hash_of(removed.key());
-        incinerator::pause(|| unsafe {
+        let ret = incinerator::pause(|| unsafe {
             let mut alloc = PreviewAlloc::from_alloc(removed.ptr(), true);
             mem::forget(removed);
             let res = self.table.insert(
@@ -170,7 +175,9 @@ impl<K, V, H> Map<K, V, H> {
             debug_assert!(alloc.is_val_kept());
             mem::forget(alloc);
             res.map(|x| Removed::new(x))
-        })
+        });
+        incinerator::try_force();
+        ret
     }
 
     /// An _interactive_ reinsertion. A closure and a previously removed entry
@@ -193,7 +200,7 @@ impl<K, V, H> Map<K, V, H> {
         F: FnMut(&Removed<K, V>, Option<&V>) -> bool,
     {
         let hash = self.hash_of(removed.key());
-        incinerator::pause(|| unsafe {
+        let ret = incinerator::pause(|| unsafe {
             let mut alloc = PreviewAlloc::from_alloc(removed.ptr(), true);
             mem::forget(removed);
             let res = self.table.insert(
@@ -213,7 +220,9 @@ impl<K, V, H> Map<K, V, H> {
 
             mem::forget(alloc);
             ret
-        })
+        });
+        incinerator::try_force();
+        ret
     }
 
     /// Gets a reference to the mapped value of a key, it exists. Then, it
@@ -228,10 +237,12 @@ impl<K, V, H> Map<K, V, H> {
         F: FnOnce(&V) -> T,
     {
         let hash = self.hash_of(key);
-        incinerator::pause(|| unsafe {
+        let ret = incinerator::pause(|| unsafe {
             let res = self.table.get(key, hash);
             res.map(|x| &*x.as_ptr()).map(|x| reader(&x.val))
-        })
+        });
+        incinerator::try_force();
+        ret
     }
 
     /// Same as `get`, but calls the `reader` function argument with key and
@@ -244,10 +255,12 @@ impl<K, V, H> Map<K, V, H> {
         F: FnOnce(&K, &V) -> T,
     {
         let hash = self.hash_of(key);
-        incinerator::pause(|| unsafe {
+        let ret = incinerator::pause(|| unsafe {
             let res = self.table.get(key, hash);
             res.map(|x| &*x.as_ptr()).as_ref().map(|x| reader(&x.key, &x.val))
-        })
+        });
+        incinerator::try_force();
+        ret
     }
 
     /// Removes the given entry identified by the given key.
@@ -258,9 +271,11 @@ impl<K, V, H> Map<K, V, H> {
         H: BuildHasher,
     {
         let hash = self.hash_of(key);
-        incinerator::pause(|| unsafe {
+        let ret = incinerator::pause(|| unsafe {
             self.table.remove(key, hash).map(|x| Removed::new(x))
-        })
+        });
+        incinerator::try_force();
+        ret
     }
 
     /// The hasher builder with which this map was created.

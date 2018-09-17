@@ -172,7 +172,7 @@ impl Machine for MapMachine {
             9 => {
                 let mut sum = 0u128;
                 for (k, v) in self.map.iter(|&k, &v| (k, v)) {
-                    sum += k.0.wrapping_add(v as u128);
+                    sum = sum.wrapping_add(k.0).wrapping_add(v as u128);
                 }
                 self.key = sum as u8;
             },

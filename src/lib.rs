@@ -16,11 +16,11 @@
 //!
 //! This crate is under development, and there are plans for some structures.
 //! We have:
-//! - \[x\] Stack
-//! - \[x\] Queue
-//! - \[ \] Deque
-//! - \[x\] Map
-//! - \[x\] Set
+//! - `[x]` Stack
+//! - `[x]` Queue
+//! - `[ ]` Deque
+//! - `[x]` Map
+//! - `[x]` Set
 //!
 //! # Performance Guide
 //! In order to achieve a better time performance with lockfree, it is

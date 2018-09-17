@@ -193,7 +193,7 @@ fn main() {
     let lockfree = LockfreeInner::default();
 
     bench! {
-        levels 1, 4, 16, 32;
+        levels 1, 2, 4, 8;
         "mutex insert" => MutexInsert {
             inner: mutex.clone(),
             i: 0,
@@ -205,7 +205,7 @@ fn main() {
     }
 
     bench! {
-        levels 1, 4, 16, 32;
+        levels 1, 2, 4, 8;
         "mutex get" => MutexGet {
             inner: mutex.clone(),
             i: 0,
@@ -217,7 +217,7 @@ fn main() {
     }
 
     bench! {
-        levels 1, 4, 16, 32;
+        levels 1, 2, 4, 8;
         "mutex remove" => MutexRemove {
             inner: mutex.clone(),
             i: 0,
@@ -229,7 +229,7 @@ fn main() {
     }
 
     bench! {
-        levels 1, 4, 16, 32;
+        levels 1, 2, 4, 8;
         "mutex mixed" => MutexMixed {
             inner: mutex,
             i: 0,

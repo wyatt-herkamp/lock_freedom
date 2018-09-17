@@ -33,7 +33,7 @@ impl Target for LockfreeTarget {
 
 fn main() {
     bench! {
-        levels 1, 4, 16, 32;
+        levels 1, 2, 4, 8;
         "mutex" => MutexTarget::default(),
         "lockfree" => LockfreeTarget::default(),
     }
