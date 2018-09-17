@@ -115,10 +115,10 @@ impl<K, V> PreviewAlloc<K, V> {
     }
 
     pub fn val(&self) -> Option<&V> {
-        if self.is_val_kept() {
-            Some(unsafe { &self.ptr.as_ref().val })
-        } else {
+        if self.is_val_uninited() {
             None
+        } else {
+            Some(unsafe { &self.ptr.as_ref().val })
         }
     }
 
@@ -167,7 +167,9 @@ impl<K, V> Drop for PreviewAlloc<K, V> {
 pub enum Preview<V> {
     /// Discard the current generated value. If there is no currently
     /// generated value, the closure returning this is not generating anyone
-    /// (i.e. conditions not met).
+    /// (i.e. conditions not met). Even though `Discard` was returned, the
+    /// value is actually still passed in the next call (if there is a next
+    /// call), so that it can be reused.
     Discard,
     /// Keep the current genereated value. If there is no currently
     /// generated value, the closure returning this is not generating anyone

@@ -12,9 +12,9 @@ use self::insertion::{NewInserter, PreviewAlloc, Reinserter};
 
 use alloc::*;
 use incinerator;
+pub use std::collections::hash_map::RandomState;
 use std::{
     borrow::Borrow,
-    collections::hash_map::RandomState,
     fmt,
     hash::{BuildHasher, Hash, Hasher},
     mem,
@@ -62,7 +62,7 @@ pub struct Map<K, V, H = RandomState> {
     builder: H,
 }
 
-impl<K, V> Map<K, V, RandomState> {
+impl<K, V> Map<K, V> {
     /// Creates a new empty map with a random state.
     pub fn new() -> Self {
         Self::with_hasher(RandomState::default())
@@ -171,7 +171,7 @@ impl<K, V, H> Map<K, V, H> {
         })
     }
 
-    /// An _interactive_ reinsertion. A closure and a previosly removed entry
+    /// An _interactive_ reinsertion. A closure and a previously removed entry
     /// is provided. The closure will check the status of the insertion and
     /// then return whether the condition met with the expected ones. The
     /// closure may be called multiple times, as different things are
@@ -259,6 +259,11 @@ impl<K, V, H> Map<K, V, H> {
         incinerator::pause(|| unsafe {
             self.table.remove(key, hash).map(|x| Removed::new(x))
         })
+    }
+
+    /// The hasher builder with which this map was created.
+    pub fn hasher(&self) -> &H {
+        &self.builder
     }
 
     #[inline]

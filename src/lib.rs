@@ -16,11 +16,11 @@
 //!
 //! This crate is under development, and there are plans for some structures.
 //! We have:
-//! - [x] Stack
-//! - [x] Queue
-//! - [ ] Deque
-//! - [x] Map
-//! - [ ] Set
+//! - \[x\] Stack
+//! - \[x\] Queue
+//! - \[ \] Deque
+//! - \[x\] Map
+//! - \[x\] Set
 //!
 //! # Performance Guide
 //! In order to achieve a better time performance with lockfree, it is
@@ -108,6 +108,9 @@ pub mod stack;
 
 /// A lock-free map.
 pub mod map;
+
+/// A lock-free set.
+pub mod set;
 
 /// Provides a doubly atomic reference counter.
 pub mod darc;
