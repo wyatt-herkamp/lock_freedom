@@ -238,7 +238,9 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
-    pub unsafe fn collect(&self) -> Vec<(&K, &V)> {
+    pub unsafe fn collect<'bucket>(
+        &'bucket self,
+    ) -> Vec<(&'bucket K, &'bucket V)> {
         let mut vec = Vec::new();
         'outer: loop {
             let mut prev_list = &self.list;
@@ -272,7 +274,8 @@ impl<K, V> Bucket<K, V> {
                     continue;
                 }
 
-                vec.push((&(*next.pair).key, (&(*next.pair).val)));
+                let pair = (&(*next.pair).key, (&(*next.pair).val));
+                vec.push(pair);
 
                 prev_list = next_list;
                 prev = next;

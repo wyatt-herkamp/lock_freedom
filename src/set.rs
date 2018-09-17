@@ -1,5 +1,12 @@
 pub use map::RandomState;
-use map::{Insertion, Iter as MapIter, Map, Preview, Removed as MapRemoved};
+use map::{
+    Insertion,
+    Iter as MapIter,
+    IterReader as MapIterReader,
+    Map,
+    Preview,
+    Removed as MapRemoved,
+};
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -93,6 +100,26 @@ impl<T, H> Set<T, H> {
         T: Borrow<U>,
     {
         self.inner.remove(elem).map(Removed::new)
+    }
+
+    /// Iterates over the set with a given reader. The reader must be a
+    /// function/closure. This methods is just a specific version of
+    /// `iter_with_reader` due to Rust limitations on inference of closures
+    /// polymorphic on lifetimes.
+    pub fn iter<'set, F, U>(&'set self, reader: F) -> Iter<'set, T, F>
+    where
+        F: FnMut(&T) -> U,
+    {
+        self.iter_with_reader(reader)
+    }
+
+    /// Iterates over the set with a given reader. The reader may be a closure,
+    /// primitive function, or any other type that implements the reader trait.
+    pub fn iter_with_reader<'set, R>(&'set self, reader: R) -> Iter<'set, T, R>
+    where
+        R: IterReader<T>,
+    {
+        Iter { inner: self.inner.iter_with_reader(BridgeReader { reader }) }
     }
 
     /// The hasher builder with which this set was created.
@@ -195,21 +222,71 @@ impl<T> AsRef<T> for Removed<T> {
     }
 }
 
-/// An iterator over `Set`. The `Item` of this iterator is a vector of set
-/// elements with the same hash. It is like that because there are some
-/// limitations on how the iterator can stop navigating the set.
-pub struct Iter<'set, T>
+/// An iterator over `Set`. As in the `Map`'s `get` method, we cannot return a
+/// reference to the elements. Therefore, the iterator has a reader which reads
+/// a temporary reference and returns the actual iterator `Item`.
+pub struct Iter<'set, T, R>
 where
     T: 'set,
+    R: IterReader<T>,
 {
-    inner: MapIter<'set, T, ()>,
+    inner: MapIter<'set, T, (), BridgeReader<R>>,
 }
 
-impl<'set, T> Iterator for Iter<'set, T> {
-    type Item = Vec<&'set T>;
+impl<'set, T, R> Iterator for Iter<'set, T, R>
+where
+    R: IterReader<T>,
+{
+    type Item = R::Out;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|vec| vec.into_iter().map(|(k, _)| k).collect())
+        self.inner.next()
+    }
+}
+
+impl<'set, T, R> fmt::Debug for Iter<'set, T, R>
+where
+    R: IterReader<T>,
+    R::Out: fmt::Debug,
+{
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        self.inner.fmt(fmtr)
+    }
+}
+
+/// A reader on set's iterator's temporary reference to elements.
+pub trait IterReader<T> {
+    /// The actual item of the iterator which is coupled with this reader.
+    type Out;
+
+    /// Transforms the temporary references into the iterator item.
+    fn read(&mut self, elem: &T) -> Self::Out;
+}
+
+impl<T, F, U> IterReader<T> for F
+where
+    F: FnMut(&T) -> U,
+{
+    type Out = U;
+
+    fn read(&mut self, elem: &T) -> Self::Out {
+        self(elem)
+    }
+}
+
+#[derive(Debug)]
+struct BridgeReader<R> {
+    reader: R,
+}
+
+impl<T, R> MapIterReader<T, ()> for BridgeReader<R>
+where
+    R: IterReader<T>,
+{
+    type Out = R::Out;
+
+    fn read(&mut self, elem: &T, _: &()) -> Self::Out {
+        self.reader.read(elem)
     }
 }
 

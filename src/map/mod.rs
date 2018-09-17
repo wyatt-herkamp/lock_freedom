@@ -6,7 +6,7 @@ mod iter;
 
 pub use self::{
     insertion::{Insertion, Preview},
-    iter::Iter,
+    iter::{Iter, IterReader},
     removed::Removed,
 };
 
@@ -268,6 +268,29 @@ impl<K, V, H> Map<K, V, H> {
         &self.builder
     }
 
+    /// Iterates over the map with a given reader. The reader must be a
+    /// function/closure. This methods is just a specific version of
+    /// `iter_with_reader` due to Rust limitations on inference of closures
+    /// polymorphic on lifetimes.
+    pub fn iter<'map, F, T>(&'map self, reader: F) -> Iter<'map, K, V, F>
+    where
+        F: FnMut(&K, &V) -> T,
+    {
+        self.iter_with_reader(reader)
+    }
+
+    /// Iterates over the map with a given reader. The reader may be a closure,
+    /// primitive function, or any other type that implements the reader trait.
+    pub fn iter_with_reader<'map, R>(
+        &'map self,
+        reader: R,
+    ) -> Iter<'map, K, V, R>
+    where
+        R: IterReader<K, V>,
+    {
+        Iter::with_table(&self.table, reader)
+    }
+
     #[inline]
     fn hash_of<Q>(&self, key: &Q) -> u64
     where
@@ -353,16 +376,6 @@ where
             "Map {} hasher_builder = {:?}, entries = ... {}",
             '{', self.builder, '}'
         )
-    }
-}
-
-impl<'map, K, V, H> IntoIterator for &'map Map<K, V, H> {
-    type Item = Vec<(&'map K, &'map V)>;
-
-    type IntoIter = Iter<'map, K, V>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Iter::with_table(&self.table)
     }
 }
 
@@ -548,11 +561,9 @@ mod test {
         }
 
         let mut result = HashMap::new();
-        for bucket in &map {
-            for (&k, &v) in bucket {
-                let in_place = result.get(&(k, v)).map_or(0, |&x| x);
-                result.insert((k, v), in_place + 1);
-            }
+        for (k, v) in map.iter(|&k, &v| (k, v)) {
+            let in_place = result.get(&(k, v)).map_or(0, |&x| x);
+            result.insert((k, v), in_place + 1);
         }
 
         for i in 0 .. 10 {
