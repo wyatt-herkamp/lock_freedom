@@ -162,7 +162,7 @@ impl<K, V> Drop for PreviewAlloc<K, V> {
     }
 }
 
-/// A preview of the value in an __interactive__ insertion.
+/// A preview of the value in an _interactive_ insertion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preview<V> {
     /// Discard the current generated value. If there is no currently
