@@ -39,10 +39,6 @@ impl<K, V> Table<K, V> {
         &self.nodes
     }
 
-    pub fn nodes_mut(&mut self) -> &mut [AtomicPtr<Node<K, V>>] {
-        &mut self.nodes
-    }
-
     pub unsafe fn insert<I>(
         &self,
         hash: u64,
