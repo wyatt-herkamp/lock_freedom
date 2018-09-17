@@ -36,9 +36,10 @@ impl BadHash {
         for &byte in sym {
             i = (byte as u128)
                 .wrapping_mul(i ^ i >> 16 ^ byte as u128 >> 2)
-                .wrapping_add(i)
+                .wrapping_mul((decision ^ byte) as u128)
+                .wrapping_mul(decision as u128 ^ i)
+                .wrapping_mul(decision as u128 ^ i)
                 .wrapping_add((decision ^ byte) as u128)
-                .wrapping_mul((decision ^ byte) as u128);
         }
         BadHash(i)
     }
