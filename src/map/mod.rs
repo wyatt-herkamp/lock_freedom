@@ -176,6 +176,7 @@ impl<K, V, H> Map<K, V, H> {
         let hash = self.hash_of(removed.key());
         incinerator::pause(|| unsafe {
             let mut alloc = PreviewAlloc::from_alloc(removed.ptr(), true);
+            mem::forget(removed);
             let res = self.table.insert(
                 hash,
                 &mut alloc,
@@ -353,6 +354,75 @@ mod test {
     }
 
     #[test]
+    fn create() {
+        let map = Map::new();
+        assert!(
+            map.insert_with("five".to_owned(), |_, stored, _| {
+                if stored.is_none() {
+                    Preview::New(5)
+                } else {
+                    Preview::Discard
+                }
+            }).created()
+        );
+        assert_eq!(map.get("five", |x| *x), Some(5));
+        assert!(
+            map.insert_with("five".to_owned(), |_, stored, _| {
+                if stored.is_none() {
+                    Preview::New(500)
+                } else {
+                    Preview::Discard
+                }
+            }).failed()
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn update() {
+        let map = Map::new();
+        assert!(
+            map.insert_with("five".to_owned(), |_, stored, _| {
+                if let Some(n) = stored {
+                    Preview::New(*n + 6)
+                } else {
+                    Preview::Discard
+                }
+            }).failed()
+            .is_some()
+        );
+        assert!(map.insert("five".to_owned(), 5).is_none());
+        assert_eq!(
+            map.insert_with("five".to_owned(), |_, stored, _| {
+                if let Some(n) = stored {
+                    Preview::New(*n + 7)
+                } else {
+                    Preview::Discard
+                }
+            }).take_updated()
+            .unwrap(),
+            ("five", 5)
+        );
+        assert_eq!(map.get("five", |x| *x), Some(12));
+    }
+
+    #[test]
+    fn never_inserts() {
+        let map = Map::new();
+        assert!(
+            map.insert_with("five".to_owned(), |_, _, _| Preview::Discard)
+                .failed()
+                .is_some()
+        );
+        assert!(map.insert("five".to_owned(), 5).is_none());
+        assert!(
+            map.insert_with("five".to_owned(), |_, _, _| Preview::Discard)
+                .failed()
+                .is_some()
+        );
+    }
+
+    #[test]
     fn inserts_reinserts() {
         let map = Map::new();
         assert!(map.insert("four".to_owned(), 4).is_none());
@@ -360,6 +430,51 @@ mod test {
         assert_eq!(prev, ("four", 4));
         assert_eq!(map.reinsert(prev).unwrap(), ("four", 40));
         assert!(map.get("four", |&x| x == 4).unwrap());
+    }
+
+    #[test]
+    fn never_reinserts() {
+        let map = Map::new();
+        map.insert("five".to_owned(), 5);
+        let prev = map.remove("five").unwrap();
+        let prev = map.reinsert_with(prev, |_, _| false).take_failed().unwrap();
+        assert!(map.insert("five".to_owned(), 5).is_none());
+        map.reinsert_with(prev, |_, _| false).take_failed().unwrap();
+    }
+
+    #[test]
+    fn reinserts_create() {
+        let map = Map::new();
+        map.insert("five".to_owned(), 5);
+        let first = map.remove("five").unwrap();
+        map.insert("five".to_owned(), 5);
+        let second = map.remove("five").unwrap();
+        assert!(
+            map.reinsert_with(first, |_, stored| stored.is_none()).created()
+        );
+        assert_eq!(map.get("five", |x| *x), Some(5));
+        assert!(
+            map.reinsert_with(second, |_, stored| stored.is_none())
+                .failed()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn reinserts_update() {
+        let map = Map::new();
+        map.insert("five".to_owned(), 5);
+        let prev = map.remove("five").unwrap();
+        let prev = map
+            .reinsert_with(prev, |_, stored| stored.is_some())
+            .take_failed()
+            .unwrap();
+        map.insert("five".to_owned(), 5);
+        assert!(
+            map.reinsert_with(prev, |_, stored| stored.is_some())
+                .updated()
+                .is_some()
+        );
     }
 
     #[test]
@@ -400,6 +515,10 @@ mod test {
                     .get(&format!("prefix{}suffix", i - 1), |x| *x)
                     .unwrap_or(0);
                 map.insert(format!("prefix{}suffix", i), prev + i);
+                map.insert_with(
+                    format!("prefix{}suffix", i + 1),
+                    |_, stored, _| Preview::New(stored.map_or(0, |&x| x + i)),
+                );
             }));
         }
         for thread in threads {

@@ -85,9 +85,15 @@ impl<K, V> Table<K, V> {
                             break Some(ptr);
                         },
 
-                        InsertRes::Created => break None,
+                        InsertRes::Created => {
+                            dealloc(node);
+                            dealloc(list);
+                            break None;
+                        },
 
                         InsertRes::Failed => {
+                            dealloc(node);
+                            dealloc(list);
                             preview.discard();
                             break None;
                         },
@@ -161,7 +167,6 @@ impl<K, V> Table<K, V> {
     {
         let mut table = self;
         let mut index = hash;
-        let mut depth = 1;
 
         loop {
             let node_index = index as usize & (1 << BITS) - 1;
@@ -200,7 +205,6 @@ impl<K, V> Table<K, V> {
                 Some(Node::Branch(new_table)) => {
                     table = &*new_table.as_ptr();
                     index >>= BITS as u64;
-                    depth += 1;
                 },
 
                 _ => {
