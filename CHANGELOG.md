@@ -1,4 +1,4 @@
-# 0.2.0 (pre-release)
+# 0.2.0 (release)
 * Introduced Map
 * Introduced Set
 * Fixed design of Queue in order to make it really lockfree
