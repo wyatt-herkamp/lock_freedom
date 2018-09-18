@@ -138,6 +138,14 @@ where
     }
 }
 
+macro_rules! make_field {
+    () => {};
+    ($field:expr $(, $fields:expr)*) => {
+        make_field!($($fields),*);
+        $field;
+    }
+}
+
 macro_rules! impl_tuple {
     ($($ty:ident : $field:tt),*) => {
         impl<$($ty),*> TargetSet for ($($ty,)*)
@@ -145,7 +153,7 @@ macro_rules! impl_tuple {
             $($ty: Target,)*
         {
             fn run(&self, _executor: &mut Executor) {
-                $(_executor.run(&self.$field));*
+                make_field!($(_executor.run(&self.$field)),*);
             }
         }
     };

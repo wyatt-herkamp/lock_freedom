@@ -1,4 +1,4 @@
-pub use incinerator::Incinerator;
+pub use incinerator;
+pub use map::Map;
 pub use queue::Queue;
-/*pub use map::Map;
-pub use stack::Stack;*/
+pub use stack::Stack;

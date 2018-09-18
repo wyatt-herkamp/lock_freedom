@@ -1,211 +1,179 @@
-use alloc::*;
 use std::{
+    cell::UnsafeCell,
+    collections::VecDeque,
+    mem::transmute,
     process::abort,
-    ptr::{null_mut, NonNull},
-    sync::atomic::{AtomicPtr, AtomicUsize, Ordering::*},
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering::*},
 };
 
-type JunkYard<'drop> = Vec<Box<Dropper + 'drop>>;
+static PAUSED_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// The incinerator is a structure which concurrently reclaims resources or
-/// execute other sensitive code. If needed, reclamation is deferred until
-/// threads allow it to occur. The deferring happens by the creation of pauses.
-/// When all pauses are dropped, the reclamation will continue to happen.
-///
-/// # Example
-/// ```
-/// extern crate lockfree;
-///
-/// use lockfree::prelude::*;
-/// use std::{
-///     ptr::{null_mut, NonNull},
-///     sync::{
-///         atomic::{AtomicPtr, Ordering::*},
-///         Arc,
-///     },
-///     thread,
-/// };
-///
-/// unsafe fn create_ptr<T>(val: T) -> NonNull<T> {
-///     NonNull::new_unchecked(Box::into_raw(Box::new(val)))
-/// }
-///
-/// unsafe fn drop_ptr<T>(ptr: NonNull<T>) {
-///     Box::from_raw(ptr.as_ptr());
-/// }
-///
-/// struct Shared {
-///     inc: Incinerator<'static>,
-///     ptr: AtomicPtr<usize>,
-/// }
-///
-/// let ptr = unsafe { create_ptr(55).as_ptr() };
-/// let dummy_state =
-///     Arc::new(Shared { ptr: AtomicPtr::new(ptr), inc: Incinerator::new() });
-/// let mut threads = Vec::with_capacity(16);
-///
-/// for i in 0 .. 16 {
-///     let state = dummy_state.clone();
-///     threads.push(thread::spawn(move || {
-///         let _pause = state.inc.pause();
-///         let loaded = state.ptr.load(SeqCst);
-///         let new = if let Some(num) = unsafe { loaded.as_ref() } {
-///             i + num
-///         } else {
-///             i
-///         };
-///         let new_ptr = unsafe { create_ptr(new).as_ptr() };
-///         let ptr = state.ptr.swap(new_ptr, SeqCst);
-///
-///         if let Some(nnptr) = NonNull::new(ptr) {
-///             // dropping
-///             unsafe { state.inc.add_non_send(move || drop_ptr(nnptr)) }
-///         }
-///     }));
-/// }
-///
-/// for thread in threads {
-///     thread.join().unwrap();
-/// }
-///
-/// if let Some(ptr) = NonNull::new(dummy_state.ptr.load(SeqCst)) {
-///     assert!(unsafe { *ptr.as_ref() } <= 15 * 15);
-///     unsafe { drop_ptr(ptr) }
-/// }
-/// ```
-#[derive(Debug, Default)]
-pub struct Incinerator<'drop> {
-    paused: AtomicUsize,
-    pool: AtomicPtr<JunkYard<'drop>>,
+/// Adds the given pointer and drop function to the local deletion queue.
+/// If there is no critical code executing (i.e. the incinerator is not
+/// paused), all local queue items are deleted. This function is unsafe because
+/// pointers must be correctly dropped such as no "use after free" or "double
+/// free" happens. You may want to call this function only after you replaced
+/// the pointer (or there aren't active threads). The dropper function SHALL
+/// NOT call `incinerator::add` in its body. If it calls, deletion may panic.
+pub unsafe fn add<T>(ptr: NonNull<T>, dropper: unsafe fn(NonNull<T>)) {
+    LOCAL_DELETION.with(|queue| {
+        // First of all, let's put it on the queue because of a possible
+        // obstruction when deleting.
+        queue.add(Garbage {
+            ptr: NonNull::new_unchecked(ptr.as_ptr() as *mut u8),
+            dropper: transmute(dropper),
+        });
+        if PAUSED_COUNT.load(Acquire) == 0 {
+            // Please, note that we check for the counter AFTER the enqueueing.
+            // This ensures that no pointer is added after a possible status
+            // change. All pointers deleted here were already added
+            // to the queue.
+            queue.delete();
+        }
+    })
 }
 
-impl<'drop> Incinerator<'drop> {
-    /// Creates a new empty incinerator.
-    pub fn new() -> Self {
-        Self::default()
-    }
+/// Tries to force deletion of all local queue items. Only succeeds
+/// if there are no pauses when checking for them before the deletion.
+/// Returns true in case of success, false otherwise. Please note this
+/// functions is not strictly need to be called, but it may help on releasing
+/// garbage if you added a lot of them during a pause. These are some situations
+/// in which `try_force` can be helpful:
+/// 1. Your application exits from a concurrent context, and then you want to
+/// clean    a possibly non-empty deletion queue for the main thread.
+/// 2. Your application's threads might sleep for some time and you want to
+/// clean    garbage up and free memory.
+pub fn try_force() -> bool {
+    LOCAL_DELETION.with(|queue| {
+        let success = PAUSED_COUNT.load(Acquire) == 0;
+        if success {
+            // No problem to change the status while deleting.
+            // No pointer is added to the queue during the change.
+            queue.delete();
+        }
+        success
+    })
+}
 
-    /// Creates a pause. While the incinerator is paused, no reclamation
-    /// function is executed.
-    pub fn pause<'incin>(&'incin self) -> Pause<'incin, 'drop> {
-        if self.paused.fetch_add(1, AcqRel) == usize::max_value() {
-            eprintln!("Too much pauses");
+/// Pauses the incinerator and executes the given function as critical code.
+/// No deletions of new queues will start during the execution of the given
+/// function. Inside the passed function is a good place to load and read
+/// atomic pointers.
+#[inline]
+pub fn pause<F, T>(exec: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    // Do not allow deletions, but allow adding pointers to the local queues.
+    let paused = Pause::new();
+    let res = exec();
+    // After the execution, everything is fine.
+    drop(paused);
+    res
+}
+
+struct Pause;
+
+impl Pause {
+    pub fn new() -> Self {
+        // prevent count from overflowing and creating bugs
+        if PAUSED_COUNT.fetch_add(1, Acquire) == usize::max_value() {
             abort();
         }
-        Pause { inc: self }
-    }
-
-    /// Adds a `Send`able reclamation function to the incinerator. If there is
-    /// no pauses currently, the function is immediatly executed as well the
-    /// functions in the "junk yard". If there is at least one pause executing,
-    /// the function is added to the junk yard.
-    pub fn add<F>(&self, dropper: F)
-    where
-        F: FnOnce() + Send + 'drop,
-    {
-        unsafe { self.add_non_send(dropper) }
-    }
-
-    /// The same as `add`, but allows the function to contain non-send types
-    /// such as pointers, which makes this method unsafe.
-    pub unsafe fn add_non_send<F>(&self, dropper: F)
-    where
-        F: FnOnce() + 'drop,
-    {
-        let maybe_sub = self.take_pool();
-        if self.paused.load(Acquire) == 0 {
-            dropper();
-
-            if let Some(nnptr) = maybe_sub {
-                let vec = &mut *nnptr.as_ptr();
-                while let Some(dropper) = vec.pop() {
-                    dropper.drop()
-                }
-                dealloc(nnptr)
-            }
-        } else {
-            let mut nnptr = match maybe_sub {
-                Some(nnptr) => nnptr,
-                None => alloc(JunkYard::new()),
-            };
-
-            nnptr.as_mut().push(Box::new(dropper));
-            self.reinsert(nnptr)
-        }
-    }
-
-    fn take_pool(&self) -> Option<NonNull<JunkYard<'drop>>> {
-        NonNull::new(self.pool.swap(null_mut(), AcqRel))
-    }
-
-    unsafe fn reinsert(&self, mut nnptr: NonNull<JunkYard<'drop>>) {
-        while !self
-            .pool
-            .compare_and_swap(null_mut(), nnptr.as_ptr(), Release)
-            .is_null()
-        {
-            let in_place = self.pool.swap(null_mut(), AcqRel);
-            let mut in_place = match NonNull::new(in_place) {
-                Some(nnptr) => nnptr,
-                None => continue,
-            };
-            nnptr.as_mut().append(in_place.as_mut());
-            dealloc(in_place);
-        }
+        Pause
     }
 }
 
-impl<'drop> Drop for Incinerator<'drop> {
+impl Drop for Pause {
     fn drop(&mut self) {
-        let maybe_sub = self.take_pool();
-        if let Some(nnptr) = maybe_sub {
-            let vec = unsafe { &mut *nnptr.as_ptr() };
-            while let Some(dropper) = vec.pop() {
-                dropper.drop()
+        PAUSED_COUNT.fetch_sub(1, Release);
+    }
+}
+
+struct Garbage {
+    ptr: NonNull<u8>,
+    dropper: unsafe fn(NonNull<u8>),
+}
+
+struct GarbageQueue {
+    inner: UnsafeCell<VecDeque<Garbage>>,
+}
+
+impl GarbageQueue {
+    fn new() -> Self {
+        Self { inner: UnsafeCell::new(VecDeque::with_capacity(16)) }
+    }
+
+    fn add(&self, garbage: Garbage) {
+        unsafe { &mut *self.inner.get() }.push_back(garbage);
+    }
+
+    fn delete(&self) {
+        let deque = unsafe { &mut *self.inner.get() };
+        while let Some(garbage) = deque.pop_front() {
+            unsafe {
+                (garbage.dropper)(garbage.ptr);
             }
-            unsafe { dealloc(nnptr) }
         }
     }
 }
 
-/// A pause on the incinerator. When this type is dropped, the pause is ended.
-/// The drop implementation of this type will also try to execute all
-/// reclamation functions on incinerator.
-#[derive(Debug)]
-pub struct Pause<'incin, 'drop> {
-    inc: &'incin Incinerator<'drop>,
-}
-
-impl<'incin, 'drop> Drop for Pause<'incin, 'drop> {
+impl Drop for GarbageQueue {
     fn drop(&mut self) {
-        let maybe_sub = self.inc.take_pool();
-
-        if self.inc.paused.fetch_sub(1, AcqRel) == 0 {
-            if let Some(nnptr) = maybe_sub {
-                let vec = unsafe { &mut *nnptr.as_ptr() };
-                while let Some(dropper) = vec.pop() {
-                    dropper.drop()
-                }
-
-                unsafe { dealloc(nnptr) }
-            }
-        } else {
-            if let Some(nnptr) = maybe_sub {
-                unsafe { self.inc.reinsert(nnptr) }
-            }
-        }
+        while PAUSED_COUNT.load(Acquire) != 0 {}
+        self.delete();
     }
 }
 
-trait Dropper {
-    fn drop(self: Box<Self>);
+thread_local! {
+    static LOCAL_DELETION: GarbageQueue = GarbageQueue::new();
 }
 
-impl<F> Dropper for F
-where
-    F: FnOnce(),
-{
-    fn drop(self: Box<Self>) {
-        (*self)()
+// Testing the safety of `unsafe` in this module is done with random operations
+// via fuzzing
+#[cfg(test)]
+mod test {
+    use super::*;
+    use alloc::*;
+    use std::thread;
+
+    #[test]
+    fn try_force_succeeds_in_single_threaded() {
+        assert!(try_force());
+
+        const COUNT: usize = 16;
+
+        let mut allocs = Vec::with_capacity(COUNT);
+
+        for i in 0 .. COUNT {
+            allocs.push(unsafe { alloc(i) });
+        }
+
+        pause(|| ());
+
+        for ptr in allocs {
+            unsafe {
+                add(ptr, dealloc);
+            }
+        }
+
+        assert!(try_force());
+    }
+
+    #[test]
+    fn count_is_gt_0_when_pausing() {
+        const NTHREADS: usize = 20;
+        let mut threads = Vec::with_capacity(NTHREADS);
+        for _ in 0 .. NTHREADS {
+            threads.push(thread::spawn(|| {
+                pause(|| {
+                    assert!(PAUSED_COUNT.load(SeqCst) > 0);
+                })
+            }));
+        }
+        for thread in threads {
+            thread.join().expect("sub-thread panicked");
+        }
     }
 }
