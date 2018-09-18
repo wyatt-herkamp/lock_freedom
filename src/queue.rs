@@ -1,6 +1,7 @@
 use alloc::*;
-use incinerator;
+use incinerator::Incinerator;
 use std::{
+    fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
@@ -8,18 +9,22 @@ use std::{
 
 /// A lock-free queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.
-#[derive(Debug)]
-pub struct Queue<T> {
+pub struct Queue<'elem, T>
+where
+    T: 'elem,
+{
     front: AtomicPtr<Node<T>>,
     back: AtomicPtr<Node<T>>,
+    inc: Incinerator<'elem>,
 }
 
-impl<T> Queue<T> {
+impl<'elem, T> Queue<'elem, T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
         Self {
             front: AtomicPtr::new(null_mut()),
             back: AtomicPtr::new(null_mut()),
+            inc: Incinerator::new(),
         }
     }
 
@@ -29,74 +34,68 @@ impl<T> Queue<T> {
         let node =
             unsafe { Node::new_ptr(alloc(val).as_ptr(), null_mut()).as_ptr() };
         // Very simple schema: let's replace the back with our node, and then...
-        incinerator::pause(|| {
-            let ptr = self.back.swap(node, AcqRel);
-            if let Some(back) = unsafe { ptr.as_ref() } {
-                // ...put our node as the "next" of the previous back, if it
-                // was not null...
-                let _next = back.next.swap(node, Release);
-                debug_assert!(_next.is_null());
-            } else {
-                // ...otherwise, if it was null, front will also be null. We
-                // need to update front.
-                self.front.compare_and_swap(null_mut(), node, Release);
-            }
-        })
+        let _pause = self.inc.pause();
+        let ptr = self.back.swap(node, AcqRel);
+        if let Some(back) = unsafe { ptr.as_ref() } {
+            // ...put our node as the "next" of the previous back, if it
+            // was not null...
+            let _next = back.next.swap(node, Release);
+            debug_assert!(_next.is_null());
+        } else {
+            // ...otherwise, if it was null, front will also be null. We
+            // need to update front.
+            self.front.compare_and_swap(null_mut(), node, Release);
+        }
     }
 
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let result = incinerator::pause(|| unsafe {
-                // First, let's load the current pointer.
-                let ptr = self.front.load(Acquire);
-                // Then, if it is null, the queue never ever had an element.
-                let nnptr = match NonNull::new(ptr) {
-                    Some(nnptr) => nnptr,
-                    None => return Some(null_mut()),
+            let pause = self.inc.pause();
+
+            // First, let's load the current pointer.
+            let ptr = self.front.load(Acquire);
+            // Then, if it is null, the queue never ever had an element.
+            let nnptr = match NonNull::new(ptr) {
+                Some(nnptr) => nnptr,
+                None => break None,
+            };
+
+            // We are really interested in this pointer
+            let item_ptr = unsafe { nnptr.as_ref() }.val.load(Acquire);
+
+            // If it is null, this item already was removed. We need to
+            // clean it.
+            if item_ptr.is_null() {
+                if unsafe { self.clean_front_first(nnptr) } {
+                    continue;
+                } else {
+                    break None;
                 };
+            }
 
-                // We are really interested in this pointer
-                let item_ptr = nnptr.as_ref().val.load(Acquire);
+            // To remove, we simply set the item to null.
+            let res = unsafe { nnptr.as_ref() }.val.compare_and_swap(
+                item_ptr,
+                null_mut(),
+                Release,
+            );
 
-                // If it is null, this item already was removed. We need to
-                // clean it.
-                if item_ptr.is_null() {
-                    return if self.clean_front_first(nnptr) {
-                        None
-                    } else {
-                        Some(null_mut())
-                    };
-                }
-
-                // To remove, we simply set the item to null.
-                let res = nnptr.as_ref().val.compare_and_swap(
-                    item_ptr,
-                    null_mut(),
-                    Release,
-                );
-
-                if res == item_ptr {
+            if res == item_ptr {
+                unsafe {
                     // let's be polite and clean it up anyway.
                     self.clean_front_first(nnptr);
-                    Some(item_ptr)
-                } else {
-                    None
-                }
-            });
+                    let val = item_ptr.read();
+                    drop(pause);
 
-            if let Some(ptr) = result {
-                break NonNull::new(ptr).map(|nnptr| {
-                    // Also, we have to take out the value.
-                    let val = unsafe { nnptr.as_ptr().read() };
-                    unsafe {
-                        // Now it is OK to dealloc. If someone loaded the
-                        // pointer, the thread will also block effectively
-                        // memory reclamation.
-                        incinerator::add(nnptr, dealloc_moved)
-                    }
-                    val
-                });
+                    // Now it is OK to dealloc. If someone loaded the
+                    // pointer, the thread will also block effectively
+                    // memory reclamation.
+                    self.inc.add_non_send(move || {
+                        dealloc_moved(NonNull::new_unchecked(item_ptr))
+                    });
+                    break Some(val);
+                }
             }
         }
     }
@@ -112,7 +111,7 @@ impl<T> Queue<T> {
     }
 
     /// Creates an iterator over `T`s, based on `pop` operation of the queue.
-    pub fn iter<'a>(&'a self) -> Iter<'a, T> {
+    pub fn iter<'queue>(&'queue self) -> Iter<'queue, 'elem, T> {
         Iter { queue: self }
     }
 
@@ -124,20 +123,27 @@ impl<T> Queue<T> {
             let res =
                 self.front.compare_and_swap(expected.as_ptr(), next, Release);
             if res == expected.as_ptr() {
-                incinerator::add(NonNull::new_unchecked(res), dealloc);
+                self.inc
+                    .add_non_send(move || dealloc(NonNull::new_unchecked(res)));
             }
             true
         }
     }
 }
 
-impl<T> Default for Queue<T> {
+impl<'elem, T> fmt::Debug for Queue<'elem, T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("Queue")
+    }
+}
+
+impl<'elem, T> Default for Queue<'elem, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T> Drop for Queue<T> {
+impl<'elem, T> Drop for Queue<'elem, T> {
     fn drop(&mut self) {
         while let Some(_) = self.pop() {}
         if let Some(nnptr) = NonNull::new(self.front.load(Acquire)) {
@@ -146,7 +152,7 @@ impl<T> Drop for Queue<T> {
     }
 }
 
-impl<T> FromIterator<T> for Queue<T> {
+impl<'elem, T> FromIterator<T> for Queue<'elem, T> {
     fn from_iter<I>(iterable: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -157,29 +163,29 @@ impl<T> FromIterator<T> for Queue<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a Queue<T> {
+impl<'queue, 'elem, T> IntoIterator for &'queue Queue<'elem, T> {
     type Item = T;
 
-    type IntoIter = Iter<'a, T>;
+    type IntoIter = Iter<'queue, 'elem, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-unsafe impl<T> Send for Queue<T> where T: Send {}
+unsafe impl<'elem, T> Send for Queue<'elem, T> where T: Send {}
 
-unsafe impl<T> Sync for Queue<T> where T: Send {}
+unsafe impl<'elem, T> Sync for Queue<'elem, T> where T: Send {}
 
 /// An iterator based on `pop` operation of the `Queue`.
-pub struct Iter<'a, T>
+pub struct Iter<'queue, 'elem, T>
 where
-    T: 'a,
+    T: 'queue + 'elem,
 {
-    queue: &'a Queue<T>,
+    queue: &'queue Queue<'elem, T>,
 }
 
-impl<'a, T> Iterator for Iter<'a, T> {
+impl<'queue, 'elem, T> Iterator for Iter<'queue, 'elem, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
 struct QueueMachine {
-    queue: Arc<Queue<Box<u8>>>,
+    queue: Arc<Queue<'static, Box<u8>>>,
 }
 
 impl Machine for QueueMachine {

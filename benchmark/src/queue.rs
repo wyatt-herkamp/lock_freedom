@@ -3,7 +3,7 @@ extern crate benchsuite;
 extern crate lockfree;
 
 use benchsuite::exec::Target;
-use lockfree::queue::Queue;
+use lockfree::prelude::*;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -16,7 +16,7 @@ struct MutexTarget {
 
 #[derive(Debug, Clone, Default)]
 struct LockfreeTarget {
-    inner: Arc<Queue<u8>>,
+    inner: Arc<Queue<'static, u8>>,
 }
 
 impl Target for MutexTarget {
