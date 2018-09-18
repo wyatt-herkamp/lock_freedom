@@ -5,13 +5,18 @@ extern crate lockfree;
 use benchsuite::exec::Target;
 use lockfree::queue::Queue;
 use std::{
-    collections::VecDeque,
+    collections::{LinkedList, VecDeque},
     sync::{Arc, Mutex},
 };
 
 #[derive(Debug, Clone, Default)]
-struct MutexTarget {
+struct MutexVecTarget {
     inner: Arc<Mutex<VecDeque<u8>>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct MutexListTarget {
+    inner: Arc<Mutex<LinkedList<u8>>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -19,12 +24,21 @@ struct LockfreeTarget {
     inner: Arc<Queue<u8>>,
 }
 
-impl Target for MutexTarget {
+impl Target for MutexVecTarget {
     #[inline(always)]
     fn round(&mut self) {
-        let mut stack = self.inner.lock().unwrap();
-        stack.pop_front();
-        stack.push_back(234);
+        let mut queue = self.inner.lock().unwrap();
+        queue.pop_front();
+        queue.push_back(234);
+    }
+}
+
+impl Target for MutexListTarget {
+    #[inline(always)]
+    fn round(&mut self) {
+        let mut queue = self.inner.lock().unwrap();
+        queue.pop_front();
+        queue.push_back(234);
     }
 }
 
@@ -39,7 +53,8 @@ impl Target for LockfreeTarget {
 fn main() {
     bench! {
         levels 1, 2, 4, 8;
-        "mutex" => MutexTarget::default(),
+        "mutex vector" => MutexVecTarget::default(),
+        "mutex linked list" => MutexListTarget::default(),
         "lockfree" => LockfreeTarget::default(),
     }
 }
