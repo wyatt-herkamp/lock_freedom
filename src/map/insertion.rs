@@ -203,7 +203,7 @@ pub struct NewInserter<F> {
 impl<F> NewInserter<F> {
     pub fn new<K, V>(update: F) -> Self
     where
-        F: FnMut(&K, Option<&V>, Option<&V>) -> Preview<V>,
+        F: FnMut(&K, Option<&V>, Option<(&K, &V)>) -> Preview<V>,
     {
         Self { update }
     }
@@ -211,7 +211,7 @@ impl<F> NewInserter<F> {
 
 impl<K, V, F> Inserter<K, V> for NewInserter<F>
 where
-    F: FnMut(&K, Option<&V>, Option<&V>) -> Preview<V>,
+    F: FnMut(&K, Option<&V>, Option<(&K, &V)>) -> Preview<V>,
 {
     unsafe fn update(
         &mut self,
@@ -220,8 +220,8 @@ where
     ) {
         match (self.update)(
             created.key(),
-            stored.map(|p| &*p.as_ptr()).map(|p| &p.val),
             created.val(),
+            stored.map(|p| &*p.as_ptr()).map(|p| (&p.key, &p.val)),
         ) {
             Preview::Keep => (),
             Preview::Discard => created.discard(),
@@ -237,7 +237,7 @@ pub struct Reinserter<F> {
 impl<F> Reinserter<F> {
     pub fn new<K, V>(pred: F) -> Self
     where
-        F: FnMut(&Removed<K, V>, Option<&V>) -> bool,
+        F: FnMut(&Removed<K, V>, Option<(&K, &V)>) -> bool,
     {
         Self { pred }
     }
@@ -245,7 +245,7 @@ impl<F> Reinserter<F> {
 
 impl<K, V, F> Inserter<K, V> for Reinserter<F>
 where
-    F: FnMut(&Removed<K, V>, Option<&V>) -> bool,
+    F: FnMut(&Removed<K, V>, Option<(&K, &V)>) -> bool,
 {
     unsafe fn update(
         &mut self,
@@ -254,8 +254,10 @@ where
     ) {
         debug_assert!(!created.is_val_uninited());
         let removed = Removed::new(created.ptr());
-        let keep =
-            (self.pred)(&removed, stored.map(|p| &*p.as_ptr()).map(|p| &p.val));
+        let keep = (self.pred)(
+            &removed,
+            stored.map(|p| &*p.as_ptr()).map(|p| (&p.key, &p.val)),
+        );
         mem::forget(removed);
         if keep {
             created.keep();

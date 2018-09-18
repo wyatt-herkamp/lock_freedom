@@ -327,4 +327,32 @@ impl<K, V> Table<K, V> {
             }
         }
     }
+
+    pub unsafe fn remove_unneeded(&mut self) -> bool {
+        let mut removed = 0usize;
+
+        for node in self.nodes() {
+            let ptr = node.load(Relaxed);
+            match ptr.as_ref() {
+                Some(Node::Leaf(bucket)) => if bucket.try_clean_first() {
+                    dealloc(NonNull::new_unchecked(ptr));
+                    removed += 1;
+                    node.store(null_mut(), Relaxed);
+                },
+
+                Some(Node::Branch(mut table)) => {
+                    if table.as_mut().remove_unneeded() {
+                        dealloc(table);
+                        dealloc(NonNull::new_unchecked(ptr));
+                        removed += 1;
+                        node.store(null_mut(), Relaxed);
+                    }
+                },
+
+                None => removed += 1,
+            }
+        }
+
+        removed == self.nodes.len()
+    }
 }

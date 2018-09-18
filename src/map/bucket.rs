@@ -283,7 +283,7 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
-    unsafe fn try_clean_first(&self) -> bool {
+    pub unsafe fn try_clean_first(&self) -> bool {
         loop {
             let prev_list = &self.list;
             let prev = prev_list.ptr.load(Acquire);

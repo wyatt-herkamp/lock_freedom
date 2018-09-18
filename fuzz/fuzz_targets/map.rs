@@ -118,22 +118,22 @@ impl Machine for MapMachine {
                 );
                 let decision = bytecode.next().unwrap_or(0);
                 let inc = bytecode.next().unwrap_or(0);
-                self.map.insert_with(key, |key, stored, prev| {
+                self.map.insert_with(key, |key, val, stored| {
                     match decision % 8 {
                         0 | 1 => Preview::Discard,
                         2 | 3 => Preview::Keep,
                         4 => Preview::New(
                             inc.wrapping_add(key.0 as u8)
-                                .wrapping_add(stored.map_or(0, |&x| x))
-                                .wrapping_add(prev.map_or(0, |&x| x)),
+                                .wrapping_add(stored.map_or(0, |(_, &x)| x))
+                                .wrapping_add(val.map_or(0, |&x| x)),
                         ),
                         5 => Preview::New(inc.wrapping_add(key.0 as u8)),
                         6 => Preview::New(
-                            inc.wrapping_add(stored.map_or(0, |&x| x)),
+                            inc.wrapping_add(stored.map_or(0, |(_, &x)| x)),
                         ),
                         7 => Preview::New(
                             (key.0 as u8)
-                                .wrapping_add(stored.map_or(0, |&x| x)),
+                                .wrapping_add(stored.map_or(0, |(_, &x)| x)),
                         ),
                         _ => unreachable!(),
                     }
@@ -157,9 +157,9 @@ impl Machine for MapMachine {
                         0 => removed.val().wrapping_add(test) % 2 == 0,
                         1 => removed.val().wrapping_mul(test) % 2 == 0,
                         2 => {
-                            let res = removed
-                                .val()
-                                .wrapping_mul(test ^ stored.map_or(0, |&x| x));
+                            let res = removed.val().wrapping_mul(
+                                test ^ stored.map_or(0, |(_, &x)| x),
+                            );
                             res % 2 == 0
                         },
                         3 => stored.is_some(),

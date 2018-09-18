@@ -1,6 +1,6 @@
 pub use map::RandomState;
 use map::{
-    Insertion,
+    Insertion as MapInsertion,
     Iter as MapIter,
     IterReader as MapIterReader,
     Map,
@@ -38,43 +38,94 @@ impl<T, H> Set<T, H> {
         Self { inner: Map::with_hasher(hasher_builder) }
     }
 
-    /// Inserts an element into the set. If the element was already present,
-    /// the provided element value is returned back as an error.
+    /// Inserts an element into the set. If the element is already present,
+    /// nothing is changed and an error is returned with the element passed by
+    /// argument.
     pub fn insert(&self, elem: T) -> Result<(), T>
     where
-        H: BuildHasher,
         T: Hash + Ord,
+        H: BuildHasher,
     {
-        let res = self.inner.insert_with(elem, |_, stored, _| {
-            if stored.is_none() {
+        let result = self.inner.insert_with(elem, |_, _, stored| {
+            if stored.is_some() {
+                Preview::Discard
+            } else {
+                Preview::New(())
+            }
+        });
+        match result {
+            MapInsertion::Created => Ok(()),
+            MapInsertion::Failed((elem, _)) => Err(elem),
+            MapInsertion::Updated(_) => unreachable!(),
+        }
+    }
+
+    /// An _interactive_ insertion. The element to be inserted is passed with a
+    /// checker function. The first argument of the function is the provided
+    /// element, while the second is the already present element, equal to
+    /// the provided, if any. Then, the function returns whether to insert or
+    /// not, given the conditions.
+    pub fn insert_with<F>(&self, elem: T, mut checker: F) -> Insertion<T, T>
+    where
+        F: FnMut(&T, Option<&T>) -> bool,
+        T: Hash + Ord,
+        H: BuildHasher,
+    {
+        let result = self.inner.insert_with(elem, |elem, _, stored| {
+            if checker(elem, stored.map(|(elem, _)| elem)) {
                 Preview::New(())
             } else {
                 Preview::Discard
             }
         });
 
-        match res {
-            Insertion::Created => Ok(()),
-            Insertion::Failed((elem, _)) => Err(elem),
-            Insertion::Updated(_) => unreachable!(),
+        match result {
+            MapInsertion::Created => Insertion::Created,
+            MapInsertion::Updated(old) => Insertion::Updated(Removed::new(old)),
+            MapInsertion::Failed((elem, _)) => Insertion::Failed(elem),
         }
     }
 
-    /// Reinserts a previously removed element into the set. The element may
-    /// have been removed from another set. If the element is already present,
-    /// the provided value is returned back as an error.
+    /// Reinserts a previously removed element from the set. If the element is
+    /// already present, nothing is changed and an error is returned with the
+    /// element passed by argument.
     pub fn reinsert(&self, elem: Removed<T>) -> Result<(), Removed<T>>
     where
-        H: BuildHasher,
         T: Hash + Ord,
+        H: BuildHasher,
     {
-        let res =
+        let result =
             self.inner.reinsert_with(elem.inner, |_, stored| stored.is_none());
+        match result {
+            MapInsertion::Created => Ok(()),
+            MapInsertion::Failed(removed) => Err(Removed::new(removed)),
+            MapInsertion::Updated(_) => unreachable!(),
+        }
+    }
 
-        match res {
-            Insertion::Created => Ok(()),
-            Insertion::Failed(elem) => Err(Removed::new(elem)),
-            Insertion::Updated(_) => unreachable!(),
+    /// An _interactive_ reinsertion. The element to be inserted (previously
+    /// removed) is passed with a checker function. The first argument of
+    /// the function is the provided element, while the second is the
+    /// already present element, equal to the provided, if any. Then, the
+    /// function returns whether to insert or not, given the conditions.
+    pub fn reinsert_with<F>(
+        &self,
+        elem: Removed<T>,
+        mut checker: F,
+    ) -> Insertion<T, Removed<T>>
+    where
+        F: FnMut(&T, Option<&T>) -> bool,
+        T: Hash + Ord,
+        H: BuildHasher,
+    {
+        let result = self.inner.reinsert_with(elem.inner, |elem, stored| {
+            checker(elem.key(), stored.map(|(elem, _)| elem))
+        });
+
+        match result {
+            MapInsertion::Created => Insertion::Created,
+            MapInsertion::Updated(old) => Insertion::Updated(Removed::new(old)),
+            MapInsertion::Failed(e) => Insertion::Failed(Removed::new(e)),
         }
     }
 
@@ -88,6 +139,19 @@ impl<T, H> Set<T, H> {
         T: Borrow<U>,
     {
         self.inner.get(elem, |_| ()).is_some()
+    }
+
+    /// Gets the element into a temporary reference to be read by a provided
+    /// closure. The return of the closure is wrapped into a `Some`, and if
+    /// there was no element, `None` is returned.
+    pub fn get<U, F, A>(&self, elem: &U, reader: F) -> Option<A>
+    where
+        H: BuildHasher,
+        U: Hash + Ord,
+        T: Borrow<U>,
+        F: FnOnce(&T) -> A,
+    {
+        self.inner.get_pair(elem, |k, _| reader(k))
     }
 
     /// Removes the element from the set. For this method to work,
@@ -149,6 +213,67 @@ where
             self.inner.hasher(),
             '}'
         )
+    }
+}
+
+/// The result of an _interactive_ insertion.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Insertion<T, E> {
+    /// If this is returned, an entry for the given element was successfully
+    /// created i.e. there was no entry before.
+    Created,
+    /// If this is returned, an entry for the given element already existed and
+    /// was successfully updated with the provided value. The field is the old
+    /// entry element.
+    Updated(Removed<T>),
+    /// If this is returned, the insertion failed and no action was done.
+    /// Failure may have happened because the given closure rejected the
+    /// conditions. The field will depend on the method you called.
+    Failed(E),
+}
+
+impl<T, E> Insertion<T, E> {
+    /// Is this insertion a creation?
+    pub fn created(&self) -> bool {
+        match self {
+            Insertion::Created => true,
+            _ => false,
+        }
+    }
+
+    /// Is this insertion an update? If so, the return is a reference to the
+    /// old value.
+    pub fn updated(&self) -> Option<&Removed<T>> {
+        match self {
+            Insertion::Updated(pair) => Some(pair),
+            _ => None,
+        }
+    }
+
+    /// Is this insertion an update? If so, the old value is taken and
+    /// returned. Otherwise, the insertion is returned.
+    pub fn take_updated(self) -> Result<Removed<T>, Self> {
+        match self {
+            Insertion::Updated(pair) => Ok(pair),
+            this => Err(this),
+        }
+    }
+
+    /// Is this a failure? If so, return a reference to the custom field.
+    pub fn failed(&self) -> Option<&E> {
+        match self {
+            Insertion::Failed(err) => Some(err),
+            _ => None,
+        }
+    }
+
+    /// Is this a failure? If so, the custom field is taken and
+    /// returned. Otherwise, the insertion is returned.
+    pub fn take_failed(self) -> Result<E, Self> {
+        match self {
+            Insertion::Failed(e) => Ok(e),
+            this => Err(this),
+        }
     }
 }
 

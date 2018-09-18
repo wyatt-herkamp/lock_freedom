@@ -56,8 +56,9 @@ impl Target for MutexInsert {
     fn round(&mut self) {
         let i = self.i;
         self.i += 1;
+        let key = make_key(i);
         let mut map = self.inner.lock().unwrap();
-        map.insert(make_key(i), i);
+        map.insert(key, i);
     }
 }
 
@@ -87,8 +88,9 @@ impl Target for MutexGet {
     fn round(&mut self) {
         let i = self.i;
         self.i += 1;
+        let key = make_key(i);
         let map = self.inner.lock().unwrap();
-        let val = map.get(&make_key(i));
+        let val = map.get(&key);
         prevent_opt(val);
     }
 }
@@ -119,8 +121,9 @@ impl Target for MutexRemove {
     fn round(&mut self) {
         let i = self.i;
         self.i += 1;
+        let key = make_key(i);
         let mut map = self.inner.lock().unwrap();
-        map.remove(&make_key(i));
+        map.remove(&key);
     }
 }
 
@@ -150,8 +153,8 @@ impl Target for MutexMixed {
     fn round(&mut self) {
         let i = self.i;
         self.i += 1;
-        let mut map = self.inner.lock().unwrap();
         let key = make_key(i);
+        let mut map = self.inner.lock().unwrap();
         match map.get(&key) {
             Some(&j) => {
                 map.insert(key, i.wrapping_add(j));
