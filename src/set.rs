@@ -418,6 +418,45 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::{
+        cmp::Ordering,
+        hash::{Hash, Hasher},
+    };
+
+    #[derive(Debug, Clone, Copy)]
+    struct EqI {
+        i: usize,
+        j: usize,
+    }
+
+    impl PartialEq for EqI {
+        fn eq(&self, other: &Self) -> bool {
+            self.i == other.i
+        }
+    }
+
+    impl Eq for EqI {}
+
+    impl PartialOrd for EqI {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            self.i.partial_cmp(&other.i)
+        }
+    }
+
+    impl Ord for EqI {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.i.cmp(&other.i)
+        }
+    }
+
+    impl Hash for EqI {
+        fn hash<H>(&self, hasher: &mut H)
+        where
+            H: Hasher,
+        {
+            self.i.hash(hasher)
+        }
+    }
 
     #[test]
     fn inserts_and_contains_checks() {
@@ -448,5 +487,43 @@ mod test {
         assert_eq!(set.remove(&3).unwrap(), 3);
         assert!(set.remove(&3).is_none());
         assert!(set.remove(&5).is_none());
+    }
+
+    #[test]
+    fn inserts_and_reinserts() {
+        let set = Set::new();
+        set.insert(9).unwrap();
+        set.insert(7).unwrap();
+        set.insert(0).unwrap();
+        let removed = set.remove(&9).unwrap();
+        set.reinsert(removed).unwrap();
+        set.insert(9).unwrap_err();
+    }
+
+    #[test]
+    fn insert_with() {
+        let set = Set::new();
+        set.insert(EqI { i: 32, j: 0 }).unwrap();
+        set.insert(EqI { i: 34, j: 10 }).unwrap();
+        set.insert(EqI { i: 34, j: 6 }).unwrap_err();
+        set.insert_with(EqI { i: 34, j: 6 }, |_, _| true).updated().unwrap();
+        set.insert_with(EqI { i: 34, j: 2 }, |_, _| false).failed().unwrap();
+        assert!(set.insert_with(EqI { i: 33, j: 2 }, |_, _| true).created());
+        set.insert_with(EqI { i: 32, j: 3 }, |_, _| true).updated().unwrap();
+    }
+
+    #[test]
+    fn reinsert_with() {
+        let set = Set::new();
+        set.insert(EqI { i: 32, j: 0 }).unwrap();
+        set.insert(EqI { i: 34, j: 10 }).unwrap();
+        set.insert(EqI { i: 34, j: 6 }).unwrap_err();
+        let _34 = set.remove(&EqI { i: 34, j: 325 }).unwrap();
+        let _32 = set.remove(&EqI { i: 32, j: 534 }).unwrap();
+
+        set.insert(EqI { i: 34, j: 6 }).unwrap();
+        set.reinsert_with(_34, |_, _| true).updated().unwrap();
+        let _32 = set.reinsert_with(_32, |_, _| false).take_failed().unwrap();
+        assert!(set.reinsert_with(_32, |_, _| true).created());
     }
 }
