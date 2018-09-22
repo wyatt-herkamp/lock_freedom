@@ -32,11 +32,11 @@ impl BadHash {
         let mut res = Vec::new();
         let mut acc = 0;
         for &sym in syms {
-            for &byte in sym {
-                match acc % 3 {
-                    0 => acc ^= byte,
-                    1 => res.push(byte.wrapping_add(acc)),
-                    2 => res.push(byte),
+            for (i, &byte) in sym.iter().enumerate() {
+                match (acc % 3, i as usize % sym.len()) {
+                    (2, 0) => res.push(byte),
+                    (1, 0) => res.push(byte.wrapping_add(acc)),
+                    (0, _) => acc ^= byte,
                     _ => unreachable!(),
                 }
             }
