@@ -33,11 +33,17 @@ impl BadHash {
         let mut acc = 0;
         for &sym in syms {
             for (i, &byte) in sym.iter().enumerate() {
-                match (acc % 3, i % sym.len()) {
-                    (2, 0) => res.push(byte),
-                    (1, 0) => res.push(byte.wrapping_add(acc)),
-                    (0, _) => acc ^= byte,
-                    _ => unreachable!(),
+                if i % sym.len() == 0 {
+                    res.push(byte.wrapping_add(acc))
+                } else {
+                    match byte.wrapping_add(acc) % 8 {
+                        0 => acc ^= byte,
+                        1 => acc = acc.wrapping_add(byte.wrapping_mul(acc)),
+                        2 => acc = acc.wrapping_sub(byte ^ acc >> 4),
+                        3 => acc = acc ^ byte >> 4 ^ byte << 4,
+                        4 => acc = acc.wrapping_mul(byte),
+                        _ => unreachable!(),
+                    }
                 }
             }
         }
