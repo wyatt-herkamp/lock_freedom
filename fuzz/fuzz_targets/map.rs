@@ -11,46 +11,63 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct BadHash(u128);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct BadHash {
+    bytes: Vec<u8>,
+}
 
 impl Hash for BadHash {
     fn hash<H>(&self, hasher: &mut H)
     where
         H: Hasher,
     {
-        hasher.write_u8(self.0 as u8);
-        hasher.write_u8((self.0 >> 16) as u8);
-        hasher.write_u8((self.0 >> 32) as u8);
-        hasher.write_u8((self.0 >> 48) as u8);
-        hasher.write_u8((self.0 >> 64) as u8);
-        hasher.write_u8((self.0 >> 80) as u8);
-        hasher.write_u8((self.0 >> 96) as u8);
-        hasher.write_u8((self.0 >> 112) as u8);
+        for &byte in self.bytes.iter().step_by(2) {
+            hasher.write_u8(byte);
+        }
     }
 }
 
 impl BadHash {
-    fn from_symbol(sym: &[u8], decision: u8) -> Self {
-        let mut i = 0xA91C;
-        for &byte in sym {
-            i = (byte as u128)
-                .wrapping_mul(i ^ i >> 16 ^ byte as u128 >> 2)
-                .wrapping_mul((decision ^ byte) as u128)
-                .wrapping_mul(decision as u128 ^ i)
-                .wrapping_mul(decision as u128 ^ i)
-                .wrapping_add((decision ^ byte) as u128)
+    fn from_symbol(syms: &[&[u8]]) -> Self {
+        let mut res = Vec::new();
+        let mut acc = 0;
+        for &sym in syms {
+            for &byte in sym {
+                match acc % 3 {
+                    0 => acc ^= byte,
+                    1 => res.push(byte.wrapping_add(acc)),
+                    2 => res.push(byte),
+                    _ => unreachable!(),
+                }
+            }
         }
-        BadHash(i)
+        BadHash { bytes: res }
+    }
+
+    fn get(&self, index: usize) -> u8 {
+        self.bytes.get(index).map_or(0, |&x| x)
     }
 }
 
 #[derive(Debug, Clone, Default)]
 struct MapMachine {
     map: Arc<Map<BadHash, u8>>,
-    key: u8,
     val: u8,
-    decision: u8,
+    key0: u8,
+    key1: u8,
+    key2: u8,
+    key3: u8,
+}
+
+impl MapMachine {
+    fn make_key(&self, bytecode: &mut Bytecode) -> BadHash {
+        BadHash::from_symbol(&[
+            bytecode.symbol(self.key0),
+            bytecode.symbol(self.key1),
+            bytecode.symbol(self.key2),
+            bytecode.symbol(self.key3),
+        ])
+    }
 }
 
 impl Machine for MapMachine {
@@ -63,59 +80,51 @@ impl Machine for MapMachine {
     }
 
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode) {
-        match byte % 10 {
+        match byte % 13 {
             0 => {
-                self.key = bytecode.next().unwrap_or(0);
                 self.val = bytecode.next().unwrap_or(0);
-                self.decision = bytecode.next().unwrap_or(0);
+                self.key0 = bytecode.next().unwrap_or(0);
+                self.key1 = bytecode.next().unwrap_or(0);
+                self.key2 = bytecode.next().unwrap_or(0);
+                self.key3 = bytecode.next().unwrap_or(0);
             },
 
             1 | 5 => {
-                let key = BadHash::from_symbol(
-                    bytecode.symbol(self.key),
-                    self.decision,
-                );
+                let key = self.make_key(bytecode);
                 self.map.insert(key, self.val);
             },
 
             2 => {
-                self.key = bytecode.next().unwrap_or(0);
-                let key = BadHash::from_symbol(
-                    bytecode.symbol(self.key),
-                    self.decision,
-                );
+                self.key0 = bytecode.next().unwrap_or(0);
+                self.key1 = bytecode.next().unwrap_or(0);
+                self.key2 = bytecode.next().unwrap_or(0);
+                self.key3 = bytecode.next().unwrap_or(0);
+                let key = self.make_key(bytecode);
                 self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
             },
 
             3 => {
-                let key = BadHash::from_symbol(
-                    bytecode.symbol(self.key),
-                    self.decision,
-                );;
+                let key = self.make_key(bytecode);
                 self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
-                self.key = bytecode.next().unwrap_or(0);
-                self.decision ^= self.key;
+                self.key2 = self.key0;
+                self.key0 = bytecode.next().unwrap_or(0);
+                self.key3 ^= self.key0;
             },
 
             4 => {
-                let key = BadHash::from_symbol(
-                    bytecode.symbol(self.key),
-                    self.decision,
-                );;
+                let key = self.make_key(bytecode);
                 self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
-                self.key = bytecode.next().unwrap_or(0);
-                self.decision ^= self.val;
+                self.key3 = self.key1;
+                self.key1 = bytecode.next().unwrap_or(0);
+                self.key2 ^= self.val;
             },
 
             6 => {
-                self.key = self.val;
+                self.key1 = self.val;
             },
 
             7 => {
-                let key = BadHash::from_symbol(
-                    bytecode.symbol(self.key),
-                    self.decision,
-                );
+                let key = self.make_key(bytecode);
                 let decision = bytecode.next().unwrap_or(0);
                 let inc = bytecode.next().unwrap_or(0);
                 self.map.insert_with(key, |key, val, stored| {
@@ -123,16 +132,16 @@ impl Machine for MapMachine {
                         0 | 1 => Preview::Discard,
                         2 | 3 => Preview::Keep,
                         4 => Preview::New(
-                            inc.wrapping_add(key.0 as u8)
+                            inc.wrapping_add(key.get(1))
                                 .wrapping_add(stored.map_or(0, |(_, &x)| x))
                                 .wrapping_add(val.map_or(0, |&x| x)),
                         ),
-                        5 => Preview::New(inc.wrapping_add(key.0 as u8)),
+                        5 => Preview::New(inc.wrapping_add(key.get(2))),
                         6 => Preview::New(
                             inc.wrapping_add(stored.map_or(0, |(_, &x)| x)),
                         ),
                         7 => Preview::New(
-                            (key.0 as u8)
+                            key.get(3)
                                 .wrapping_add(stored.map_or(0, |(_, &x)| x)),
                         ),
                         _ => unreachable!(),
@@ -141,10 +150,7 @@ impl Machine for MapMachine {
             },
 
             8 => {
-                let key = BadHash::from_symbol(
-                    bytecode.symbol(self.key),
-                    self.decision,
-                );;
+                let key = self.make_key(bytecode);
                 let removed = match self.map.remove(&key) {
                     Some(x) => x,
                     None => return (),
@@ -170,11 +176,32 @@ impl Machine for MapMachine {
             },
 
             9 => {
-                let mut sum = 0u128;
-                for (k, v) in self.map.iter(|&k, &v| (k, v)) {
-                    sum = sum.wrapping_add(k.0).wrapping_add(v as u128);
+                let mut sum = 0u8;
+                for (k, v) in self.map.iter(|k, &v| (k.get(9), v)) {
+                    sum = sum.wrapping_add(k).wrapping_add(v);
                 }
-                self.key = sum as u8;
+                self.key2 = sum;
+            },
+
+            10 => {
+                let key = self.make_key(bytecode);
+                if let Some(removed) = self.map.remove(&key) {
+                    self.map.reinsert(removed);
+                }
+            },
+
+            11 => {
+                let key = self.make_key(bytecode);
+                self.map.remove(&key);
+            },
+
+            12 => {
+                let key = self.make_key(bytecode);
+                if let Some(removed) = self.map.remove(&key) {
+                    self.map.reinsert_with(removed, |removed, inside| {
+                        inside.map_or(*removed.val(), |(_, &v)| v) % 2 == 1
+                    });
+                }
             },
 
             _ => unreachable!(),
