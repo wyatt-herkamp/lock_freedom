@@ -76,7 +76,7 @@ where
 struct Pause;
 
 impl Pause {
-    pub fn new() -> Self {
+    fn new() -> Self {
         // prevent count from overflowing and creating bugs
         if PAUSED_COUNT.fetch_add(1, Acquire) == usize::max_value() {
             abort();
