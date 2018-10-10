@@ -58,7 +58,7 @@ impl Machine for BoxMachine {
 
     #[allow(unused_must_use)]
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode) {
-        match byte % 10 {
+        match byte % 11 {
             0 => {
                 let ord = get_read_ord(bytecode.next().unwrap_or(0));
                 self.cache = self.ptr.load(ord);
@@ -86,7 +86,7 @@ impl Machine for BoxMachine {
                 );
             },
 
-            3 | 4 => {
+            3 | 4 | 10 => {
                 let x = bytecode.next().unwrap_or(0);
                 let y = bytecode.next().unwrap_or(0);
                 self.cache = Some((x, y));
