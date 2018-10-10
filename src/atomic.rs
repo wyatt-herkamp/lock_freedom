@@ -337,7 +337,9 @@ where
 
             let loaded = unsafe { *loaded_ptr };
             if loaded == curr {
-                match self.ptr.compare_exchange(loaded_ptr, new_ptr, succ, fail)
+                match self
+                    .ptr
+                    .compare_exchange_weak(loaded_ptr, new_ptr, succ, fail)
                 {
                     Ok(res_ptr) => (Ok(loaded), res_ptr),
                     Err(_) => {
@@ -428,6 +430,259 @@ where
     T: Copy + PartialEq,
 {
     fn from(val: T) -> Self {
+        Self::new(val)
+    }
+}
+
+/// Atomic Optional Box of `T`. Similar to `AtomicBox`, but the pointer of
+/// `AtomicOptionBox` can be null.
+pub struct AtomicOptionBox<T> {
+    ptr: AtomicPtr<T>,
+}
+
+impl<T> AtomicOptionBox<T>
+where
+    T: Copy + PartialEq,
+{
+    unsafe fn make_ptr(val: Option<T>) -> *mut T {
+        match val {
+            Some(val) => alloc(val).as_ptr(),
+            None => null_mut(),
+        }
+    }
+
+    unsafe fn make_val(ptr: *mut T) -> Option<T> {
+        ptr.as_ref().map(|&x| x)
+    }
+
+    unsafe fn make_val_and_dealloc(ptr: *mut T) -> Option<T> {
+        NonNull::new(ptr).map(|nnptr| {
+            let val = *nnptr.as_ref();
+            incinerator::add(NonNull::new_unchecked(ptr), dealloc);
+            val
+        })
+    }
+}
+
+impl<T> Atomic for AtomicOptionBox<T>
+where
+    T: Copy + PartialEq,
+{
+    type Inner = Option<T>;
+
+    fn new(init: Self::Inner) -> Self {
+        Self { ptr: unsafe { Self::make_ptr(init) }.into_atomic() }
+    }
+
+    fn load(&self, ord: Ordering) -> Self::Inner {
+        incinerator::pause(|| unsafe { Self::make_val(self.ptr.load(ord)) })
+    }
+
+    fn store(&self, val: Self::Inner, ord: Ordering) {
+        self.swap(val, ord);
+    }
+
+    fn swap(&self, val: Self::Inner, ord: Ordering) -> Self::Inner {
+        let ptr = self.ptr.swap(unsafe { Self::make_ptr(val) }, ord);
+        unsafe { Self::make_val_and_dealloc(ptr) }
+    }
+
+    fn compare_and_swap(
+        &self,
+        curr: Self::Inner,
+        new: Self::Inner,
+        ord: Ordering,
+    ) -> Self::Inner {
+        let load_ord = match ord {
+            Acquire | AcqRel | Release => Acquire,
+            _ => ord,
+        };
+        match self.load_cas_loop(
+            |val| if val == curr { Some(new) } else { None },
+            load_ord,
+            ord,
+        ) {
+            Ok(val) => val,
+            Err(val) => val,
+        }
+    }
+
+    fn compare_exchange(
+        &self,
+        curr: Self::Inner,
+        new: Self::Inner,
+        succ: Ordering,
+        fail: Ordering,
+    ) -> Result<Self::Inner, Self::Inner> {
+        let new_ptr = unsafe { Self::make_ptr(new) };
+
+        let load_ord = match succ {
+            Acquire | AcqRel | Release => Acquire,
+            _ => succ,
+        };
+
+        let (result, ptr) = incinerator::pause(|| {
+            let mut loaded_ptr = self.ptr.load(load_ord);
+
+            loop {
+                let loaded = unsafe { Self::make_val(loaded_ptr) };
+                if loaded == curr {
+                    match self
+                        .ptr
+                        .compare_exchange(loaded_ptr, new_ptr, succ, fail)
+                    {
+                        Ok(res_ptr) => break (Ok(loaded), res_ptr),
+                        Err(res_ptr) => loaded_ptr = res_ptr,
+                    }
+                } else {
+                    if let Some(nnptr) = NonNull::new(new_ptr) {
+                        unsafe { dealloc(nnptr) }
+                    }
+                    break (Err(loaded), null_mut());
+                }
+            }
+        });
+
+        if let Some(ptr) = NonNull::new(ptr) {
+            unsafe { incinerator::add(ptr, dealloc) }
+        }
+
+        result
+    }
+
+    fn compare_exchange_weak(
+        &self,
+        curr: Self::Inner,
+        new: Self::Inner,
+        succ: Ordering,
+        fail: Ordering,
+    ) -> Result<Self::Inner, Self::Inner> {
+        let new_ptr = unsafe { Self::make_ptr(new) };
+
+        let load_ord = match succ {
+            Acquire | AcqRel | Release => Acquire,
+            _ => succ,
+        };
+
+        let (result, ptr) = incinerator::pause(|| {
+            let loaded_ptr = self.ptr.load(load_ord);
+
+            let loaded = unsafe { Self::make_val(loaded_ptr) };
+            if loaded == curr {
+                match self
+                    .ptr
+                    .compare_exchange_weak(loaded_ptr, new_ptr, succ, fail)
+                {
+                    Ok(res_ptr) => (Ok(loaded), res_ptr),
+                    Err(_) => {
+                        if let Some(nnptr) = NonNull::new(new_ptr) {
+                            unsafe { dealloc(nnptr) }
+                        }
+                        (Err(loaded), null_mut())
+                    },
+                }
+            } else {
+                unsafe { dealloc(NonNull::new_unchecked(new_ptr)) }
+                (Err(loaded), null_mut())
+            }
+        });
+
+        if let Some(ptr) = NonNull::new(ptr) {
+            unsafe { incinerator::add(ptr, dealloc) }
+        }
+
+        result
+    }
+
+    fn load_cas_loop<F>(
+        &self,
+        mut update: F,
+        load_ord: Ordering,
+        cas_ord: Ordering,
+    ) -> Result<Self::Inner, Self::Inner>
+    where
+        F: FnMut(Self::Inner) -> Option<Self::Inner>,
+    {
+        let mut new_cache = CachedAlloc::empty();
+
+        let (result, ptr) = incinerator::pause(|| {
+            let mut loaded_ptr = self.ptr.load(load_ord);
+
+            loop {
+                let loaded = unsafe { Self::make_val(loaded_ptr) };
+                if let Some(new) = update(loaded) {
+                    let new_ptr = match new {
+                        Some(val) => {
+                            let ptr =
+                                unsafe { new_cache.get_or(|_| {}).as_ptr() };
+                            unsafe { *ptr = val }
+                            ptr
+                        },
+
+                        None => null_mut(),
+                    };
+
+                    let res_ptr =
+                        self.ptr.compare_and_swap(loaded_ptr, new_ptr, cas_ord);
+                    if res_ptr == loaded_ptr {
+                        if !new_ptr.is_null() {
+                            unsafe { new_cache.take() };
+                        }
+                        break (Ok(loaded), res_ptr);
+                    } else {
+                        loaded_ptr = res_ptr;
+                    }
+                } else {
+                    break (Err(loaded), null_mut());
+                }
+            }
+        });
+
+        if let Some(ptr) = NonNull::new(ptr) {
+            unsafe { incinerator::add(ptr, dealloc) }
+        }
+
+        result
+    }
+}
+
+impl<T> Drop for AtomicOptionBox<T> {
+    fn drop(&mut self) {
+        if let Some(ptr) = NonNull::new(self.ptr.load(Relaxed)) {
+            unsafe { dealloc(ptr) }
+        }
+    }
+}
+
+impl<T> fmt::Debug for AtomicOptionBox<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("AtomicOptionBox")
+    }
+}
+
+impl<T> Default for AtomicOptionBox<T>
+where
+    T: Copy + PartialEq,
+{
+    fn default() -> Self {
+        Self::new(None)
+    }
+}
+
+impl<T> From<T> for AtomicOptionBox<T>
+where
+    T: Copy + PartialEq,
+{
+    fn from(val: T) -> Self {
+        Self::new(Some(val))
+    }
+}
+
+impl<T> From<Option<T>> for AtomicOptionBox<T>
+where
+    T: Copy + PartialEq,
+{
+    fn from(val: Option<T>) -> Self {
         Self::new(val)
     }
 }
@@ -586,5 +841,170 @@ mod test {
             thread.join().expect("thread failed");
         }
         assert_eq!(atomic.load(Relaxed), 55);
+    }
+
+    #[test]
+    fn opt_load() {
+        let atomic = AtomicOptionBox::new(Some(14235u128));
+        assert_eq!(atomic.load(Relaxed), Some(14235u128));
+        let atomic = AtomicOptionBox::<[u128; 8]>::new(None);
+        assert_eq!(atomic.load(Relaxed), None);
+    }
+
+    #[test]
+    fn opt_store() {
+        let atomic = AtomicOptionBox::new(Some(0u128));
+        atomic.store(None, Relaxed);
+        assert_eq!(atomic.load(Relaxed), None);
+        atomic.store(Some(14235u128), Relaxed);
+        assert_eq!(atomic.load(Relaxed), Some(14235u128));
+    }
+
+    #[test]
+    fn opt_swap() {
+        let atomic = AtomicOptionBox::new(Some(0u128));
+        assert_eq!(atomic.swap(Some(5u128), Relaxed), Some(0u128));
+        assert_eq!(atomic.swap(None, Relaxed), Some(5u128));
+        assert_eq!(atomic.swap(Some(14235u128), Relaxed), None);
+        assert_eq!(atomic.load(Relaxed), Some(14235u128));
+    }
+
+    #[test]
+    fn opt_cas() {
+        let atomic = AtomicOptionBox::new(Some(0u128));
+        assert_eq!(
+            atomic.compare_and_swap(Some(5u128), Some(14235u128), Relaxed),
+            Some(0u128)
+        );
+        assert_eq!(
+            atomic.compare_and_swap(Some(5u128), None, Relaxed),
+            Some(0u128)
+        );
+        assert_eq!(
+            atomic.compare_and_swap(Some(0u128), Some(14235u128), Relaxed),
+            Some(0u128)
+        );
+        assert_eq!(
+            atomic.compare_and_swap(Some(0u128), Some(14235u128), Relaxed),
+            Some(14235u128)
+        );
+        assert_eq!(
+            atomic.compare_and_swap(Some(14235u128), None, Relaxed),
+            Some(14235u128)
+        );
+        assert_eq!(
+            atomic.compare_and_swap(Some(14235u128), Some(5u128), Relaxed),
+            None
+        );
+        assert_eq!(atomic.load(Relaxed), None);
+    }
+
+    #[test]
+    fn opt_cmp_xchg() {
+        let atomic = AtomicOptionBox::new(Some(0u128));
+        assert_eq!(
+            atomic.compare_exchange(
+                Some(5u128),
+                Some(14235u128),
+                Relaxed,
+                Relaxed
+            ),
+            Err(Some(0u128))
+        );
+        assert_eq!(
+            atomic.compare_exchange(
+                Some(5u128),
+                Some(14235u128),
+                Relaxed,
+                Relaxed
+            ),
+            Err(Some(0u128))
+        );
+        assert_eq!(
+            atomic.compare_exchange(Some(0u128), None, Relaxed, Relaxed),
+            Ok(Some(0u128))
+        );
+        assert_eq!(
+            atomic.compare_exchange(Some(0u128), None, Relaxed, Relaxed),
+            Err(None)
+        );
+        assert_eq!(
+            atomic.compare_exchange(None, Some(5u128), Relaxed, Relaxed),
+            Ok(None)
+        );
+        assert_eq!(
+            atomic.compare_exchange(
+                Some(14235u128),
+                Some(5u128),
+                Relaxed,
+                Relaxed
+            ),
+            Err(Some(5u128))
+        );
+        assert_eq!(atomic.load(Relaxed), Some(5u128));
+    }
+
+    #[test]
+    fn opt_cmp_xchg_weak() {
+        let atomic = AtomicOptionBox::new(None);
+        assert_eq!(
+            atomic.compare_exchange_weak(
+                Some(5u128),
+                Some(14235u128),
+                Relaxed,
+                Relaxed
+            ),
+            Err(None)
+        );
+        assert_eq!(
+            atomic.compare_exchange_weak(
+                Some(5u128),
+                Some(14235u128),
+                Relaxed,
+                Relaxed
+            ),
+            Err(None)
+        );
+        match atomic.compare_exchange_weak(
+            Some(0u128),
+            Some(14235u128),
+            Relaxed,
+            Relaxed,
+        ) {
+            Ok(x) | Err(x) => assert_eq!(x, None),
+        }
+    }
+
+    #[test]
+    fn opt_load_cas_loop() {
+        let atomic = AtomicOptionBox::new(Some(0u128));
+        assert_eq!(
+            atomic.load_cas_loop(
+                |opt| Some(opt.map(|x| x + 2)),
+                Relaxed,
+                Relaxed
+            ),
+            Ok(Some(0u128))
+        );
+        assert_eq!(atomic.load(Relaxed), Some(2u128));
+    }
+
+    #[test]
+    #[allow(unused_must_use)]
+    fn opt_multithreaded() {
+        let atomic = Arc::new(AtomicOptionBox::new(Some(0u128)));
+        let mut threads = Vec::new();
+        for i in 1 ..= 10 {
+            let atomic = atomic.clone();
+            threads.push(thread::spawn(move || {
+                let loaded = atomic.load(Acquire);
+                atomic.cas_loop(loaded, |opt| Some(opt.map(|x| x + i)), AcqRel);
+            }));
+        }
+
+        for thread in threads {
+            thread.join().expect("thread failed");
+        }
+        assert_eq!(atomic.load(Relaxed), Some(55));
     }
 }

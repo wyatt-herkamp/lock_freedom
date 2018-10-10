@@ -37,3 +37,7 @@ path = "fuzz_targets/map.rs"
 [[bin]]
 name = "atomic_box"
 path = "fuzz_targets/atomic_box.rs"
+
+[[bin]]
+name = "atomic_opt"
+path = "fuzz_targets/atomic_opt.rs"
