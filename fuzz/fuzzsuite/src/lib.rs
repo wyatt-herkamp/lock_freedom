@@ -1,21 +1,5 @@
 use std::{sync::Arc, thread};
 
-#[derive(Clone, Debug)]
-pub struct Bytecode {
-    data: Arc<[u8]>,
-    ip: usize,
-    sym_size: usize,
-}
-
-#[derive(Debug)]
-pub struct MainThread<T>
-where
-    T: Machine,
-{
-    threads: Vec<thread::JoinHandle<()>>,
-    machine: T,
-}
-
 pub trait Machine: Sized + Send + Sync + 'static {
     fn spawn() -> Self;
 
@@ -35,6 +19,13 @@ where
     T: Machine,
 {
     MainThread::<T>::spawn().run(&mut bytecode);
+}
+
+#[derive(Clone, Debug)]
+pub struct Bytecode {
+    data: Arc<[u8]>,
+    ip: usize,
+    sym_size: usize,
 }
 
 impl Bytecode {
@@ -76,6 +67,15 @@ impl Bytecode {
     }
 }
 
+#[derive(Debug)]
+pub struct MainThread<T>
+where
+    T: Machine,
+{
+    threads: Vec<thread::JoinHandle<()>>,
+    machine: T,
+}
+
 impl<T> MainThread<T>
 where
     T: Machine,
@@ -99,7 +99,7 @@ where
 
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode) {
         match byte {
-            128 => {
+            128 if self.threads.len() < 1000 => {
                 let mut new = self.machine.fork();
                 let mut bytecode = bytecode.clone();
                 self.threads.push(thread::spawn(move || {
