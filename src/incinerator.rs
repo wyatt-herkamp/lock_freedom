@@ -1,7 +1,6 @@
 use std::{
     cell::UnsafeCell,
-    collections::VecDeque,
-    mem::transmute,
+    mem::{replace, transmute},
     process::abort,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering::*},
@@ -9,27 +8,25 @@ use std::{
 
 static PAUSED_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// Adds the given pointer and drop function to the local deletion queue.
+/// Adds the given pointer and drop function to the local deletion list.
 /// If there is no critical code executing (i.e. the incinerator is not
-/// paused), all local queue items are deleted. This function is unsafe because
+/// paused), all local list items are deleted. This function is unsafe because
 /// pointers must be correctly dropped such as no "use after free" or "double
 /// free" happens. You may want to call this function only after you replaced
-/// the pointer (or there aren't active threads). The dropper function SHALL
-/// NOT call `incinerator::add` in its body. If it calls, deletion may panic.
+/// the pointer from the shared context (or there aren't active threads).
 pub unsafe fn add<T>(ptr: NonNull<T>, dropper: unsafe fn(NonNull<T>)) {
-    LOCAL_DELETION.with(|queue| {
-        // First of all, let's put it on the queue because of a possible
-        // obstruction when deleting.
-        queue.add(Garbage {
-            ptr: NonNull::new_unchecked(ptr.as_ptr() as *mut u8),
-            dropper: transmute(dropper),
-        });
+    LOCAL_DELETION.with(|list| {
         if PAUSED_COUNT.load(Acquire) == 0 {
-            // Please, note that we check for the counter AFTER the enqueueing.
-            // This ensures that no pointer is added after a possible status
-            // change. All pointers deleted here were already added
-            // to the queue.
-            queue.delete();
+            // Please, note that we check for the counter AFTER the given
+            // pointer was removed from the shared context. Also, we are the
+            // only ones that can add something to the list. No pointer is
+            // added to the list after the check, since the list is
+            // thread-local.
+            dropper(ptr);
+            list.delete();
+        } else {
+            // If we cannot delete the pointer, we have to add it to the list.
+            list.add(Garbage { ptr: ptr.cast(), dropper: transmute(dropper) });
         }
     })
 }
@@ -96,22 +93,22 @@ struct Garbage {
     dropper: unsafe fn(NonNull<u8>),
 }
 
-struct GarbageQueue {
-    inner: UnsafeCell<VecDeque<Garbage>>,
+struct GarbageList {
+    inner: UnsafeCell<Vec<Garbage>>,
 }
 
-impl GarbageQueue {
+impl GarbageList {
     fn new() -> Self {
-        Self { inner: UnsafeCell::new(VecDeque::with_capacity(16)) }
+        Self { inner: UnsafeCell::new(Vec::new()) }
     }
 
     fn add(&self, garbage: Garbage) {
-        unsafe { &mut *self.inner.get() }.push_back(garbage);
+        unsafe { &mut *self.inner.get() }.push(garbage);
     }
 
     fn delete(&self) {
-        let deque = unsafe { &mut *self.inner.get() };
-        while let Some(garbage) = deque.pop_front() {
+        let mut list = replace(unsafe { &mut *self.inner.get() }, Vec::new());
+        while let Some(garbage) = list.pop() {
             unsafe {
                 (garbage.dropper)(garbage.ptr);
             }
@@ -119,7 +116,7 @@ impl GarbageQueue {
     }
 }
 
-impl Drop for GarbageQueue {
+impl Drop for GarbageList {
     fn drop(&mut self) {
         while PAUSED_COUNT.load(Acquire) != 0 {}
         self.delete();
@@ -127,7 +124,7 @@ impl Drop for GarbageQueue {
 }
 
 thread_local! {
-    static LOCAL_DELETION: GarbageQueue = GarbageQueue::new();
+    static LOCAL_DELETION: GarbageList = GarbageList::new();
 }
 
 // Testing the safety of `unsafe` in this module is done with random operations
