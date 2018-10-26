@@ -39,6 +39,9 @@ pub mod prelude;
 /// thread.
 ///
 /// Whenever a thread exits, its garbage queue is dropped.
+///
+/// C11 Implementation: <https://gitlab.com/bzim/c11-incinerator/>
+///
 /// # Example
 /// ```rust
 /// extern crate lockfree;

@@ -12,3 +12,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 # Benchmarks
 See [BENCHMARK.md](BENCHMARK.md)
+
+# C11 Incinerator Implementation
+<https://gitlab.com/bzim/c11-incinerator/>
