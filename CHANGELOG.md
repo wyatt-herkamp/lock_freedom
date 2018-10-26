@@ -1,3 +1,6 @@
+# 0.3.0 (preview)
+* Added `AtomicOptionBox`
+
 # 0.2.0 (release)
 * Introduced Map
 * Introduced Set
