@@ -109,7 +109,9 @@ impl<T> Drop for ThreadLocal<T> {
                 }
 
                 if ptr as usize & 1 == 0 {
-                    unsafe { dealloc(NonNull::new_unchecked(ptr)) }
+                    unsafe {
+                        dealloc(NonNull::new_unchecked(ptr as *mut Entry<T>))
+                    }
                 } else {
                     let table_ptr = (ptr as usize & !1) as *mut Table<T>;
 
