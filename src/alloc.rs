@@ -51,14 +51,14 @@ impl<T> CachedAlloc<T> {
         Self { ptr: Some(ptr) }
     }
 
-    pub unsafe fn get_or<F>(&mut self, init: F) -> NonNull<T>
+    pub fn get_or<F>(&mut self, init: F) -> NonNull<T>
     where
         F: FnOnce(NonNull<T>),
     {
         match self.ptr {
             Some(nnptr) => nnptr,
             None => {
-                let nnptr = alloc_with_init(init);
+                let nnptr = unsafe { alloc_with_init(init) };
                 self.ptr = Some(nnptr);
                 nnptr
             },
@@ -71,7 +71,7 @@ impl<T> CachedAlloc<T> {
         old
     }
 
-    pub unsafe fn take(&mut self) -> Option<NonNull<T>> {
+    pub fn take(&mut self) -> Option<NonNull<T>> {
         self.ptr.take()
     }
 }

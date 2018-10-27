@@ -100,6 +100,8 @@ pub mod prelude;
 /// ```
 pub mod incinerator;
 
+pub mod tls;
+
 /// Atomic abstractions, such an atomic trait and atomic boxes.
 pub mod atomic;
 
