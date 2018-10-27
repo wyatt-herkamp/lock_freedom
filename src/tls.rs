@@ -186,17 +186,26 @@ where
     }
 }
 
-struct IdMaker(usize);
+union IdMaker {
+    _usize: usize,
+    _f64: f64,
+}
 
 thread_local! {
-    static ID: IdMaker = IdMaker(0);
+    static ID: IdMaker = IdMaker {
+        _usize: 0,
+    };
 }
 
 fn with_thread_id<F, T>(exec: F) -> T
 where
     F: FnOnce(usize) -> T,
 {
-    ID.with(|tpl| exec(tpl as *const _ as usize))
+    ID.with(|tpl| {
+        let word = tpl as *const _ as usize;
+        let align = mem::align_of::<IdMaker>();
+        exec(word >> align.trailing_zeros())
+    })
 }
 
 #[cfg(test)]
