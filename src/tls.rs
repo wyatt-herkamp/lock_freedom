@@ -48,6 +48,8 @@ impl<T> ThreadLocal<T> {
 
                 if in_place.is_null() {
                     let nnptr = init.get();
+                    debug_assert!(nnptr.as_ptr() as usize & 1 == 0);
+
                     let res = table.nodes[index].atomic.compare_and_swap(
                         in_place,
                         nnptr.as_ptr() as *mut (),
@@ -64,8 +66,9 @@ impl<T> ThreadLocal<T> {
                         break reader(&entry.val);
                     }
 
-                    let new_tbl_ptr = tbl_cache
-                        .get_or(|mut nnptr| unsafe { nnptr.as_mut().init() });
+                    let mut new_tbl_ptr = unsafe {
+                        tbl_cache.get_or(|mut nnptr| nnptr.as_mut().init())
+                    };
 
                     let other_shifted = entry.id >> depth * BITS;
                     let other_index = other_shifted & (1 << BITS) - 1;
@@ -85,6 +88,10 @@ impl<T> ThreadLocal<T> {
                         table = unsafe { &*new_tbl_ptr.as_ptr() };
                         depth += 1;
                         shifted >>= BITS;
+                    } else {
+                        unsafe { new_tbl_ptr.as_ref() }.nodes[other_index]
+                            .atomic
+                            .store(null_mut(), Relaxed);
                     }
                 } else {
                     let table_ptr = (in_place as usize & !1) as *mut Table<T>;
@@ -104,6 +111,7 @@ impl<T> Drop for ThreadLocal<T> {
         while let Some(table_nnptr) = tables.pop() {
             for node in &unsafe { table_nnptr.as_ref() }.nodes as &[Node<_>] {
                 let ptr = node.atomic.load(Relaxed);
+
                 if ptr.is_null() {
                     continue;
                 }

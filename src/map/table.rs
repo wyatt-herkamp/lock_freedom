@@ -25,12 +25,12 @@ pub struct Table<K, V> {
 impl<K, V> Table<K, V> {
     pub fn new() -> Self {
         let mut this = Self { nodes: unsafe { mem::uninitialized() } };
-        unsafe { Self::write_new(NonNull::from(&mut this)) }
+        unsafe { this.init() }
         this
     }
 
-    pub unsafe fn write_new(mut ptr: NonNull<Self>) {
-        for node in &mut ptr.as_mut().nodes as &mut [_] {
+    pub unsafe fn init(&mut self) {
+        for node in &mut self.nodes as &mut [_] {
             (node as *mut AtomicPtr<_>).write(AtomicPtr::new(null_mut()))
         }
     }
@@ -58,7 +58,7 @@ impl<K, V> Table<K, V> {
         let root = Entry::root(list.as_ptr());
         let bucket = Bucket::new(hash, List::new(root));
         let node = alloc(Node::Leaf(bucket));
-        let mut table_ptr = CachedAlloc::empty();
+        let mut table_ptr = CachedAlloc::<Table<K, V>>::empty();
         let mut branch_ptr = CachedAlloc::<Node<K, V>>::empty();
 
         let mut table = self;
@@ -113,9 +113,11 @@ impl<K, V> Table<K, V> {
                 },
 
                 Some(Node::Leaf(in_place)) => {
-                    let nnptr = table_ptr.get_or(|x| Table::write_new(x));
-                    let branch = branch_ptr
-                        .get_or(|x| x.as_ptr().write(Node::Branch(nnptr)));
+                    let mut nnptr =
+                        table_ptr.get_or(|mut nnptr| nnptr.as_mut().init());
+
+                    let branch = branch_ptr.get();
+                    branch.as_ptr().write(Node::Branch(nnptr));
                     let new_table = &*nnptr.as_ptr();
 
                     let shifted = in_place.hash() >> (depth * BITS as u64);
@@ -334,10 +336,12 @@ impl<K, V> Table<K, V> {
         for node in self.nodes() {
             let ptr = node.load(Relaxed);
             match ptr.as_ref() {
-                Some(Node::Leaf(bucket)) => if bucket.try_clean_first() {
-                    dealloc(NonNull::new_unchecked(ptr));
-                    removed += 1;
-                    node.store(null_mut(), Relaxed);
+                Some(Node::Leaf(bucket)) => {
+                    if bucket.try_clean_first() {
+                        dealloc(NonNull::new_unchecked(ptr));
+                        removed += 1;
+                        node.store(null_mut(), Relaxed);
+                    }
                 },
 
                 Some(Node::Branch(mut table)) => {

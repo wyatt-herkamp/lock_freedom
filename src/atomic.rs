@@ -377,7 +377,7 @@ where
             loop {
                 let loaded = unsafe { *loaded_ptr };
                 if let Some(new) = update(loaded) {
-                    let new_ptr = new_cache.get_or(|_| {});
+                    let new_ptr = unsafe { new_cache.get() };
                     unsafe { *new_ptr.as_ptr() = new }
                     let res_ptr = self.ptr.compare_and_swap(
                         loaded_ptr,
@@ -613,7 +613,7 @@ where
                 if let Some(new) = update(loaded) {
                     let new_ptr = match new {
                         Some(val) => {
-                            let ptr = new_cache.get_or(|_| {}).as_ptr();
+                            let ptr = unsafe { new_cache.get() }.as_ptr();
                             unsafe { *ptr = val }
                             ptr
                         },

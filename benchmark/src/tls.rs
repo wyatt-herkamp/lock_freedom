@@ -9,7 +9,7 @@ use std::{cell::Cell, sync::Arc};
 use thread_local::ThreadLocal as LockTls;
 
 #[derive(Debug, Clone, Default)]
-struct LockTarget {
+struct BlockingTarget {
     inner: Arc<LockTls<Cell<u128>>>,
 }
 
@@ -18,7 +18,14 @@ struct LockfreeTarget {
     inner: Arc<ThreadLocal<Cell<u128>>>,
 }
 
-impl Target for LockTarget {
+#[derive(Debug, Clone, Default)]
+struct StdTarget;
+
+thread_local! {
+    static STATIC: Cell<u128> = Cell::new(0);
+}
+
+impl Target for BlockingTarget {
     #[inline(always)]
     fn round(&mut self) {
         let cell = self.inner.get_or(|| Box::new(Cell::new(0)));
@@ -36,10 +43,18 @@ impl Target for LockfreeTarget {
     }
 }
 
+impl Target for StdTarget {
+    #[inline(always)]
+    fn round(&mut self) {
+        STATIC.with(|cell| cell.set(cell.get().wrapping_add(1)))
+    }
+}
+
 fn main() {
     bench! {
         levels 1, 4, 16, 32, 128, 512;
-        "lock" => LockTarget::default(),
+        "std/global" => StdTarget::default(),
+        "blocking" => BlockingTarget::default(),
         "lockfree" => LockfreeTarget::default(),
     }
 }

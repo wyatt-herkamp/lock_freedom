@@ -51,7 +51,7 @@ impl<T> CachedAlloc<T> {
         Self { ptr: Some(ptr) }
     }
 
-    pub fn get_or<F>(&mut self, init: F) -> NonNull<T>
+    pub unsafe fn get_or<F>(&mut self, init: F) -> NonNull<T>
     where
         F: FnOnce(NonNull<T>),
     {
@@ -63,6 +63,10 @@ impl<T> CachedAlloc<T> {
                 nnptr
             },
         }
+    }
+
+    pub unsafe fn get(&mut self) -> NonNull<T> {
+        self.get_or(|_| ())
     }
 
     pub unsafe fn swap(&mut self, ptr: NonNull<T>) -> Option<NonNull<T>> {
