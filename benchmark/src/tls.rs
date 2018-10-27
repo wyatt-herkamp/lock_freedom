@@ -38,7 +38,7 @@ impl Target for LockfreeTarget {
 
 fn main() {
     bench! {
-        levels 1, 4, 64, 256;
+        levels 1, 4, 16, 32, 128, 512;
         "lock" => LockTarget::default(),
         "lockfree" => LockfreeTarget::default(),
     }
