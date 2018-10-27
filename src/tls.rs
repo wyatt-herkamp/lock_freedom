@@ -32,7 +32,6 @@ impl<T> ThreadLocal<T> {
 
     pub fn with_init<I, F, A>(&self, init: I, reader: F) -> A
     where
-        T: Default,
         I: FnOnce() -> T,
         F: FnOnce(&T) -> A,
     {
