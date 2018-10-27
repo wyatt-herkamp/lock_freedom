@@ -7,10 +7,13 @@ echo '# Benchmarks' > $FILE
 echo 'Benchmark code under [benchmark](benchmark) directory.' >> $FILE
 echo 'More rounds per seconds is better.' >> $FILE
 echo '' >> $FILE
-echo 'As you can see, there is a lot to improve (especially for map)!' >> $FILE
+echo 'As you can see, there is a lot to improve!' >> $FILE
 echo '' >> $FILE
 echo 'Running on' $(uname -s -r -v -m -o) '('$(nproc --all)' cores)' >> $FILE
 echo '' >> $FILE
+echo '## THREAD-LOCAL STORAGE' >> $FILE
+echo '```' >> $FILE
+cargo run --bin tls --release >> $FILE || exit 1
 echo '## QUEUE' >> $FILE
 echo '```' >> $FILE
 cargo run --bin queue --release >> $FILE || exit 1

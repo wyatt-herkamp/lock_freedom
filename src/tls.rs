@@ -1,5 +1,6 @@
 use alloc::*;
 use std::{
+    fmt,
     marker::PhantomData,
     mem,
     ptr::{null_mut, NonNull},
@@ -127,6 +128,18 @@ impl<T> Drop for ThreadLocal<T> {
 
 unsafe impl<T> Send for ThreadLocal<T> {}
 unsafe impl<T> Sync for ThreadLocal<T> {}
+
+impl<T> fmt::Debug for ThreadLocal<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("ThreadLocal")
+    }
+}
+
+impl<T> Default for ThreadLocal<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 struct Node<T> {
     // lower bit marked 0 for Entry, 1 for Table
