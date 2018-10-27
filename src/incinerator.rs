@@ -3,7 +3,7 @@ use std::sync::{
     Arc,
 };
 
-pub(crate) use compat::incinerator::*;
+pub use compat::incinerator::*;
 
 #[derive(Debug)]
 pub struct Pause<'counter> {
