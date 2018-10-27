@@ -1,15 +1,22 @@
 #!/usr/bin/env sh
 
 cd benchmark
-FILE=../BENCHMARK.md
+FILE=../BENCHMARKS.md
 
-echo '# Benchmarks' > $FILE
+truncate --size 0 $FILE
+
+echo '# CPU info' >> $FILE
+echo '```' >> $FILE
+lscpu >> $FILE
+echo '```' >> $FILE
+echo 'Running on' $(uname -s -r -v -m -o) >> $FILE
+echo '' >> $FILE
+echo '# Benchmarks' >> $FILE
 echo 'Benchmark code under [benchmark](benchmark) directory.' >> $FILE
 echo 'More rounds per seconds is better.' >> $FILE
 echo '' >> $FILE
 echo 'As you can see, there is a lot to improve!' >> $FILE
 echo '' >> $FILE
-echo 'Running on' $(uname -s -r -v -m -o) '('$(nproc --all)' cores)' >> $FILE
 echo '' >> $FILE
 echo '## THREAD-LOCAL STORAGE' >> $FILE
 echo '```' >> $FILE

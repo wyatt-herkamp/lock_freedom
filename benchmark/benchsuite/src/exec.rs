@@ -111,7 +111,7 @@ impl Executor {
             }))
         }
 
-        let until = Duration::from_secs(3);
+        let until = Duration::from_millis(1500);
         while total < until {
             barrier.wait();
             let start = Instant::now();
