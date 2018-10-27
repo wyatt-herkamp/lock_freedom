@@ -58,7 +58,7 @@ impl<T> CachedAlloc<T> {
         match self.ptr {
             Some(nnptr) => nnptr,
             None => {
-                let nnptr = unsafe { alloc_with_init(init) };
+                let nnptr = alloc_with_init(init);
                 self.ptr = Some(nnptr);
                 nnptr
             },

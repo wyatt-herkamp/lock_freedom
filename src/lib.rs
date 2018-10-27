@@ -100,6 +100,7 @@ pub mod prelude;
 /// ```
 pub mod incinerator;
 
+/// Lock-free per-object Thread Local Storage (TLS).
 pub mod tls;
 
 /// Atomic abstractions, such an atomic trait and atomic boxes.

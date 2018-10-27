@@ -1,5 +1,6 @@
 # 0.3.0 (preview)
 * Added `AtomicOptionBox`
+* Added per-object `ThreadLocal`
 
 # 0.2.0 (release)
 * Introduced Map

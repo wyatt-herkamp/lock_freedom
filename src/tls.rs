@@ -9,11 +9,59 @@ use std::{
 
 const BITS: usize = 8;
 
+/// Per Object Thread Local Storage. The stored data is not dropped on thread
+/// exit. It is only dropped when the structure itself is dropped. After the
+/// thread exited, the data might be reused for other threads.
+///
+/// # Example
+/// ```
+/// extern crate lockfree;
+///
+/// use lockfree::tls::ThreadLocal;
+/// use std::{sync::Arc, thread};
+///
+/// let tls = Arc::new(ThreadLocal::new());
+/// let mut threads = Vec::with_capacity(32);
+///
+/// for i in 1 ..= 32 {
+///     let tls = tls.clone();
+///     threads.push(thread::spawn(move || {
+///         let stored = if i == 32 {
+///             tls.with(|&x| {
+///                 assert_eq!(x, 0);
+///                 x
+///             })
+///         } else {
+///             tls.with_init(
+///                 || i,
+///                 |&x| {
+///                     assert_eq!(x, i);
+///                     x
+///                 },
+///             )
+///         };
+///
+///         tls.with(|&x| {
+///             if stored != 0 && x == 0 {
+///                 // 0 is the default value created by `with` in this case
+///                 println!("Warning: OS mis-reset the global thread state")
+///             } else {
+///                 assert_eq!(x, stored)
+///             }
+///         })
+///     }))
+/// }
+///
+/// for thread in threads {
+///     thread.join().unwrap();
+/// }
+/// ```
 pub struct ThreadLocal<T> {
     top: NonNull<Table<T>>,
 }
 
 impl<T> ThreadLocal<T> {
+    /// Creates an empty thread local storage.
     pub fn new() -> Self {
         unsafe {
             let mut nnptr = alloc_uninit::<Table<T>>();
@@ -22,6 +70,15 @@ impl<T> ThreadLocal<T> {
         }
     }
 
+    /// Removes and drops all entries. The TLS is considered empty then. This
+    /// method is only available with exclusive references. This method is
+    /// merely for optimization since the TLS is cleared at drop.
+    pub fn clear(&mut self) {
+        mem::replace(self, Self::new());
+    }
+
+    /// Accesses the entry for the current thread. If necessary, the entry is
+    /// initialized with default value.
     pub fn with<F, A>(&self, reader: F) -> A
     where
         T: Default,
@@ -30,6 +87,8 @@ impl<T> ThreadLocal<T> {
         self.with_init(T::default, reader)
     }
 
+    /// Accesses the entry for the current thread. If necessary, the `init`
+    /// closure is called to initialize the entry.
     pub fn with_init<I, F, A>(&self, init: I, reader: F) -> A
     where
         I: FnOnce() -> T,
@@ -66,7 +125,7 @@ impl<T> ThreadLocal<T> {
                         break reader(&entry.val);
                     }
 
-                    let mut new_tbl_ptr = unsafe {
+                    let new_tbl_ptr = unsafe {
                         tbl_cache.get_or(|mut nnptr| nnptr.as_mut().init())
                     };
 
