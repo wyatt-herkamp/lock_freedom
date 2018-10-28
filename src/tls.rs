@@ -27,7 +27,7 @@ const BITS: usize = 8;
 ///     let tls = tls.clone();
 ///     threads.push(thread::spawn(move || {
 ///         let stored = if i == 32 {
-///             tls.with(|&x| {
+///             tls.with_default(|&x| {
 ///                 assert_eq!(x, 0);
 ///                 x
 ///             })
@@ -41,14 +41,9 @@ const BITS: usize = 8;
 ///             )
 ///         };
 ///
-///         tls.with(|&x| {
-///             if stored != 0 && x == 0 {
-///                 // 0 is the default value created by `with` in this case
-///                 println!("Warning: OS mis-reset the global thread state")
-///             } else {
-///                 assert_eq!(x, stored)
-///             }
-///         })
+///         if tls.with(|&x| assert_eq!(x, stored)).is_none() {
+///             eprintln!("Warning: OS mis-reset the global thread state")
+///         }
 ///     }))
 /// }
 ///
@@ -70,21 +65,47 @@ impl<T> ThreadLocal<T> {
         }
     }
 
+    /// Accesses the entry for the current thread. No initialization is
+    /// performed.
+    pub fn with<F, A>(&self, reader: F) -> Option<A>
+    where
+        F: FnOnce(&T) -> A,
+    {
+        with_thread_id(|id| {
+            let mut table = unsafe { &*self.top.as_ptr() };
+            let mut depth = 1;
+            let mut shifted = id;
+
+            loop {
+                let index = shifted & (1 << BITS) - 1;
+                let in_place = table.nodes[index].atomic.load(Acquire);
+
+                if in_place.is_null() {
+                    break None;
+                }
+
+                if in_place as usize & 1 == 0 {
+                    let entry = unsafe { &*(in_place as *mut Entry<T>) };
+                    break if entry.id == id {
+                        Some(reader(&entry.val))
+                    } else {
+                        None
+                    };
+                }
+
+                let table_ptr = (in_place as usize & !1) as *mut Table<T>;
+                table = unsafe { &*table_ptr };
+                depth += 1;
+                shifted >>= BITS;
+            }
+        })
+    }
+
     /// Removes and drops all entries. The TLS is considered empty then. This
     /// method is only available with exclusive references. This method is
     /// merely for optimization since the TLS is cleared at drop.
     pub fn clear(&mut self) {
         mem::replace(self, Self::new());
-    }
-
-    /// Accesses the entry for the current thread. If necessary, the entry is
-    /// initialized with default value.
-    pub fn with<F, A>(&self, reader: F) -> A
-    where
-        T: Default,
-        F: FnOnce(&T) -> A,
-    {
-        self.with_init(T::default, reader)
     }
 
     /// Accesses the entry for the current thread. If necessary, the `init`
@@ -160,6 +181,16 @@ impl<T> ThreadLocal<T> {
                 }
             }
         })
+    }
+
+    /// Accesses the entry for the current thread. If necessary, the entry is
+    /// initialized with default value.
+    pub fn with_default<F, A>(&self, reader: F) -> A
+    where
+        T: Default,
+        F: FnOnce(&T) -> A,
+    {
+        self.with_init(T::default, reader)
     }
 }
 

@@ -7,3 +7,7 @@ repository = "https://gitlab.com/bzim/lockfree/"
 keywords = ["concurrency", "lock-free", "atomics", "data-structures"]
 categories = ["concurrency", "data-structures", "algorithms"]
 license = "MIT"
+readme = "README.md"
+
+[dependencies]
+owned-alloc = "0.1"

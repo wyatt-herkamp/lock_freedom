@@ -26,6 +26,8 @@
 //! In order to achieve a better time performance with lockfree, it is
 //! recommended to avoid global locking things like heap allocation.
 
+extern crate owned_alloc;
+
 #[allow(dead_code)]
 mod alloc;
 
