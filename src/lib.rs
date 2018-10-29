@@ -123,4 +123,5 @@ pub mod set;
 /// Provides a doubly atomic reference counter.
 pub mod darc;
 
+#[allow(dead_code)]
 mod compat;

@@ -1,4 +1,4 @@
-use alloc::*;
+use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
     fmt,
     marker::PhantomData,
@@ -52,16 +52,25 @@ const BITS: usize = 8;
 /// }
 /// ```
 pub struct ThreadLocal<T> {
-    top: NonNull<Table<T>>,
+    top: OwnedAlloc<Table<T>>,
 }
 
 impl<T> ThreadLocal<T> {
     /// Creates an empty thread local storage.
     pub fn new() -> Self {
-        unsafe {
-            let mut nnptr = alloc_uninit::<Table<T>>();
-            nnptr.as_mut().init();
-            Self { top: nnptr }
+        Self { top: Table::new_alloc() }
+    }
+
+    /// Removes and drops all entries. The TLS is considered empty then. This
+    /// method is only available with exclusive references. This method is
+    /// merely for optimization since the TLS is cleared at drop.
+    pub fn clear(&mut self) {
+        let mut tables = Vec::new();
+
+        unsafe { self.top.clear(&mut tables) }
+
+        while let Some(table) = tables.pop() {
+            unsafe { table.free_nodes(&mut tables) }
         }
     }
 
@@ -72,8 +81,7 @@ impl<T> ThreadLocal<T> {
         F: FnOnce(&T) -> A,
     {
         with_thread_id(|id| {
-            let mut table = unsafe { &*self.top.as_ptr() };
-            let mut depth = 1;
+            let mut table = &*self.top;
             let mut shifted = id;
 
             loop {
@@ -95,17 +103,9 @@ impl<T> ThreadLocal<T> {
 
                 let table_ptr = (in_place as usize & !1) as *mut Table<T>;
                 table = unsafe { &*table_ptr };
-                depth += 1;
                 shifted >>= BITS;
             }
         })
-    }
-
-    /// Removes and drops all entries. The TLS is considered empty then. This
-    /// method is only available with exclusive references. This method is
-    /// merely for optimization since the TLS is cleared at drop.
-    pub fn clear(&mut self) {
-        mem::replace(self, Self::new());
     }
 
     /// Accesses the entry for the current thread. If necessary, the `init`
@@ -116,11 +116,11 @@ impl<T> ThreadLocal<T> {
         F: FnOnce(&T) -> A,
     {
         with_thread_id(|id| {
-            let mut table = unsafe { &*self.top.as_ptr() };
+            let mut table = &*self.top;
             let mut depth = 1;
             let mut shifted = id;
             let mut init = LazyInit::Pending(move || Entry { id, val: init() });
-            let mut tbl_cache = CachedAlloc::<Table<T>>::empty();
+            let mut tbl_cache = Cache::<OwnedAlloc<Table<T>>>::new();
 
             loop {
                 let index = shifted & (1 << BITS) - 1;
@@ -146,16 +146,14 @@ impl<T> ThreadLocal<T> {
                         break reader(&entry.val);
                     }
 
-                    let new_tbl_ptr = unsafe {
-                        tbl_cache.get_or(|mut nnptr| nnptr.as_mut().init())
-                    };
+                    let new_tbl = tbl_cache.take_or(Table::new_alloc);
 
                     let other_shifted = entry.id >> depth * BITS;
                     let other_index = other_shifted & (1 << BITS) - 1;
 
-                    unsafe { new_tbl_ptr.as_ref() }.nodes[other_index]
-                        .atomic
-                        .store(in_place, Relaxed);
+                    new_tbl.nodes[other_index].atomic.store(in_place, Relaxed);
+
+                    let new_tbl_ptr = new_tbl.into_raw();
 
                     let res = table.nodes[index].atomic.compare_and_swap(
                         in_place,
@@ -164,14 +162,16 @@ impl<T> ThreadLocal<T> {
                     );
 
                     if res == in_place {
-                        tbl_cache.take();
                         table = unsafe { &*new_tbl_ptr.as_ptr() };
                         depth += 1;
                         shifted >>= BITS;
                     } else {
-                        unsafe { new_tbl_ptr.as_ref() }.nodes[other_index]
+                        let new_tbl =
+                            unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
+                        new_tbl.nodes[other_index]
                             .atomic
                             .store(null_mut(), Relaxed);
+                        tbl_cache.store(new_tbl);
                     }
                 } else {
                     let table_ptr = (in_place as usize & !1) as *mut Table<T>;
@@ -196,29 +196,12 @@ impl<T> ThreadLocal<T> {
 
 impl<T> Drop for ThreadLocal<T> {
     fn drop(&mut self) {
-        let mut tables = vec![self.top];
+        let mut tables = Vec::new();
 
-        while let Some(table_nnptr) = tables.pop() {
-            for node in &unsafe { table_nnptr.as_ref() }.nodes as &[Node<_>] {
-                let ptr = node.atomic.load(Relaxed);
+        unsafe { self.top.free_nodes(&mut tables) }
 
-                if ptr.is_null() {
-                    continue;
-                }
-
-                if ptr as usize & 1 == 0 {
-                    unsafe {
-                        dealloc(NonNull::new_unchecked(ptr as *mut Entry<T>))
-                    }
-                } else {
-                    let table_ptr = (ptr as usize & !1) as *mut Table<T>;
-
-                    debug_assert!(!table_ptr.is_null());
-                    tables.push(unsafe { NonNull::new_unchecked(table_ptr) });
-                }
-            }
-
-            unsafe { dealloc(table_nnptr) }
+        while let Some(table) = tables.pop() {
+            unsafe { table.free_nodes(&mut tables) }
         }
     }
 }
@@ -244,18 +227,59 @@ struct Node<T> {
     _marker: PhantomData<T>,
 }
 
+impl<T> Node<T> {
+    unsafe fn free_ptr(
+        ptr: *mut (),
+        tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>,
+    ) {
+        if ptr.is_null() {
+            return;
+        }
+
+        if ptr as usize & 1 == 0 {
+            OwnedAlloc::from_raw(NonNull::new_unchecked(ptr as *mut Entry<T>));
+        } else {
+            let table_ptr = (ptr as usize & !1) as *mut Table<T>;
+
+            debug_assert!(!table_ptr.is_null());
+            tbl_stack
+                .push(OwnedAlloc::from_raw(NonNull::new_unchecked(table_ptr)));
+        }
+    }
+}
+
 #[repr(align(/* at least */ 2))]
 struct Table<T> {
     nodes: [Node<T>; 1 << BITS],
 }
 
 impl<T> Table<T> {
+    #[inline]
+    fn new_alloc() -> OwnedAlloc<Self> {
+        unsafe { UninitAlloc::<Self>::new().init_in_place(|this| this.init()) }
+    }
+
+    #[inline]
     unsafe fn init(&mut self) {
         for node_ref in &mut self.nodes as &mut [_] {
             (node_ref as *mut Node<T>).write(Node {
                 atomic: AtomicPtr::new(null_mut()),
                 _marker: PhantomData,
             })
+        }
+    }
+
+    #[inline]
+    unsafe fn free_nodes(&self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
+        for node in &self.nodes as &[Node<_>] {
+            Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
+        }
+    }
+
+    #[inline]
+    unsafe fn clear(&self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
+        for node in &self.nodes as &[Node<_>] {
+            Node::free_ptr(node.atomic.swap(null_mut(), Relaxed), tbl_stack);
         }
     }
 }
@@ -288,7 +312,7 @@ where
         let ptr = match old {
             LazyInit::Done(ptr) => ptr,
 
-            LazyInit::Pending(init) => unsafe { alloc(init()) },
+            LazyInit::Pending(init) => OwnedAlloc::new(init()).into_raw(),
         };
 
         *self = LazyInit::Done(ptr);
