@@ -28,6 +28,14 @@
 
 extern crate owned_alloc;
 
+pub mod incin;
+
+/// Lock-free per-object Thread Local Storage (TLS).
+pub mod tls;
+
+pub mod atomic_smart_ptr;
+
+/*
 #[allow(dead_code)]
 mod alloc;
 
@@ -102,9 +110,6 @@ pub mod prelude;
 /// ```
 pub mod incinerator;
 
-/// Lock-free per-object Thread Local Storage (TLS).
-pub mod tls;
-
 /// Atomic abstractions, such an atomic trait and atomic boxes.
 pub mod atomic;
 
@@ -122,6 +127,4 @@ pub mod set;
 
 /// Provides a doubly atomic reference counter.
 pub mod darc;
-
-#[allow(dead_code)]
-mod compat;
+*/
