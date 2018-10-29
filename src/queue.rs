@@ -1,7 +1,6 @@
-use incinerator::Incinerator;
-use owned_alloc::{OwnedAlloc, UninitAlloc};
+use alloc::*;
+use incinerator;
 use std::{
-    fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
@@ -9,10 +8,10 @@ use std::{
 
 /// A lock-free queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.
+#[derive(Debug)]
 pub struct Queue<T> {
     front: AtomicPtr<Node<T>>,
     back: AtomicPtr<Node<T>>,
-    incin: Incinerator<OwnedAlloc<Node<T>>>,
 }
 
 impl<T> Queue<T> {
@@ -21,28 +20,26 @@ impl<T> Queue<T> {
         Self {
             front: AtomicPtr::new(null_mut()),
             back: AtomicPtr::new(null_mut()),
-            incin: Incinerator::new(),
         }
     }
 
     /// Pushes a value into the back of the queue. This operation is also
     /// wait-free.
     pub fn push(&self, val: T) {
-        let node = Node::new(val);
-        let alloc = OwnedAlloc::new(node);
-        let node_ptr = alloc.into_raw().as_ptr();
+        let node =
+            unsafe { Node::new_ptr(alloc(val).as_ptr(), null_mut()).as_ptr() };
         // Very simple schema: let's replace the back with our node, and then...
-        self.incin.pause_with(|| {
-            let ptr = self.back.swap(node_ptr, AcqRel);
+        incinerator::pause(|| {
+            let ptr = self.back.swap(node, AcqRel);
             if let Some(back) = unsafe { ptr.as_ref() } {
                 // ...put our node as the "next" of the previous back, if it
                 // was not null...
-                let _next = back.next.swap(node_ptr, Release);
+                let _next = back.next.swap(node, Release);
                 debug_assert!(_next.is_null());
             } else {
                 // ...otherwise, if it was null, front will also be null. We
                 // need to update front.
-                self.front.compare_and_swap(null_mut(), node_ptr, Release);
+                self.front.compare_and_swap(null_mut(), node, Release);
             }
         })
     }
@@ -50,58 +47,56 @@ impl<T> Queue<T> {
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let PopIterRes { item, node } = self.incin.pause_with(|| {
+            let result = incinerator::pause(|| unsafe {
                 // First, let's load the current pointer.
                 let ptr = self.front.load(Acquire);
                 // Then, if it is null, the queue never ever had an element.
                 let nnptr = match NonNull::new(ptr) {
                     Some(nnptr) => nnptr,
-                    None => return PopIterRes { item: Err(true), node: None },
+                    None => return Some(null_mut()),
                 };
 
                 // We are really interested in this pointer
-                let item_ptr = unsafe { nnptr.as_ref() }.val.load(Acquire);
+                let item_ptr = nnptr.as_ref().val.load(Acquire);
 
                 // If it is null, this item already was removed. We need to
                 // clean it.
-                let item_nnptr = match NonNull::new(item_ptr) {
-                    Some(nnptr) => nnptr,
-                    _ => return unsafe { self.clean_front_first(nnptr) },
-                };
+                if item_ptr.is_null() {
+                    return if self.clean_front_first(nnptr) {
+                        None
+                    } else {
+                        Some(null_mut())
+                    };
+                }
 
                 // To remove, we simply set the item to null.
-                let res = unsafe { nnptr.as_ref() }.val.compare_and_swap(
+                let res = nnptr.as_ref().val.compare_and_swap(
                     item_ptr,
                     null_mut(),
                     Release,
                 );
 
                 if res == item_ptr {
-                    PopIterRes {
-                        item: Ok(unsafe { OwnedAlloc::from_raw(item_nnptr) }),
-                        // let's be polite and clean it up anyway.
-                        node: unsafe { self.clean_front_first(nnptr) }.node,
-                    }
+                    // let's be polite and clean it up anyway.
+                    self.clean_front_first(nnptr);
+                    Some(item_ptr)
                 } else {
-                    PopIterRes { item: Err(false), node: None }
+                    None
                 }
             });
 
-            if let Some(node) = node {
-                self.incin.add(node);
-            }
-
-            match item {
-                Ok(alloc) => {
-                    break Some({
-                        let (item, _) = alloc.move_inner();
-                        item
-                    })
-                },
-
-                Err(true) => break None,
-
-                Err(false) => (),
+            if let Some(ptr) = result {
+                break NonNull::new(ptr).map(|nnptr| {
+                    // Also, we have to take out the value.
+                    let val = unsafe { nnptr.as_ptr().read() };
+                    unsafe {
+                        // Now it is OK to dealloc. If someone loaded the
+                        // pointer, the thread will also block effectively
+                        // memory reclamation.
+                        incinerator::add(nnptr, dealloc_moved)
+                    }
+                    val
+                });
             }
         }
     }
@@ -121,25 +116,17 @@ impl<T> Queue<T> {
         Iter { queue: self }
     }
 
-    unsafe fn clean_front_first(
-        &self,
-        expected: NonNull<Node<T>>,
-    ) -> PopIterRes<T> {
-        let next = expected.as_ref().next.load(Acquire);
+    unsafe fn clean_front_first(&self, expected: NonNull<Node<T>>) -> bool {
+        let next = (*expected.as_ptr()).next.load(Acquire);
         if next.is_null() {
-            PopIterRes { item: Err(true), node: None }
+            false
         } else {
             let res =
                 self.front.compare_and_swap(expected.as_ptr(), next, Release);
-
-            PopIterRes {
-                item: Err(false),
-                node: if res == expected.as_ptr() {
-                    Some(OwnedAlloc::from_raw(expected))
-                } else {
-                    None
-                },
+            if res == expected.as_ptr() {
+                incinerator::add(NonNull::new_unchecked(res), dealloc);
             }
+            true
         }
     }
 }
@@ -154,9 +141,7 @@ impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
         while let Some(_) = self.pop() {}
         if let Some(nnptr) = NonNull::new(self.front.load(Acquire)) {
-            unsafe {
-                OwnedAlloc::from_raw(nnptr);
-            }
+            unsafe { dealloc(nnptr) }
         }
     }
 }
@@ -182,12 +167,6 @@ impl<'a, T> IntoIterator for &'a Queue<T> {
     }
 }
 
-impl<T> fmt::Debug for Queue<T> {
-    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("Queue")
-    }
-}
-
 unsafe impl<T> Send for Queue<T> where T: Send {}
 
 unsafe impl<T> Sync for Queue<T> where T: Send {}
@@ -209,23 +188,14 @@ impl<'a, T> Iterator for Iter<'a, T> {
 }
 
 #[derive(Debug)]
-struct PopIterRes<T> {
-    item: Result<OwnedAlloc<T>, bool>,
-    node: Option<OwnedAlloc<Node<T>>>,
-}
-
-#[derive(Debug)]
 struct Node<T> {
     val: AtomicPtr<T>,
     next: AtomicPtr<Node<T>>,
 }
 
 impl<T> Node<T> {
-    fn new(val: T) -> Self {
-        Self {
-            val: AtomicPtr::new(OwnedAlloc::new(val).into_raw().as_ptr()),
-            next: AtomicPtr::new(null_mut()),
-        }
+    unsafe fn new_ptr(val: *mut T, next: *mut Self) -> NonNull<Self> {
+        alloc(Self { val: AtomicPtr::new(val), next: AtomicPtr::new(next) })
     }
 }
 
