@@ -1,6 +1,7 @@
 use incinerator::Incinerator;
 use owned_alloc::{OwnedAlloc, UninitAlloc};
 use std::{
+    fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
@@ -181,6 +182,12 @@ impl<'a, T> IntoIterator for &'a Queue<T> {
     }
 }
 
+impl<T> fmt::Debug for Queue<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("Queue")
+    }
+}
+
 unsafe impl<T> Send for Queue<T> where T: Send {}
 
 unsafe impl<T> Sync for Queue<T> where T: Send {}
@@ -201,6 +208,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
+#[derive(Debug)]
 struct PopIterRes<T> {
     item: Result<OwnedAlloc<T>, bool>,
     node: Option<OwnedAlloc<Node<T>>>,
