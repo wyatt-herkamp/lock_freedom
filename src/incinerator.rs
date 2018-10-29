@@ -48,7 +48,7 @@ where
 
     pub fn add<T>(&self, val: T)
     where
-        G: HoldsGarbage<T>,
+        T: Into<G::Garbage>,
     {
         if self.counter.load(Acquire) == 0 {
             self.tls_list.with(|cell| {
@@ -60,7 +60,7 @@ where
                 || UnsafeCell::new(G::empty()),
                 |cell| {
                     let list = unsafe { &mut *cell.get() };
-                    list.add(val);
+                    list.add(val.into());
                 },
             );
         }
@@ -106,17 +106,19 @@ where
     }
 }
 
-pub unsafe trait HoldsGarbage<T>: GarbageList {
-    fn add(&mut self, garbage: T);
-}
+pub unsafe trait GarbageList: Sized {
+    type Garbage;
 
-pub trait GarbageList: Sized {
     fn empty() -> Self;
 
     fn clear(&mut self);
+
+    fn add(&mut self, val: Self::Garbage);
 }
 
-impl<T> GarbageList for Vec<T> {
+unsafe impl<T> GarbageList for Vec<T> {
+    type Garbage = T;
+
     fn empty() -> Self {
         Self::new()
     }
@@ -124,10 +126,8 @@ impl<T> GarbageList for Vec<T> {
     fn clear(&mut self) {
         self.clear();
     }
-}
 
-unsafe impl<T> HoldsGarbage<T> for Vec<T> {
-    fn add(&mut self, garbage: T) {
-        self.push(garbage);
+    fn add(&mut self, val: Self::Garbage) {
+        self.push(val);
     }
 }
