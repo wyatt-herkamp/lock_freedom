@@ -209,9 +209,15 @@ impl<T> Drop for ThreadLocal<T> {
 unsafe impl<T> Send for ThreadLocal<T> {}
 unsafe impl<T> Sync for ThreadLocal<T> {}
 
-impl<T> fmt::Debug for ThreadLocal<T> {
+impl<T> fmt::Debug for ThreadLocal<T>
+where
+    T: fmt::Debug,
+{
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("ThreadLocal")
+        write!(fmtr, "ThreadLocal {} storage: ", '{')?;
+        self.with(|val| write!(fmtr, "Some({:?})", val))
+            .unwrap_or_else(|| write!(fmtr, "None"))?;
+        write!(fmtr, "{}", '}')
     }
 }
 
