@@ -8,23 +8,17 @@ use tls::ThreadLocal;
 pub use compat::incinerator::*;
 
 #[derive(Debug)]
-pub struct Incinerator<G>
-where
-    G: GarbageList,
-{
+pub struct Incinerator<T> {
     counter: AtomicUsize,
-    tls_list: ThreadLocal<UnsafeCell<G>>,
+    tls_list: ThreadLocal<UnsafeCell<Vec<T>>>,
 }
 
-impl<G> Incinerator<G>
-where
-    G: GarbageList,
-{
+impl<T> Incinerator<T> {
     pub fn new() -> Self {
         Self { counter: AtomicUsize::new(0), tls_list: ThreadLocal::new() }
     }
 
-    pub fn pause(&self) -> Pause<G> {
+    pub fn pause(&self) -> Pause<T> {
         loop {
             let init = self.counter.load(Acquire);
             if init == usize::max_value() {
@@ -36,9 +30,9 @@ where
         }
     }
 
-    pub fn pause_with<F, T>(&self, exec: F) -> T
+    pub fn pause_with<F, A>(&self, exec: F) -> A
     where
-        F: FnOnce() -> T,
+        F: FnOnce() -> A,
     {
         let pause = self.pause();
         let ret = exec();
@@ -46,21 +40,21 @@ where
         ret
     }
 
-    pub fn add<T>(&self, val: T)
+    pub fn add<U>(&self, val: U)
     where
-        T: Into<G::Garbage>,
+        U: Into<T>,
     {
         if self.counter.load(Acquire) == 0 {
             self.tls_list.with(|cell| {
-                let mut list = replace(unsafe { &mut *cell.get() }, G::empty());
+                let mut list = replace(unsafe { &mut *cell.get() }, Vec::new());
                 list.clear();
             });
         } else {
             self.tls_list.with_init(
-                || UnsafeCell::new(G::empty()),
+                || UnsafeCell::new(Vec::new()),
                 |cell| {
                     let list = unsafe { &mut *cell.get() };
-                    list.add(val.into());
+                    list.push(val.into());
                 },
             );
         }
@@ -74,60 +68,25 @@ where
 }
 
 #[derive(Debug)]
-pub struct Pause<'incin, G>
+pub struct Pause<'incin, T>
 where
-    G: GarbageList + 'incin,
+    T: 'incin,
 {
-    incin: &'incin Incinerator<G>,
+    incin: &'incin Incinerator<T>,
 }
 
-impl<'incin, G> Pause<'incin, G>
-where
-    G: GarbageList,
-{
+impl<'incin, T> Pause<'incin, T> {
     fn resume(self) {}
 }
 
-impl<'incin, G> Drop for Pause<'incin, G>
-where
-    G: GarbageList,
-{
+impl<'incin, T> Drop for Pause<'incin, T> {
     fn drop(&mut self) {
         self.incin.counter.fetch_sub(1, Release);
     }
 }
 
-impl<G> Default for Incinerator<G>
-where
-    G: GarbageList,
-{
+impl<T> Default for Incinerator<T> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-pub unsafe trait GarbageList: Sized {
-    type Garbage;
-
-    fn empty() -> Self;
-
-    fn clear(&mut self);
-
-    fn add(&mut self, val: Self::Garbage);
-}
-
-unsafe impl<T> GarbageList for Vec<T> {
-    type Garbage = T;
-
-    fn empty() -> Self {
-        Self::new()
-    }
-
-    fn clear(&mut self) {
-        self.clear();
-    }
-
-    fn add(&mut self, val: Self::Garbage) {
-        self.push(val);
     }
 }
