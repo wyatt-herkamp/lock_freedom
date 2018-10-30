@@ -1,26 +1,27 @@
-use alloc::*;
-use incinerator;
+use incinerator::Incinerator;
+use owned_alloc::{OwnedAlloc, UninitAlloc};
 use std::{
+    fmt,
     iter::FromIterator,
-    ptr::{null_mut, read, NonNull},
+    ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
 
 /// A lock-free stack. LIFO/FILO semanthics are fully respected.
-#[derive(Debug)]
 pub struct Stack<T> {
     top: AtomicPtr<Node<T>>,
+    incin: Incinerator<UninitAlloc<Node<T>>>,
 }
 
 impl<T> Stack<T> {
     /// Creates a new empty stack.
     pub fn new() -> Self {
-        Self { top: AtomicPtr::new(null_mut()) }
+        Self { top: AtomicPtr::new(null_mut()), incin: Incinerator::new() }
     }
 
     /// Pushes a new value onto the top of the stack.
     pub fn push(&self, val: T) {
-        let mut target = unsafe { Node::new_ptr(val, null_mut()) };
+        let mut target = OwnedAlloc::new(Node::new(val, null_mut())).into_raw();
         loop {
             // Load current top as our "next".
             let next = self.top.load(Acquire);
@@ -38,44 +39,43 @@ impl<T> Stack<T> {
     /// Pops a single element from the top of the stack.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let result = incinerator::pause(|| {
+            let result = self.incin.pause_with(|| {
                 // First, let's load our top.
                 let top = self.top.load(Acquire);
-                if top.is_null() {
+                match NonNull::new(top) {
                     // If top is null, we have nothing. We're done without
                     // elements.
-                    Some(None)
-                } else {
-                    // The replacement for top is its "next".
-                    // This is only possible because of hazard pointers.
-                    // Otherwise, we would face the "ABA problem".
-                    let ptr = self.top.compare_and_swap(
-                        top,
-                        unsafe { (*top).next },
-                        Release,
-                    );
-                    // We succeed if top still was the loaded pointer.
-                    if top == ptr {
-                        // Done with an element.
-                        Some(Some(top))
-                    } else {
-                        // Not done.
-                        None
-                    }
+                    None => Some(None),
+
+                    Some(nnptr) => {
+                        // The replacement for top is its "next".
+                        // This is only possible because of hazard pointers.
+                        // Otherwise, we would face the "ABA problem".
+                        let res = self.top.compare_and_swap(
+                            top,
+                            unsafe { nnptr.as_ref().next },
+                            Release,
+                        );
+
+                        // We succeed if top still was the loaded pointer.
+                        if res == top {
+                            // Done with an element.
+                            Some(Some(nnptr))
+                        } else {
+                            // Not done.
+                            None
+                        }
+                    },
                 }
             });
 
             if let Some(maybe_ptr) = result {
-                break maybe_ptr.map(|ptr| {
+                break maybe_ptr.map(|mut nnptr| {
                     // Let's first get the "val" to be returned.
-                    let val = unsafe { read(&mut (*ptr).val as *mut _) };
-                    unsafe {
-                        // Then, let's dealloc (now or later).
-                        incinerator::add(
-                            NonNull::new_unchecked(ptr),
-                            Node::drop_ptr,
-                        );
-                    }
+                    let val =
+                        unsafe { (&mut nnptr.as_mut().val as *mut T).read() };
+                    // Then, let's dealloc (now or later).
+                    self.incin.add(unsafe { UninitAlloc::from_raw(nnptr) });
                     val
                 });
             }
@@ -131,6 +131,12 @@ impl<'a, T> IntoIterator for &'a Stack<T> {
     }
 }
 
+impl<T> fmt::Debug for Stack<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("Stack")
+    }
+}
+
 unsafe impl<T> Send for Stack<T> where T: Send {}
 
 unsafe impl<T> Sync for Stack<T> where T: Send {}
@@ -158,12 +164,8 @@ struct Node<T> {
 }
 
 impl<T> Node<T> {
-    unsafe fn new_ptr(val: T, next: *mut Self) -> NonNull<Self> {
-        alloc(Self { val, next })
-    }
-
-    unsafe fn drop_ptr(ptr: NonNull<Self>) {
-        dealloc_moved(ptr);
+    fn new(val: T, next: *mut Self) -> Self {
+        Self { val, next }
     }
 }
 

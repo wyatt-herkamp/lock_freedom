@@ -1,45 +1,104 @@
 use std::{
     cell::Cell,
     fmt,
-    mem::replace,
-    ptr::null,
-    sync::{
-        atomic::{AtomicUsize, Ordering::*},
-        Arc,
-    },
+    sync::atomic::{AtomicUsize, Ordering::*},
 };
 use tls::ThreadLocal;
 
 pub use compat::incinerator::*;
 
-#[derive(Debug, Clone)]
-pub struct Incinerator<'garbage> {
-    inner: Arc<IncinInner<'garbage>>,
+/// The incinerator. It is an API used to solve the infamous ABA problem. It
+/// basically consists of a counter and a list of garbage. Before a thread
+/// begins a suffering-from-ABA operation, it should start a new pause, and keep
+/// the incinerator paused while it is performing the operation.
+///
+/// When a thread wants to drop an allocation that might affect other threads
+/// with ABA problem or uses-after-free, it should `add` it to the incinerator's
+/// garbage list. The incinerator will only execute the `drop` of its type `T`
+/// when the pause counter is zero.
+///
+/// When the incinerator is dropped, all the garbage is automatically dropped
+/// too.
+///
+/// C11 Implementation: <https://gitlab.com/bzim/c11-incinerator/>
+///
+/// # Example
+/// ```rust
+/// extern crate lockfree;
+///
+/// use lockfree::prelude::*;
+/// use std::{
+///     ptr::{null_mut, NonNull},
+///     sync::{
+///         atomic::{AtomicPtr, Ordering::*},
+///         Arc,
+///     },
+///     thread,
+/// };
+///
+/// let incin = Arc::new(Incinerator::<Box<u128>>::new());
+/// let ptr = Box::into_raw(Box::new(55u128));
+/// let dummy_state = Arc::new(AtomicPtr::new(ptr));
+///
+/// let mut threads = Vec::with_capacity(16);
+///
+/// for i in 0 .. 16 {
+///     let state = dummy_state.clone();
+///     let incin = incin.clone();
+///     threads.push(thread::spawn(move || {
+///         let ptr = incin.pause_with(|| {
+///             let loaded = state.load(SeqCst);
+///             let new = unsafe { *loaded + i };
+///             state.swap(Box::into_raw(Box::new(new)), SeqCst)
+///         });
+///
+///         // dropping
+///         incin.add(unsafe { Box::from_raw(ptr) })
+///     }));
+/// }
+///
+/// for thread in threads {
+///     thread.join().unwrap();
+/// }
+///
+/// let boxed = unsafe { Box::from_raw(dummy_state.load(SeqCst)) };
+/// assert!(*boxed <= 15 * 15);
+/// ```
+#[derive(Debug)]
+pub struct Incinerator<T> {
+    counter: AtomicUsize,
+    tls_list: ThreadLocal<GarbageList<T>>,
 }
 
-impl<'garbage> Incinerator<'garbage> {
+impl<T> Incinerator<T> {
+    /// Creates a new incinerator, with no pauses and empty garbage list.
     pub fn new() -> Self {
-        Self { inner: Arc::new(IncinInner::new()) }
+        Self { counter: AtomicUsize::new(0), tls_list: ThreadLocal::new() }
     }
 
-    pub fn pause<'incin>(&'incin self) -> Pause<'incin, 'garbage> {
+    /// Increments the pause counter and creates a pause associated with this
+    /// incinerator. Only after creating the pause you should perform atomic
+    /// operations such as `load` and any other operation affected by ABA
+    /// problem.
+    pub fn pause(&self) -> Pause<T> {
         loop {
-            let init = self.inner.counter.load(Acquire);
+            let init = self.counter.load(Acquire);
             if init == usize::max_value() {
                 panic!("Too many pauses");
             }
-
-            let res =
-                self.inner.counter.compare_and_swap(init, init + 1, Release);
-            if res == init {
+            if self.counter.compare_and_swap(init, init + 1, Release) == init {
                 break Pause { incin: self };
             }
         }
     }
 
-    pub fn pause_with<F, T>(&self, exec: F) -> T
+    /// Creates a pause before executing the given closure and resumes the
+    /// incinerator only after executing the closure. You should execute the
+    /// whole ABA-problem-suffering cycle of `load` and `compare_and_swap`
+    /// inside the closure.
+    pub fn pause_with<F, A>(&self, exec: F) -> A
     where
-        F: FnOnce() -> T,
+        F: FnOnce() -> A,
     {
         let pause = self.pause();
         let ret = exec();
@@ -47,116 +106,97 @@ impl<'garbage> Incinerator<'garbage> {
         ret
     }
 
-    pub fn add<T>(&self, val: T)
-    where
-        T: Garbage + 'garbage,
-    {
-        if self.inner.counter.load(Acquire) == 0 {
-            self.inner.tls_list.with(GarbageList::clear);
+    /// Adds the given value to the garbage list. The value is only dropped when
+    /// the counter is zero. If the counter is zero when the method is called,
+    /// the value is immediately dropped and the garbage list is cleared.
+    pub fn add(&self, val: T) {
+        if self.counter.load(Acquire) == 0 {
+            self.tls_list.with(GarbageList::clear);
         } else {
-            self.inner
-                .tls_list
-                .with_init(GarbageList::new, |list| list.add(Box::new(val)));
+            self.tls_list.with_init(GarbageList::new, |list| list.add(val));
         }
     }
 
-    pub fn try_clear(&self) {
-        if self.inner.counter.load(Acquire) == 0 {
-            self.inner.tls_list.with(GarbageList::clear);
+    /// Tries to delete the garbage list associated with this thread. The
+    /// garbage list is only cleared if the counter is zero. In case of success,
+    /// `true` is returned.
+    pub fn try_clear(&self) -> bool {
+        if self.counter.load(Acquire) == 0 {
+            self.tls_list.with(GarbageList::clear);
+            true
+        } else {
+            false
         }
     }
 }
 
+/// An active incinerator pause. When a value of this type is alive, no
+/// sensitive data is dropped in the incinerator. When a value of this type is
+/// dropped, the incinerator counter is decremented.
 #[derive(Debug)]
-pub struct Pause<'incin, 'garbage> {
-    incin: &'incin Incinerator<'garbage>,
+pub struct Pause<'incin, T>
+where
+    T: 'incin,
+{
+    incin: &'incin Incinerator<T>,
 }
 
-impl<'incin, 'garbage> Pause<'incin, 'garbage> {
+impl<'incin, T> Pause<'incin, T> {
+    /// Forces drop and decrements the incinerator counter. This method does not
+    /// need to be called because the incinerator counter is decremented when
+    /// the pause is dropped.
     fn resume(self) {}
 }
 
-impl<'incin, 'garbage> Drop for Pause<'incin, 'garbage> {
+impl<'incin, T> Drop for Pause<'incin, T> {
     fn drop(&mut self) {
-        self.incin.inner.counter.fetch_sub(1, Release);
+        self.incin.counter.fetch_sub(1, Release);
     }
 }
 
-impl<'garbage> Default for Incinerator<'garbage> {
+impl<T> Default for Incinerator<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub trait Garbage {
-    fn destroy(self: Box<Self>);
+struct GarbageList<T> {
+    list: Cell<Vec<T>>,
 }
 
-impl<F> Garbage for F
-where
-    F: FnOnce(),
-{
-    fn destroy(self: Box<Self>) {
-        (*self)()
-    }
-}
-
-impl<'garbage> fmt::Debug for Box<dyn Garbage + 'garbage> {
-    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "{:p}", self)
-    }
-}
-
-#[derive(Debug)]
-struct IncinInner<'garbage> {
-    counter: AtomicUsize,
-    tls_list: ThreadLocal<GarbageList<'garbage>>,
-}
-
-impl<'garbage> IncinInner<'garbage> {
-    fn new() -> Self {
-        IncinInner {
-            counter: AtomicUsize::new(0),
-            tls_list: ThreadLocal::new(),
-        }
-    }
-}
-
-struct GarbageList<'garbage> {
-    list: Cell<Vec<Box<dyn Garbage + 'garbage>>>,
-}
-
-impl<'garbage> GarbageList<'garbage> {
+impl<T> GarbageList<T> {
     fn new() -> Self {
         Self { list: Cell::new(Vec::new()) }
     }
 
-    fn add(&self, obj: Box<dyn Garbage + 'garbage>) {
+    fn add(&self, val: T) {
         let mut list = self.list.replace(Vec::new());
-        list.push(obj);
-        self.list.set(list);
+        list.push(val);
+        self.list.replace(list);
     }
 
     fn clear(&self) {
-        let list = self.list.replace(Vec::new());
-
-        for garbage in list {
-            garbage.destroy();
-        }
+        self.list.replace(Vec::new());
     }
 }
 
-impl<'garbage> fmt::Debug for GarbageList<'garbage> {
+impl<T> fmt::Debug for GarbageList<T>
+where
+    T: fmt::Debug,
+{
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         let list = self.list.replace(Vec::new());
         write!(fmtr, "{:?}", list)?;
-        self.list.set(list);
-        Ok(())
-    }
-}
 
-impl<'garbage> Drop for GarbageList<'garbage> {
-    fn drop(&mut self) {
-        self.clear();
+        let mut tmp = self.list.replace(list);
+
+        // A totally weird corner case, but we have to handle it.
+        if tmp.len() > 0 {
+            let mut list = self.list.replace(Vec::new());
+            list.append(&mut tmp);
+            self.list.replace(list);
+        }
+
+        Ok(())
     }
 }
