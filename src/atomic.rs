@@ -240,25 +240,18 @@ impl<T> AtomicBox<T>
 where
     T: Copy + PartialEq,
 {
-    /// Creates this `AtomicBox` with an initial vale and shares the
-    /// internal incinerator with another `AtomicBox`.
-    pub fn with_shared_incinerator(init: T, share_from: &Self) -> Self {
+    /// Creates the `AtomicBox` with an initial value and a given shared
+    /// incinerator.
+    pub fn with_incinerator(init: T, incin: AtomicBoxIncin<T>) -> Self {
         Self {
             ptr: OwnedAlloc::new(init).into_raw().as_ptr().into_atomic(),
-            incin: share_from.incin.clone(),
+            incin: incin.inner,
         }
     }
 
-    /// Creates this `AtomicBox` with an initial vale and shares the
-    /// internal incinerator with an `AtomicOptionBox`.
-    pub fn with_shared_incinerator_opt(
-        init: T,
-        share_from: &AtomicOptionBox<T>,
-    ) -> Self {
-        Self {
-            ptr: OwnedAlloc::new(init).into_raw().as_ptr().into_atomic(),
-            incin: share_from.incin.clone(),
-        }
+    /// The shared incinerator used by this `AtomicBox`.
+    pub fn incinerator(&self) -> AtomicBoxIncin<T> {
+        AtomicBoxIncin { inner: self.incin.clone() }
     }
 }
 
@@ -514,25 +507,15 @@ impl<T> AtomicOptionBox<T>
 where
     T: Copy + PartialEq,
 {
-    /// Creates this `AtomicOptionBox` with an initial vale and shares the
-    /// internal incinerator with another `AtomicOptionBox`.
-    pub fn with_shared_incinerator(init: Option<T>, share_from: &Self) -> Self {
-        Self {
-            ptr: Self::make_ptr(init).into_atomic(),
-            incin: share_from.incin.clone(),
-        }
+    /// Creates the `AtomicOptionBox` with an initial value and a given shared
+    /// incinerator.
+    pub fn with_incinerator(init: Option<T>, incin: AtomicBoxIncin<T>) -> Self {
+        Self { ptr: Self::make_ptr(init).into_atomic(), incin: incin.inner }
     }
 
-    /// Creates this `AtomicOptionBox` with an initial vale and shares the
-    /// internal incinerator with an `AtomicBox`.
-    pub fn with_shared_incinerator_non_opt(
-        init: Option<T>,
-        share_from: &AtomicBox<T>,
-    ) -> Self {
-        Self {
-            ptr: Self::make_ptr(init).into_atomic(),
-            incin: share_from.incin.clone(),
-        }
+    /// The shared incinerator used by this `AtomicOptionBox`.
+    pub fn incinerator(&self) -> AtomicBoxIncin<T> {
+        AtomicBoxIncin { inner: self.incin.clone() }
     }
 
     fn make_ptr(val: Option<T>) -> *mut T {
@@ -793,6 +776,36 @@ where
 {
     fn from(val: Option<T>) -> Self {
         Self::new(val)
+    }
+}
+
+/// The shared incinerator used by `AtomicBox` and `AtomicOptionBox`.
+pub struct AtomicBoxIncin<T> {
+    inner: Arc<Incinerator<OwnedAlloc<T>>>,
+}
+
+impl<T> AtomicBoxIncin<T> {
+    /// Creates a new incinerator for atomic boxes.
+    pub fn new() -> Self {
+        Self { inner: Arc::new(Incinerator::new()) }
+    }
+}
+
+impl<T> fmt::Debug for AtomicBoxIncin<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "AtomicBoxIncin {} inner: {:?} {}", '{', self.inner, '}')
+    }
+}
+
+impl<T> Default for AtomicBoxIncin<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Clone for AtomicBoxIncin<T> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
     }
 }
 

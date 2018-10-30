@@ -21,13 +21,18 @@ impl<T> Darc<T> {
         }
     }
 
-    /// Creates a new `Darc` from the given `Arc` and shares the internal
-    /// incinerator with another `Darc`.
-    pub fn with_shared_incinerator(arc: Arc<T>, share_from: &Self) -> Self {
+    /// Creates a new `Darc` from the given `Arc` and a given shared
+    /// incinerator.
+    pub fn with_incinerator(arc: Arc<T>, incin: DarcIncin<T>) -> Self {
         Self {
             ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _),
-            incin: share_from.incin.clone(),
+            incin: incin.inner,
         }
+    }
+
+    /// The shared incinerator used by this `Darc`.
+    pub fn incinerator(&self) -> DarcIncin<T> {
+        DarcIncin { inner: self.incin.clone() }
     }
 
     /// Loads the `Darc` into an `Arc`.
@@ -222,6 +227,31 @@ where
 unsafe impl<T> Send for Darc<T> where T: Send + Sync {}
 
 unsafe impl<T> Sync for Darc<T> where T: Send + Sync {}
+
+/// The shared incinerator used by `Darc`.
+#[derive(Debug)]
+pub struct DarcIncin<T> {
+    inner: Arc<Incinerator<Arc<T>>>,
+}
+
+impl<T> DarcIncin<T> {
+    /// Creates a new incinerator for darcs.
+    pub fn new() -> Self {
+        Self { inner: Arc::new(Incinerator::new()) }
+    }
+}
+
+impl<T> Default for DarcIncin<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Clone for DarcIncin<T> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
 
 // Testing the safety of `unsafe` in this module is done with random operations
 // via fuzzing
