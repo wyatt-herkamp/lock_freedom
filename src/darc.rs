@@ -21,7 +21,8 @@ impl<T> Darc<T> {
         }
     }
 
-    /// Creates a new `Darc` from the given `Arc`.
+    /// Creates a new `Darc` from the given `Arc` and shares the internal
+    /// incinerator with another `Darc`.
     pub fn with_shared_incinerator(arc: Arc<T>, share_from: &Self) -> Self {
         Self {
             ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _),

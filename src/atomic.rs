@@ -1,15 +1,18 @@
-use alloc::*;
-use incinerator;
+use incinerator::Incinerator;
+use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 pub use std::sync::atomic::Ordering;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
-    sync::atomic::{
-        AtomicBool,
-        AtomicIsize,
-        AtomicPtr,
-        AtomicUsize,
-        Ordering::*,
+    sync::{
+        atomic::{
+            AtomicBool,
+            AtomicIsize,
+            AtomicPtr,
+            AtomicUsize,
+            Ordering::*,
+        },
+        Arc,
     },
 };
 
@@ -230,6 +233,33 @@ impl<T> IntoAtomic for *mut T {
 /// ```
 pub struct AtomicBox<T> {
     ptr: AtomicPtr<T>,
+    incin: Arc<Incinerator<OwnedAlloc<T>>>,
+}
+
+impl<T> AtomicBox<T>
+where
+    T: Copy + PartialEq,
+{
+    /// Creates this `AtomicBox` with an initial vale and shares the
+    /// internal incinerator with another `AtomicBox`.
+    pub fn with_shared_incinerator(init: T, share_from: &Self) -> Self {
+        Self {
+            ptr: OwnedAlloc::new(init).into_raw().as_ptr().into_atomic(),
+            incin: share_from.incin.clone(),
+        }
+    }
+
+    /// Creates this `AtomicBox` with an initial vale and shares the
+    /// internal incinerator with an `AtomicOptionBox`.
+    pub fn with_shared_incinerator_opt(
+        init: T,
+        share_from: &AtomicOptionBox<T>,
+    ) -> Self {
+        Self {
+            ptr: OwnedAlloc::new(init).into_raw().as_ptr().into_atomic(),
+            incin: share_from.incin.clone(),
+        }
+    }
 }
 
 impl<T> Atomic for AtomicBox<T>
@@ -239,11 +269,14 @@ where
     type Inner = T;
 
     fn new(init: Self::Inner) -> Self {
-        Self { ptr: unsafe { alloc(init) }.as_ptr().into_atomic() }
+        Self {
+            ptr: OwnedAlloc::new(init).into_raw().as_ptr().into_atomic(),
+            incin: Arc::new(Incinerator::new()),
+        }
     }
 
     fn load(&self, ord: Ordering) -> Self::Inner {
-        incinerator::pause(|| unsafe { *self.ptr.load(ord) })
+        self.incin.pause_with(|| unsafe { *self.ptr.load(ord) })
     }
 
     fn store(&self, val: Self::Inner, ord: Ordering) {
@@ -251,9 +284,10 @@ where
     }
 
     fn swap(&self, val: Self::Inner, ord: Ordering) -> Self::Inner {
-        let ptr = self.ptr.swap(unsafe { alloc(val).as_ptr() }, ord);
+        let ptr = self.ptr.swap(OwnedAlloc::new(val).into_raw().as_ptr(), ord);
         let res = unsafe { *ptr };
-        unsafe { incinerator::add(NonNull::new_unchecked(ptr), dealloc) }
+        self.incin
+            .add(unsafe { OwnedAlloc::from_raw(NonNull::new_unchecked(ptr)) });
         res
     }
 
@@ -267,6 +301,7 @@ where
             Acquire | AcqRel | Release => Acquire,
             _ => ord,
         };
+
         match self.load_cas_loop(
             |val| if val == curr { Some(new) } else { None },
             load_ord,
@@ -284,35 +319,48 @@ where
         succ: Ordering,
         fail: Ordering,
     ) -> Result<Self::Inner, Self::Inner> {
-        let new_ptr = unsafe { alloc(new).as_ptr() };
+        let new_nnptr = OwnedAlloc::new(new).into_raw();
 
         let load_ord = match succ {
             Acquire | AcqRel | Release => Acquire,
             _ => succ,
         };
 
-        let (result, ptr) = incinerator::pause(|| {
+        let (result, ptr) = self.incin.pause_with(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
-
             loop {
                 let loaded = unsafe { *loaded_ptr };
+
                 if loaded == curr {
-                    match self
-                        .ptr
-                        .compare_exchange(loaded_ptr, new_ptr, succ, fail)
-                    {
-                        Ok(res_ptr) => break (Ok(loaded), res_ptr),
+                    match self.ptr.compare_exchange(
+                        loaded_ptr,
+                        new_nnptr.as_ptr(),
+                        succ,
+                        fail,
+                    ) {
+                        Ok(res_ptr) => {
+                            break (
+                                Ok(loaded),
+                                Some(unsafe {
+                                    NonNull::new_unchecked(res_ptr)
+                                }),
+                            )
+                        },
+
                         Err(res_ptr) => loaded_ptr = res_ptr,
                     }
                 } else {
-                    unsafe { dealloc(NonNull::new_unchecked(new_ptr)) }
-                    break (Err(loaded), null_mut());
+                    unsafe {
+                        OwnedAlloc::from_raw(new_nnptr);
+                    }
+
+                    break (Err(loaded), None);
                 }
             }
         });
 
-        if let Some(ptr) = NonNull::new(ptr) {
-            unsafe { incinerator::add(ptr, dealloc) }
+        if let Some(nnptr) = ptr {
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
         }
 
         result
@@ -325,36 +373,48 @@ where
         succ: Ordering,
         fail: Ordering,
     ) -> Result<Self::Inner, Self::Inner> {
-        let new_ptr = unsafe { alloc(new).as_ptr() };
+        let new_nnptr = OwnedAlloc::new(new).into_raw();
 
         let load_ord = match succ {
             Acquire | AcqRel | Release => Acquire,
             _ => succ,
         };
 
-        let (result, ptr) = incinerator::pause(|| {
-            let loaded_ptr = self.ptr.load(load_ord);
+        let (result, ptr) = self.incin.pause_with(|| {
+            let mut loaded_ptr = self.ptr.load(load_ord);
+            loop {
+                let loaded = unsafe { *loaded_ptr };
 
-            let loaded = unsafe { *loaded_ptr };
-            if loaded == curr {
-                match self
-                    .ptr
-                    .compare_exchange_weak(loaded_ptr, new_ptr, succ, fail)
-                {
-                    Ok(res_ptr) => (Ok(loaded), res_ptr),
-                    Err(_) => {
-                        unsafe { dealloc(NonNull::new_unchecked(new_ptr)) }
-                        (Err(loaded), null_mut())
-                    },
+                if loaded == curr {
+                    match self.ptr.compare_exchange_weak(
+                        loaded_ptr,
+                        new_nnptr.as_ptr(),
+                        succ,
+                        fail,
+                    ) {
+                        Ok(res_ptr) => {
+                            break (
+                                Ok(loaded),
+                                Some(unsafe {
+                                    NonNull::new_unchecked(res_ptr)
+                                }),
+                            )
+                        },
+
+                        Err(res_ptr) => loaded_ptr = res_ptr,
+                    }
+                } else {
+                    unsafe {
+                        OwnedAlloc::from_raw(new_nnptr);
+                    }
+
+                    break (Err(loaded), None);
                 }
-            } else {
-                unsafe { dealloc(NonNull::new_unchecked(new_ptr)) }
-                (Err(loaded), null_mut())
             }
         });
 
-        if let Some(ptr) = NonNull::new(ptr) {
-            unsafe { incinerator::add(ptr, dealloc) }
+        if let Some(nnptr) = ptr {
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
         }
 
         result
@@ -369,35 +429,41 @@ where
     where
         F: FnMut(Self::Inner) -> Option<Self::Inner>,
     {
-        let mut new_cache = CachedAlloc::empty();
+        let mut new_cache = Cache::new();
 
-        let (result, ptr) = incinerator::pause(|| {
+        let (result, ptr) = self.incin.pause_with(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
 
             loop {
                 let loaded = unsafe { *loaded_ptr };
                 if let Some(new) = update(loaded) {
-                    let new_ptr = unsafe { new_cache.get() };
-                    unsafe { *new_ptr.as_ptr() = new }
+                    let new_alloc =
+                        new_cache.take_or(|| UninitAlloc::new()).init(new);
+                    let new_nnptr = new_alloc.into_raw();
+
                     let res_ptr = self.ptr.compare_and_swap(
                         loaded_ptr,
-                        new_ptr.as_ptr(),
+                        new_nnptr.as_ptr(),
                         cas_ord,
                     );
                     if res_ptr == loaded_ptr {
-                        new_cache.take();
-                        break (Ok(loaded), res_ptr);
+                        break (
+                            Ok(loaded),
+                            Some(unsafe { NonNull::new_unchecked(res_ptr) }),
+                        );
                     } else {
+                        new_cache
+                            .store(unsafe { UninitAlloc::from_raw(new_nnptr) });
                         loaded_ptr = res_ptr;
                     }
                 } else {
-                    break (Err(loaded), null_mut());
+                    break (Err(loaded), None);
                 }
             }
         });
 
-        if let Some(ptr) = NonNull::new(ptr) {
-            unsafe { incinerator::add(ptr, dealloc) }
+        if let Some(nnptr) = ptr {
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -406,7 +472,9 @@ where
 
 impl<T> Drop for AtomicBox<T> {
     fn drop(&mut self) {
-        unsafe { dealloc(NonNull::new_unchecked(self.ptr.load(Relaxed))) }
+        unsafe {
+            OwnedAlloc::new(NonNull::new_unchecked(self.ptr.load(Relaxed)));
+        }
     }
 }
 
@@ -438,27 +506,46 @@ where
 /// `AtomicOptionBox` can be null.
 pub struct AtomicOptionBox<T> {
     ptr: AtomicPtr<T>,
+    incin: Arc<Incinerator<OwnedAlloc<T>>>,
 }
 
 impl<T> AtomicOptionBox<T>
 where
     T: Copy + PartialEq,
 {
-    unsafe fn make_ptr(val: Option<T>) -> *mut T {
-        match val {
-            Some(val) => alloc(val).as_ptr(),
-            None => null_mut(),
+    /// Creates this `AtomicOptionBox` with an initial vale and shares the
+    /// internal incinerator with another `AtomicOptionBox`.
+    pub fn with_shared_incinerator(init: Option<T>, share_from: &Self) -> Self {
+        Self {
+            ptr: Self::make_ptr(init).into_atomic(),
+            incin: share_from.incin.clone(),
         }
+    }
+
+    /// Creates this `AtomicOptionBox` with an initial vale and shares the
+    /// internal incinerator with an `AtomicBox`.
+    pub fn with_shared_incinerator_non_opt(
+        init: Option<T>,
+        share_from: &AtomicBox<T>,
+    ) -> Self {
+        Self {
+            ptr: Self::make_ptr(init).into_atomic(),
+            incin: share_from.incin.clone(),
+        }
+    }
+
+    fn make_ptr(val: Option<T>) -> *mut T {
+        val.map_or(null_mut(), |val| OwnedAlloc::new(val).into_raw().as_ptr())
     }
 
     unsafe fn make_val(ptr: *mut T) -> Option<T> {
         ptr.as_ref().map(|&x| x)
     }
 
-    unsafe fn make_val_and_dealloc(ptr: *mut T) -> Option<T> {
+    unsafe fn make_val_and_dealloc(&self, ptr: *mut T) -> Option<T> {
         NonNull::new(ptr).map(|nnptr| {
             let val = *nnptr.as_ref();
-            incinerator::add(NonNull::new_unchecked(ptr), dealloc);
+            self.incin.add(OwnedAlloc::from_raw(nnptr));
             val
         })
     }
@@ -471,11 +558,14 @@ where
     type Inner = Option<T>;
 
     fn new(init: Self::Inner) -> Self {
-        Self { ptr: unsafe { Self::make_ptr(init) }.into_atomic() }
+        Self {
+            ptr: Self::make_ptr(init).into_atomic(),
+            incin: Arc::new(Incinerator::new()),
+        }
     }
 
     fn load(&self, ord: Ordering) -> Self::Inner {
-        incinerator::pause(|| unsafe { Self::make_val(self.ptr.load(ord)) })
+        self.incin.pause_with(|| unsafe { Self::make_val(self.ptr.load(ord)) })
     }
 
     fn store(&self, val: Self::Inner, ord: Ordering) {
@@ -483,8 +573,8 @@ where
     }
 
     fn swap(&self, val: Self::Inner, ord: Ordering) -> Self::Inner {
-        let ptr = self.ptr.swap(unsafe { Self::make_ptr(val) }, ord);
-        unsafe { Self::make_val_and_dealloc(ptr) }
+        let ptr = self.ptr.swap(Self::make_ptr(val), ord);
+        unsafe { self.make_val_and_dealloc(ptr) }
     }
 
     fn compare_and_swap(
@@ -514,14 +604,14 @@ where
         succ: Ordering,
         fail: Ordering,
     ) -> Result<Self::Inner, Self::Inner> {
-        let new_ptr = unsafe { Self::make_ptr(new) };
+        let new_ptr = Self::make_ptr(new);
 
         let load_ord = match succ {
             Acquire | AcqRel | Release => Acquire,
             _ => succ,
         };
 
-        let (result, ptr) = incinerator::pause(|| {
+        let (result, ptr) = self.incin.pause_with(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
 
             loop {
@@ -531,20 +621,26 @@ where
                         .ptr
                         .compare_exchange(loaded_ptr, new_ptr, succ, fail)
                     {
-                        Ok(res_ptr) => break (Ok(loaded), res_ptr),
+                        Ok(res_ptr) => {
+                            break (Ok(loaded), NonNull::new(res_ptr))
+                        },
+
                         Err(res_ptr) => loaded_ptr = res_ptr,
                     }
                 } else {
                     if let Some(nnptr) = NonNull::new(new_ptr) {
-                        unsafe { dealloc(nnptr) }
+                        unsafe {
+                            OwnedAlloc::from_raw(nnptr);
+                        }
                     }
-                    break (Err(loaded), null_mut());
+
+                    break (Err(loaded), None);
                 }
             }
         });
 
-        if let Some(ptr) = NonNull::new(ptr) {
-            unsafe { incinerator::add(ptr, dealloc) }
+        if let Some(nnptr) = ptr {
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
         }
 
         result
@@ -557,38 +653,43 @@ where
         succ: Ordering,
         fail: Ordering,
     ) -> Result<Self::Inner, Self::Inner> {
-        let new_ptr = unsafe { Self::make_ptr(new) };
+        let new_ptr = Self::make_ptr(new);
 
         let load_ord = match succ {
             Acquire | AcqRel | Release => Acquire,
             _ => succ,
         };
 
-        let (result, ptr) = incinerator::pause(|| {
-            let loaded_ptr = self.ptr.load(load_ord);
+        let (result, ptr) = self.incin.pause_with(|| {
+            let mut loaded_ptr = self.ptr.load(load_ord);
 
-            let loaded = unsafe { Self::make_val(loaded_ptr) };
-            if loaded == curr {
-                match self
-                    .ptr
-                    .compare_exchange_weak(loaded_ptr, new_ptr, succ, fail)
-                {
-                    Ok(res_ptr) => (Ok(loaded), res_ptr),
-                    Err(_) => {
-                        if let Some(nnptr) = NonNull::new(new_ptr) {
-                            unsafe { dealloc(nnptr) }
+            loop {
+                let loaded = unsafe { Self::make_val(loaded_ptr) };
+                if loaded == curr {
+                    match self
+                        .ptr
+                        .compare_exchange_weak(loaded_ptr, new_ptr, succ, fail)
+                    {
+                        Ok(res_ptr) => {
+                            break (Ok(loaded), NonNull::new(res_ptr))
+                        },
+
+                        Err(res_ptr) => loaded_ptr = res_ptr,
+                    }
+                } else {
+                    if let Some(nnptr) = NonNull::new(new_ptr) {
+                        unsafe {
+                            OwnedAlloc::from_raw(nnptr);
                         }
-                        (Err(loaded), null_mut())
-                    },
+                    }
+
+                    break (Err(loaded), None);
                 }
-            } else {
-                unsafe { dealloc(NonNull::new_unchecked(new_ptr)) }
-                (Err(loaded), null_mut())
             }
         });
 
-        if let Some(ptr) = NonNull::new(ptr) {
-            unsafe { incinerator::add(ptr, dealloc) }
+        if let Some(nnptr) = ptr {
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
         }
 
         result
@@ -603,9 +704,9 @@ where
     where
         F: FnMut(Self::Inner) -> Option<Self::Inner>,
     {
-        let mut new_cache = CachedAlloc::empty();
+        let mut new_cache = Cache::new();
 
-        let (result, ptr) = incinerator::pause(|| {
+        let (result, ptr) = self.incin.pause_with(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
 
             loop {
@@ -613,9 +714,10 @@ where
                 if let Some(new) = update(loaded) {
                     let new_ptr = match new {
                         Some(val) => {
-                            let ptr = unsafe { new_cache.get() }.as_ptr();
-                            unsafe { *ptr = val }
-                            ptr
+                            let alloc = new_cache
+                                .take_or(|| UninitAlloc::new())
+                                .init(val);
+                            alloc.into_raw().as_ptr()
                         },
 
                         None => null_mut(),
@@ -623,22 +725,24 @@ where
 
                     let res_ptr =
                         self.ptr.compare_and_swap(loaded_ptr, new_ptr, cas_ord);
+
                     if res_ptr == loaded_ptr {
-                        if !new_ptr.is_null() {
-                            new_cache.take();
-                        }
-                        break (Ok(loaded), res_ptr);
+                        break (Ok(loaded), NonNull::new(res_ptr));
                     } else {
+                        if let Some(nnptr) = NonNull::new(new_ptr) {
+                            new_cache
+                                .store(unsafe { UninitAlloc::from_raw(nnptr) });
+                        }
                         loaded_ptr = res_ptr;
                     }
                 } else {
-                    break (Err(loaded), null_mut());
+                    break (Err(loaded), None);
                 }
             }
         });
 
-        if let Some(ptr) = NonNull::new(ptr) {
-            unsafe { incinerator::add(ptr, dealloc) }
+        if let Some(nnptr) = ptr {
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
         }
 
         result
@@ -647,8 +751,10 @@ where
 
 impl<T> Drop for AtomicOptionBox<T> {
     fn drop(&mut self) {
-        if let Some(ptr) = NonNull::new(self.ptr.load(Relaxed)) {
-            unsafe { dealloc(ptr) }
+        if let Some(nnptr) = NonNull::new(self.ptr.load(Relaxed)) {
+            unsafe {
+                OwnedAlloc::from_raw(nnptr);
+            }
         }
     }
 }

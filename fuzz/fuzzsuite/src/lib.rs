@@ -107,7 +107,7 @@ where
                 }))
             },
 
-            129 => {
+            129 | 57 => {
                 if let Some(thread) = self.threads.pop() {
                     thread.join().unwrap()
                 }
