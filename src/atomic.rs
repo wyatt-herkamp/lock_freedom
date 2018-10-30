@@ -381,35 +381,34 @@ where
         };
 
         let (result, ptr) = self.incin.pause_with(|| {
-            let mut loaded_ptr = self.ptr.load(load_ord);
-            loop {
-                let loaded = unsafe { *loaded_ptr };
+            let loaded_ptr = self.ptr.load(load_ord);
 
-                if loaded == curr {
-                    match self.ptr.compare_exchange_weak(
-                        loaded_ptr,
-                        new_nnptr.as_ptr(),
-                        succ,
-                        fail,
-                    ) {
-                        Ok(res_ptr) => {
-                            break (
-                                Ok(loaded),
-                                Some(unsafe {
-                                    NonNull::new_unchecked(res_ptr)
-                                }),
-                            )
-                        },
+            let loaded = unsafe { *loaded_ptr };
+            if loaded == curr {
+                match self.ptr.compare_exchange_weak(
+                    loaded_ptr,
+                    new_nnptr.as_ptr(),
+                    succ,
+                    fail,
+                ) {
+                    Ok(res_ptr) => (
+                        Ok(loaded),
+                        Some(unsafe { NonNull::new_unchecked(res_ptr) }),
+                    ),
 
-                        Err(res_ptr) => loaded_ptr = res_ptr,
-                    }
-                } else {
-                    unsafe {
-                        OwnedAlloc::from_raw(new_nnptr);
-                    }
-
-                    break (Err(loaded), None);
+                    Err(_) => {
+                        unsafe {
+                            OwnedAlloc::from_raw(new_nnptr);
+                        }
+                        (Err(loaded), None)
+                    },
                 }
+            } else {
+                unsafe {
+                    OwnedAlloc::from_raw(new_nnptr);
+                }
+
+                (Err(loaded), None)
             }
         });
 
@@ -473,7 +472,9 @@ where
 impl<T> Drop for AtomicBox<T> {
     fn drop(&mut self) {
         unsafe {
-            OwnedAlloc::new(NonNull::new_unchecked(self.ptr.load(Relaxed)));
+            OwnedAlloc::from_raw(NonNull::new_unchecked(
+                self.ptr.load(Relaxed),
+            ));
         }
     }
 }
@@ -661,30 +662,33 @@ where
         };
 
         let (result, ptr) = self.incin.pause_with(|| {
-            let mut loaded_ptr = self.ptr.load(load_ord);
+            let loaded_ptr = self.ptr.load(load_ord);
 
-            loop {
-                let loaded = unsafe { Self::make_val(loaded_ptr) };
-                if loaded == curr {
-                    match self
-                        .ptr
-                        .compare_exchange_weak(loaded_ptr, new_ptr, succ, fail)
-                    {
-                        Ok(res_ptr) => {
-                            break (Ok(loaded), NonNull::new(res_ptr))
-                        },
+            let loaded = unsafe { Self::make_val(loaded_ptr) };
+            if loaded == curr {
+                match self
+                    .ptr
+                    .compare_exchange_weak(loaded_ptr, new_ptr, succ, fail)
+                {
+                    Ok(res_ptr) => (Ok(loaded), NonNull::new(res_ptr)),
 
-                        Err(res_ptr) => loaded_ptr = res_ptr,
-                    }
-                } else {
-                    if let Some(nnptr) = NonNull::new(new_ptr) {
-                        unsafe {
-                            OwnedAlloc::from_raw(nnptr);
+                    Err(_) => {
+                        if let Some(nnptr) = NonNull::new(new_ptr) {
+                            unsafe {
+                                OwnedAlloc::from_raw(nnptr);
+                            }
                         }
-                    }
-
-                    break (Err(loaded), None);
+                        (Err(loaded), None)
+                    },
                 }
+            } else {
+                if let Some(nnptr) = NonNull::new(new_ptr) {
+                    unsafe {
+                        OwnedAlloc::from_raw(nnptr);
+                    }
+                }
+
+                (Err(loaded), None)
             }
         });
 
