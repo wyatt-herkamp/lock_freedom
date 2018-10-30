@@ -99,7 +99,8 @@ impl<T> Incinerator<T> {
     /// Creates a pause before executing the given closure and resumes the
     /// incinerator only after executing the closure. You should execute the
     /// whole ABA-problem-suffering cycle of `load` and `compare_and_swap`
-    /// inside the closure.
+    /// inside the closure. See documentation for `Incinerator::pause` and
+    /// `Pause::resume` for more details.
     pub fn pause_with<F, A>(&self, exec: F) -> A
     where
         F: FnOnce() -> A,
@@ -156,15 +157,20 @@ where
 }
 
 impl<'incin, T> Pause<'incin, T> {
-    /// Forces drop and decrements the incinerator counter. This method does not
-    /// need to be called because the incinerator counter is decremented when
-    /// the pause is dropped.
+    /// Forces drop and decrements the incinerator counter. If the counter
+    /// becomes 0, the list associated with this thread is cleared. This method
+    /// does not need to be called because the incinerator counter is
+    /// decremented when the pause is dropped.
     fn resume(self) {}
 }
 
 impl<'incin, T> Drop for Pause<'incin, T> {
     fn drop(&mut self) {
-        self.incin.counter.fetch_sub(1, Release);
+        if self.incin.counter.fetch_sub(1, AcqRel) == 1 {
+            // If the previous value was 1, this means now it is 0 and... we can
+            // delete our local list.
+            self.incin.tls_list.with(GarbageList::clear);
+        }
     }
 }
 
