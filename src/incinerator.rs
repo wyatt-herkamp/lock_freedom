@@ -83,9 +83,13 @@ impl<T> Incinerator<T> {
     pub fn pause(&self) -> Pause<T> {
         loop {
             let init = self.counter.load(Acquire);
+            // Sanity check.
             if init == usize::max_value() {
                 panic!("Too many pauses");
             }
+            // Simply try to increment it. This will be decremented at
+            // `Pause::drop`. Nobody will be able to drop stuff while this is
+            // not 0.
             if self.counter.compare_and_swap(init, init + 1, Release) == init {
                 break Pause { incin: self };
             }
@@ -108,11 +112,18 @@ impl<T> Incinerator<T> {
 
     /// Adds the given value to the garbage list. The value is only dropped when
     /// the counter is zero. If the counter is zero when the method is called,
-    /// the value is immediately dropped and the garbage list is cleared.
+    /// the value is immediately dropped and the garbage list is cleared. You
+    /// must remove the resource from shared context before calling this method.
     pub fn add(&self, val: T) {
         if self.counter.load(Acquire) == 0 {
+            // Safe to drop it all. Note that we check the counter after the
+            // resource was removed from shared context. Since we use Thread
+            // Local Storage, nobody can add something to the list meanwhile
+            // besides us.
             self.tls_list.with(GarbageList::clear);
+            drop(val);
         } else {
+            // Not safe to drop. We have to save the value in the garbage list.
             self.tls_list.with_init(GarbageList::new, |list| list.add(val));
         }
     }
@@ -122,6 +133,9 @@ impl<T> Incinerator<T> {
     /// `true` is returned.
     pub fn try_clear(&self) -> bool {
         if self.counter.load(Acquire) == 0 {
+            // It is only safe to drop if there are no active pauses. Remember
+            // nobody can add something to this specific list besides us because
+            // it is thread local.
             self.tls_list.with(GarbageList::clear);
             true
         } else {

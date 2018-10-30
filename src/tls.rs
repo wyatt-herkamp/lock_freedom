@@ -67,9 +67,12 @@ impl<T> ThreadLocal<T> {
     pub fn clear(&mut self) {
         let mut tables = Vec::new();
 
+        // Method clear means we are also resetting all node pointers to null.
         unsafe { self.top.clear(&mut tables) }
 
         while let Some(table) = tables.pop() {
+            // Method free_nodes means we are only freeing node pointers but not
+            // clearing them.
             unsafe { table.free_nodes(&mut tables) }
         }
     }
@@ -85,24 +88,37 @@ impl<T> ThreadLocal<T> {
             let mut shifted = id;
 
             loop {
+                // The index of the node for our id.
                 let index = shifted & (1 << BITS) - 1;
+
+                // Load what is in there.
                 let in_place = table.nodes[index].atomic.load(Acquire);
 
+                // Null means there is nothing.
                 if in_place.is_null() {
                     break None;
                 }
 
+                // Having in_place's lower bit set to 0 means it is a
+                // pointer to entry.
                 if in_place as usize & 1 == 0 {
                     let entry = unsafe { &*(in_place as *mut Entry<T>) };
                     break if entry.id == id {
+                        // We only have an entry for the thread if the ids
+                        // match.
                         Some(reader(&entry.val))
                     } else {
                         None
                     };
                 }
 
+                // The remaining case (non-null with lower bit set to 1) means
+                // we have a child table.
+                // Clear the pointer first lower bit so we can dereference it.
                 let table_ptr = (in_place as usize & !1) as *mut Table<T>;
+                // Set it as the table to be checked in the next iteration.
                 table = unsafe { &*table_ptr };
+                // Shift our "hash" for the next level.
                 shifted >>= BITS;
             }
         })
@@ -117,19 +133,30 @@ impl<T> ThreadLocal<T> {
     {
         with_thread_id(|id| {
             let mut table = &*self.top;
+            // The depth of the iterations.
             let mut depth = 1;
             let mut shifted = id;
+            // Using `LazyInit` to make sure we only initialize if there is no
+            // entry.
             let mut init = LazyInit::Pending(move || Entry { id, val: init() });
             let mut tbl_cache = Cache::<OwnedAlloc<Table<T>>>::new();
 
             loop {
+                // The index of the node for our id.
                 let index = shifted & (1 << BITS) - 1;
+                // First of all, let's check what is stored.
                 let in_place = table.nodes[index].atomic.load(Acquire);
 
                 if in_place.is_null() {
+                    // Null means we have an empty node and also our thread has
+                    // not stored anything. Let's initialize.
                     let nnptr = init.get();
+                    // First lower bit set to 0 means this is a pointer to
+                    // entry. This should be guaranteed by the alignment,
+                    // however, always good to ensure it.
                     debug_assert!(nnptr.as_ptr() as usize & 1 == 0);
 
+                    // Trying to publish our freshly created entry.
                     let res = table.nodes[index].atomic.compare_and_swap(
                         in_place,
                         nnptr.as_ptr() as *mut (),
@@ -137,46 +164,79 @@ impl<T> ThreadLocal<T> {
                     );
 
                     if res.is_null() {
+                        // If the stored value still was null, we succeeded.
+                        // Let's read the entry.
                         break reader(unsafe { &nnptr.as_ref().val });
                     }
                 } else if in_place as usize & 1 == 0 {
+                    // First lower bit set to 0 means we have an entry.
                     let entry = unsafe { &*(in_place as *mut Entry<T>) };
+                    // If ids match, this is the entry for our thread.
                     if entry.id == id {
+                        // There is no possible way we have initialized the
+                        // `LazyInit`. It will only happen if we found an empty
+                        // node while searching, and the only way of putting a
+                        // non-empty node is either we put it or some other
+                        // thread (with different id obviously) put it.
                         debug_assert!(init.is_pending());
+                        // And let's read it...
                         break reader(&entry.val);
                     }
 
+                    // Get a table allocation from the cache.
                     let new_tbl = tbl_cache.take_or(Table::new_alloc);
 
+                    // Calculate index for the collided entry.
                     let other_shifted = entry.id >> depth * BITS;
                     let other_index = other_shifted & (1 << BITS) - 1;
 
+                    // Pre-insert it in the table from the cache.
                     new_tbl.nodes[other_index].atomic.store(in_place, Relaxed);
 
+                    // Forget about the owned allocation and turn it into a
+                    // pointer.
                     let new_tbl_ptr = new_tbl.into_raw();
 
+                    // Let's try to publish our work.
                     let res = table.nodes[index].atomic.compare_and_swap(
                         in_place,
+                        // First lower bit set to 1 means it is a table
+                        // pointer.
                         (new_tbl_ptr.as_ptr() as usize | 1) as *mut (),
                         Release,
                     );
 
                     if res == in_place {
+                        // If the old node was still stored, we succeeded.
+                        // Let's set the new table as the table for the next
+                        // iteration.
                         table = unsafe { &*new_tbl_ptr.as_ptr() };
+                        // We are going one depth further.
                         depth += 1;
+                        // Shift our "hash" for the next level.
                         shifted >>= BITS;
                     } else {
+                        // If we failed, let's rebuild the owned allocation.
                         let new_tbl =
                             unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
+                        // Clear that pre-inserted node.
                         new_tbl.nodes[other_index]
                             .atomic
                             .store(null_mut(), Relaxed);
+
+                        // Store it into the cache for later.
                         tbl_cache.store(new_tbl);
                     }
                 } else {
+                    // The remaining case (non-null with first lower bit set to
+                    // 1) is a table. Clear the pointer first lower bit so we
+                    // can dereference it.
                     let table_ptr = (in_place as usize & !1) as *mut Table<T>;
+                    // Set it as table for the next iteration.
                     table = unsafe { &*table_ptr };
+                    // We are going one depth further.
                     depth += 1;
+                    // Shift our "hash" for the next level.
                     shifted >>= BITS;
                 }
             }
@@ -198,6 +258,9 @@ impl<T> Drop for ThreadLocal<T> {
     fn drop(&mut self) {
         let mut tables = Vec::new();
 
+        // Method free_nodes means we are only freeing node pointers but not
+        // clearing them (no need to clear since nobody will ever use them
+        // again, we are dropping the TLS).
         unsafe { self.top.free_nodes(&mut tables) }
 
         while let Some(table) = tables.pop() {
