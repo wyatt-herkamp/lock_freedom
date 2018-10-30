@@ -2,6 +2,8 @@ use super::tls::ThreadLocal;
 use std::{
     cell::Cell,
     fmt,
+    mem::replace,
+    ptr::null,
     sync::{
         atomic::{AtomicUsize, Ordering::*},
         Arc,

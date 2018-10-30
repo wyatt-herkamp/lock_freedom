@@ -1,4 +1,4 @@
-//#![warn(missing_docs)]
+#![warn(missing_docs)]
 //! A crate providing lock-free data structures and a solution for the "ABA
 //! problem" related to pointers.
 //!
