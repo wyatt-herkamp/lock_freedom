@@ -5,8 +5,6 @@ use std::{
 };
 use tls::ThreadLocal;
 
-pub use compat::incinerator::*;
-
 /// The incinerator. It is an API used to solve the infamous ABA problem. It
 /// basically consists of a counter and a list of garbage. Before a thread
 /// begins a suffering-from-ABA operation, it should start a new pause, and keep
@@ -142,6 +140,12 @@ impl<T> Incinerator<T> {
         } else {
             false
         }
+    }
+
+    /// Clears everything that is in the inicinerator regardless of pauses.
+    /// Exclusive reference is required.
+    pub fn clear(&mut self) {
+        self.tls_list.clear();
     }
 }
 

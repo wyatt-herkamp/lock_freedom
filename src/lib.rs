@@ -28,16 +28,13 @@
 
 extern crate owned_alloc;
 
-#[allow(dead_code)]
-mod alloc;
-
 /// Provides convenient re-exports.
 pub mod prelude;
 
 /// Incinerator API. The purpouse of this module is to solve the "ABA problem"
 /// related to pointers while still being lock-free. See documentation of the
 /// inner type for more details.
-pub mod incinerator;
+pub mod incin;
 
 /// Lock-free per-object Thread Local Storage (TLS).
 pub mod tls;
@@ -54,11 +51,10 @@ pub mod stack;
 /// A lock-free map.
 pub mod map;
 
+/*
 /// A lock-free set.
 pub mod set;
+*/
 
 /// Provides a doubly atomic reference counter.
 pub mod darc;
-
-#[allow(dead_code)]
-mod compat;

@@ -1,4 +1,4 @@
-use incinerator::Incinerator;
+use incin::Incinerator;
 use owned_alloc::{OwnedAlloc, UninitAlloc};
 use std::{
     fmt,

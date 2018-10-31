@@ -1,4 +1,4 @@
-use incinerator::Incinerator;
+use incin::Incinerator;
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 pub use std::sync::atomic::Ordering;
 use std::{
@@ -332,20 +332,16 @@ where
                         fail,
                     ) {
                         Ok(res_ptr) => {
-                            break (
-                                Ok(loaded),
-                                Some(unsafe {
-                                    NonNull::new_unchecked(res_ptr)
-                                }),
-                            )
+                            let to_drop = Some(unsafe {
+                                NonNull::new_unchecked(res_ptr)
+                            });
+                            break (Ok(loaded), to_drop);
                         },
 
                         Err(res_ptr) => loaded_ptr = res_ptr,
                     }
                 } else {
-                    unsafe {
-                        OwnedAlloc::from_raw(new_nnptr);
-                    }
+                    unsafe { OwnedAlloc::from_raw(new_nnptr) };
 
                     break (Err(loaded), None);
                 }
@@ -353,7 +349,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -390,23 +386,18 @@ where
                     ),
 
                     Err(_) => {
-                        unsafe {
-                            OwnedAlloc::from_raw(new_nnptr);
-                        }
+                        unsafe { OwnedAlloc::from_raw(new_nnptr) };
                         (Err(loaded), None)
                     },
                 }
             } else {
-                unsafe {
-                    OwnedAlloc::from_raw(new_nnptr);
-                }
-
+                unsafe { OwnedAlloc::from_raw(new_nnptr) };
                 (Err(loaded), None)
             }
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -439,10 +430,10 @@ where
                         cas_ord,
                     );
                     if res_ptr == loaded_ptr {
-                        break (
-                            Ok(loaded),
-                            Some(unsafe { NonNull::new_unchecked(res_ptr) }),
-                        );
+                        let to_drop =
+                            Some(unsafe { NonNull::new_unchecked(res_ptr) });
+
+                        break (Ok(loaded), to_drop);
                     } else {
                         new_cache
                             .store(unsafe { UninitAlloc::from_raw(new_nnptr) });
@@ -613,9 +604,7 @@ where
                     }
                 } else {
                     if let Some(nnptr) = NonNull::new(new_ptr) {
-                        unsafe {
-                            OwnedAlloc::from_raw(nnptr);
-                        }
+                        unsafe { OwnedAlloc::from_raw(nnptr) };
                     }
 
                     break (Err(loaded), None);
@@ -624,7 +613,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -657,18 +646,14 @@ where
 
                     Err(_) => {
                         if let Some(nnptr) = NonNull::new(new_ptr) {
-                            unsafe {
-                                OwnedAlloc::from_raw(nnptr);
-                            }
+                            unsafe { OwnedAlloc::from_raw(nnptr) };
                         }
                         (Err(loaded), None)
                     },
                 }
             } else {
                 if let Some(nnptr) = NonNull::new(new_ptr) {
-                    unsafe {
-                        OwnedAlloc::from_raw(nnptr);
-                    }
+                    unsafe { OwnedAlloc::from_raw(nnptr) };
                 }
 
                 (Err(loaded), None)
@@ -676,7 +661,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -729,7 +714,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) })
+            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -739,9 +724,7 @@ where
 impl<T> Drop for AtomicOptionBox<T> {
     fn drop(&mut self) {
         if let Some(nnptr) = NonNull::new(self.ptr.load(Relaxed)) {
-            unsafe {
-                OwnedAlloc::from_raw(nnptr);
-            }
+            unsafe { OwnedAlloc::from_raw(nnptr) };
         }
     }
 }

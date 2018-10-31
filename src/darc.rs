@@ -1,4 +1,4 @@
-use incinerator::Incinerator;
+use incin::Incinerator;
 use std::sync::{
     atomic::{AtomicPtr, Ordering::*},
     Arc,

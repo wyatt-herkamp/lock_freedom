@@ -1,130 +1,73 @@
-use super::bucket::Pair;
-use alloc::*;
-use incinerator;
+use super::bucket::Garbage;
+use incin::Incinerator;
+use owned_alloc::OwnedAlloc;
 use std::{
-    cmp::Ordering,
-    fmt,
-    hash::{Hash, Hasher},
+    mem::forget,
+    ops::Deref,
     ptr::NonNull,
+    sync::{Arc, Weak},
 };
 
-/// A removed entry. Although the entry allows the user to immutable access key
-/// and value, it does not allow moving them. This is because it cannot be
-/// dropped by the user. Imagine that a thread would remove and drop (by user
-/// defined code) the entry after another thread began would be reading, but,
-/// in the moment of the drop, still reading. This would cause use-after-free.
-#[derive(Eq)]
 pub struct Removed<K, V> {
-    pair: NonNull<Pair<K, V>>,
+    nnptr: NonNull<(K, V)>,
+    origin: Weak<Incinerator<Garbage<K, V>>>,
 }
 
 impl<K, V> Removed<K, V> {
-    pub(crate) unsafe fn new(pair: NonNull<Pair<K, V>>) -> Self {
-        Self { pair }
+    pub(super) fn new(
+        alloc: OwnedAlloc<(K, V)>,
+        origin: &Arc<Incinerator<Garbage<K, V>>>,
+    ) -> Self {
+        Self { nnptr: alloc.into_raw(), origin: Arc::downgrade(origin) }
     }
 
-    pub(crate) fn ptr(&self) -> NonNull<Pair<K, V>> {
-        self.pair
+    pub(super) fn into_alloc(this: Self) -> OwnedAlloc<(K, V)> {
+        let alloc = unsafe { OwnedAlloc::from_raw(this.nnptr) };
+        forget(this);
+        alloc
     }
 
-    /// The key of this removed entry.
     pub fn key(&self) -> &K {
-        &unsafe { self.pair.as_ref() }.key
+        let (k, _) = &**self;
+        k
     }
 
-    /// The value of this removed entry.
     pub fn val(&self) -> &V {
-        &unsafe { self.pair.as_ref() }.val
+        let (_, v) = &**self;
+        v
+    }
+
+    pub fn try_as_mut(this: &mut Self) -> Option<&mut (K, V)> {
+        if this.origin.upgrade().is_none() {
+            Some(unsafe { this.nnptr.as_mut() })
+        } else {
+            None
+        }
+    }
+
+    pub fn try_into(this: Self) -> Result<(K, V), Self> {
+        if this.origin.upgrade().is_none() {
+            let (ret, _) =
+                unsafe { OwnedAlloc::from_raw(this.nnptr) }.move_inner();
+            forget(this);
+            Ok(ret)
+        } else {
+            Err(this)
+        }
     }
 }
 
 impl<K, V> Drop for Removed<K, V> {
     fn drop(&mut self) {
-        unsafe { incinerator::add(self.pair, dealloc) }
+        let alloc = unsafe { OwnedAlloc::from_raw(self.nnptr) };
+        self.origin.upgrade().map(|incin| incin.add(Garbage::Pair(alloc)));
     }
 }
 
-impl<K, V> fmt::Debug for Removed<K, V>
-where
-    K: fmt::Debug,
-    V: fmt::Debug,
-{
-    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmtr,
-            "Removed {} key = {:?}, val = {:?} {}",
-            '{',
-            self.key(),
-            self.val(),
-            '}'
-        )
-    }
-}
+impl<K, V> Deref for Removed<K, V> {
+    type Target = (K, V);
 
-impl<K, V, Q, U> PartialEq<Removed<Q, U>> for Removed<K, V>
-where
-    K: PartialEq<Q>,
-    V: PartialEq<U>,
-{
-    fn eq(&self, other: &Removed<Q, U>) -> bool {
-        self.key() == other.key() && self.val() == other.val()
-    }
-}
-
-impl<K, V, Q, U> PartialEq<(Q, U)> for Removed<K, V>
-where
-    K: PartialEq<Q>,
-    V: PartialEq<U>,
-{
-    fn eq(&self, (key, val): &(Q, U)) -> bool {
-        self.key() == key && self.val() == val
-    }
-}
-
-impl<K, V, Q, U> PartialOrd<Removed<Q, U>> for Removed<K, V>
-where
-    K: PartialOrd<Q>,
-    V: PartialOrd<U>,
-{
-    fn partial_cmp(&self, other: &Removed<Q, U>) -> Option<Ordering> {
-        self.key().partial_cmp(other.key()).and_then(|ord_a| {
-            self.val().partial_cmp(other.val()).map(|ord_b| ord_a.then(ord_b))
-        })
-    }
-}
-
-impl<K, V, Q, U> PartialOrd<(Q, U)> for Removed<K, V>
-where
-    K: PartialOrd<Q>,
-    V: PartialOrd<U>,
-{
-    fn partial_cmp(&self, (key, val): &(Q, U)) -> Option<Ordering> {
-        self.key().partial_cmp(key).and_then(|ord_a| {
-            self.val().partial_cmp(val).map(|ord_b| ord_a.then(ord_b))
-        })
-    }
-}
-
-impl<K, V> Ord for Removed<K, V>
-where
-    K: Ord,
-    V: Ord,
-{
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.key().cmp(other.key()).then_with(|| self.val().cmp(other.val()))
-    }
-}
-
-impl<K, V> Hash for Removed<K, V>
-where
-    K: Hash,
-    V: Hash,
-{
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        self.key().hash(state);
-        self.val().hash(state);
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.nnptr.as_ref() }
     }
 }
