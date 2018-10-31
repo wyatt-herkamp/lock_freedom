@@ -1,12 +1,14 @@
 use incin::Incinerator;
-use std::sync::{
-    atomic::{AtomicPtr, Ordering::*},
-    Arc,
+use std::{
+    fmt,
+    sync::{
+        atomic::{AtomicPtr, Ordering::*},
+        Arc,
+    },
 };
 
 /// Darc: Doubly atomic reference counter. `Darc` is an atomic pointer which
 /// stores `Arc`s.
-#[derive(Debug)]
 pub struct Darc<T> {
     ptr: AtomicPtr<T>,
     incin: Arc<Incinerator<Arc<T>>>,
@@ -221,6 +223,22 @@ where
 {
     fn default() -> Self {
         Self::new(Arc::default())
+    }
+}
+
+impl<T> fmt::Debug for Darc<T>
+where
+    T: fmt::Debug,
+{
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmtr,
+            "Darc {} ptr: {:?}, incin: {:?} {}",
+            '{',
+            self.load(),
+            self.incin,
+            '}'
+        )
     }
 }
 

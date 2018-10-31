@@ -4,19 +4,25 @@ mod table;
 mod bucket;
 mod insertion;
 mod removed;
+mod guard;
 
-pub use self::removed::Removed;
+pub use self::{
+    guard::ReadGuard,
+    insertion::{Insertion, Preview},
+    removed::Removed,
+};
 pub use std::collections::hash_map::RandomState;
 
 use self::{
     bucket::{Elem, Garbage},
-    insertion::{Insertion, Preview},
     table::Table,
 };
 use atomic::AtomicBoxIncin;
 use incin::Incinerator;
 use owned_alloc::OwnedAlloc;
 use std::{
+    borrow::Borrow,
+    fmt,
     hash::{BuildHasher, Hash, Hasher},
     sync::Arc,
 };
@@ -47,6 +53,19 @@ where
         }
     }
 
+    pub fn get<'origin, Q>(
+        &'origin self,
+        key: &Q,
+    ) -> Option<ReadGuard<'origin, K, V>>
+    where
+        Q: ?Sized + Hash + Eq,
+        K: Borrow<Q>,
+    {
+        let pause = self.incin.pause();
+        let result = unsafe { self.top.get(key, self.hash_of(key)) };
+        result.map(|pair| ReadGuard { pair, pause })
+    }
+
     fn hash_of<Q>(&self, key: &Q) -> u64
     where
         Q: ?Sized + Hash,
@@ -63,5 +82,19 @@ where
 {
     fn default() -> Self {
         Self::with_hasher(H::default())
+    }
+}
+
+impl<K, V, H> fmt::Debug for Map<K, V, H>
+where
+    H: fmt::Debug,
+{
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmtr,
+            "Map {} top_table: {:?}, incin: {:?}, box_incin: {:?}, \
+             build_hasher: {:?}  {}",
+            '{', self.top, self.incin, self.box_incin, self.builder, '}'
+        )
     }
 }

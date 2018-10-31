@@ -184,7 +184,11 @@ impl<'a, T> IntoIterator for &'a Queue<T> {
 
 impl<T> fmt::Debug for Queue<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("Queue")
+        write!(
+            fmtr,
+            "Queue {} front: {:?}, back: {:?} {}",
+            '{', self.front, self.back, '}'
+        )
     }
 }
 

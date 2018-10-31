@@ -465,7 +465,7 @@ impl<T> Drop for AtomicBox<T> {
 
 impl<T> fmt::Debug for AtomicBox<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("AtomicBox")
+        write!(fmtr, "AtomicBox {} ptr: {:?} {}", '{', self.ptr, '}')
     }
 }
 
@@ -731,7 +731,7 @@ impl<T> Drop for AtomicOptionBox<T> {
 
 impl<T> fmt::Debug for AtomicOptionBox<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("AtomicOptionBox")
+        write!(fmtr, "AtomicOptionBox {} ptr: {:?} {}", '{', self.ptr, '}')
     }
 }
 

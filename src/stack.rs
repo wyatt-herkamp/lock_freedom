@@ -133,7 +133,7 @@ impl<'a, T> IntoIterator for &'a Stack<T> {
 
 impl<T> fmt::Debug for Stack<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("Stack")
+        write!(fmtr, "Stack {} top: {:?} {}", '{', self.top, '}')
     }
 }
 
