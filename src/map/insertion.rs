@@ -3,7 +3,7 @@ use owned_alloc::{OwnedAlloc, UninitAlloc};
 use std::{mem::forget, ptr::NonNull};
 
 /// The result of an _interactive_ insertion.
-// #[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Insertion<K, V, E> {
     /// If this is returned, an entry for the given key was successfully
     /// created with the provided value i.e. there was no entry before.
@@ -64,7 +64,7 @@ impl<K, V, E> Insertion<K, V, E> {
 }
 
 /// A preview of the value in an _interactive_ insertion.
-// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preview<V> {
     /// Discard the current generated value. If there is no currently
     /// generated value, the closure returning this is not generating anyone

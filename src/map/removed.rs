@@ -2,6 +2,7 @@ use super::bucket::Garbage;
 use incin::Incinerator;
 use owned_alloc::OwnedAlloc;
 use std::{
+    fmt,
     mem::forget,
     ops::Deref,
     ptr::NonNull,
@@ -75,3 +76,32 @@ impl<K, V> Deref for Removed<K, V> {
         unsafe { self.nnptr.as_ref() }
     }
 }
+
+impl<K, V> fmt::Debug for Removed<K, V>
+where
+    (K, V): fmt::Debug,
+{
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "{:?}", **self)
+    }
+}
+
+impl<K, V> PartialEq for Removed<K, V>
+where
+    (K, V): PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl<K, V> PartialEq<(K, V)> for Removed<K, V>
+where
+    (K, V): PartialEq,
+{
+    fn eq(&self, other: &(K, V)) -> bool {
+        **self == *other
+    }
+}
+
+impl<K, V> Eq for Removed<K, V> where (K, V): Eq {}
