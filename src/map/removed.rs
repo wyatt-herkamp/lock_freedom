@@ -27,6 +27,10 @@ impl<K, V> Removed<K, V> {
         alloc
     }
 
+    pub(super) fn raw(this: &Self) -> NonNull<(K, V)> {
+        this.nnptr
+    }
+
     pub fn key(&self) -> &K {
         let (k, _) = &**self;
         k
