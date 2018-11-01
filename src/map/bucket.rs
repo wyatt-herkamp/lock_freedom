@@ -321,6 +321,22 @@ impl<K, V> Bucket<K, V> {
     }
 }
 
+impl<K, V> Drop for Bucket<K, V> {
+    fn drop(&mut self) {
+        let mut top = self.list.atomic.load(Relaxed);
+
+        while let Some(list) = top.next {
+            top = unsafe { list.as_ref() }.atomic.load(Relaxed);
+
+            if let Some(pair) = top.pair {
+                unsafe { OwnedAlloc::from_raw(pair) };
+            }
+
+            unsafe { OwnedAlloc::from_raw(list) };
+        }
+    }
+}
+
 pub enum Garbage<K, V> {
     Pair(OwnedAlloc<(K, V)>),
     List(OwnedAlloc<List<K, V>>),

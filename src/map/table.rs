@@ -252,12 +252,52 @@ impl<K, V> Table<K, V> {
             shifted >>= BITS;
         }
     }
+
+    #[inline]
+    pub unsafe fn free_nodes(
+        &self,
+        tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>,
+    ) {
+        for node in &self.nodes as &[Node<K, V>] {
+            Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
+        }
+    }
+
+    #[inline]
+    pub unsafe fn clear(&self, tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>) {
+        for node in &self.nodes as &[Node<K, V>] {
+            Node::free_ptr(node.atomic.swap(null_mut(), Relaxed), tbl_stack);
+        }
+    }
 }
 
 struct Node<K, V> {
     // First lower bit is 0 for leaf and 1 for branch
     atomic: AtomicPtr<()>,
     _marker: PhantomData<(K, V)>,
+}
+
+impl<K, V> Node<K, V> {
+    unsafe fn free_ptr(
+        ptr: *mut (),
+        tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>,
+    ) {
+        if ptr.is_null() {
+            return;
+        }
+
+        if ptr as usize & 1 == 0 {
+            OwnedAlloc::from_raw(NonNull::new_unchecked(
+                ptr as *mut Bucket<K, V>,
+            ));
+        } else {
+            let table_ptr = (ptr as usize & !1) as *mut Table<K, V>;
+
+            debug_assert!(!table_ptr.is_null());
+            tbl_stack
+                .push(OwnedAlloc::from_raw(NonNull::new_unchecked(table_ptr)));
+        }
+    }
 }
 
 impl<K, V> Node<K, V> {

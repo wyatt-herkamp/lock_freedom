@@ -146,3 +146,15 @@ where
         )
     }
 }
+
+impl<K, V, H> Drop for Map<K, V, H> {
+    fn drop(&mut self) {
+        let mut tables = Vec::new();
+
+        unsafe { self.top.free_nodes(&mut tables) }
+
+        while let Some(table) = tables.pop() {
+            unsafe { table.free_nodes(&mut tables) }
+        }
+    }
+}
