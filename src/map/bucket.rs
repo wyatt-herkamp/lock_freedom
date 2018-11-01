@@ -1,4 +1,4 @@
-use super::{insertion::Inserter, Removed};
+use super::{guard::Removed, insertion::Inserter};
 use atomic::{Atomic, AtomicBox, AtomicBoxIncin};
 use incin::Incinerator;
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
@@ -207,6 +207,63 @@ impl<K, V> Bucket<K, V> {
                 FindRes::After { .. } => {
                     break RemoveRes { pair: None, delete: false }
                 },
+            }
+        }
+    }
+
+    pub unsafe fn collect<'origin, F, T>(
+        &'origin self,
+        incin: &Incinerator<Garbage<K, V>>,
+        out: &mut Vec<T>,
+        mut map: F,
+    ) where
+        F: FnMut(&'origin (K, V)) -> T,
+    {
+        let trunc = out.len();
+
+        'retry: loop {
+            out.truncate(trunc);
+            let mut prev_list = &self.list;
+            let mut prev = prev_list.atomic.load(Acquire);
+
+            if prev.is_empty() {
+                break;
+            }
+
+            loop {
+                let (curr_list, curr_ptr) = match prev.next {
+                    Some(curr) => (&*curr.as_ptr(), curr),
+                    None => break,
+                };
+
+                let curr = curr_list.atomic.load(Acquire);
+
+                let curr_pair = match curr.pair {
+                    Some(nnptr) => nnptr,
+
+                    None => {
+                        let new = Entry { pair: prev.pair, next: curr.next };
+                        let res = prev_list
+                            .atomic
+                            .compare_and_swap(prev, new, Release);
+                        if res != prev {
+                            continue 'retry;
+                        }
+
+                        let alloc = OwnedAlloc::from_raw(curr_ptr);
+                        incin.add(Garbage::List(alloc));
+
+                        if new.is_empty() {
+                            break;
+                        }
+
+                        continue;
+                    },
+                };
+
+                out.push(map(&*curr_pair.as_ptr()));
+                prev_list = curr_list;
+                prev = curr;
             }
         }
     }

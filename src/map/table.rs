@@ -1,13 +1,14 @@
 use super::{
     bucket::{Bucket, Entry, Garbage, GetRes, InsertRes, RemoveRes},
+    guard::Removed,
     insertion::{Inserter, Insertion},
-    removed::Removed,
 };
 use atomic::AtomicBoxIncin;
 use incin::Incinerator;
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
     borrow::Borrow,
+    fmt,
     marker::PhantomData,
     ptr::{null_mut, NonNull},
     sync::{
@@ -328,6 +329,20 @@ impl<K, V> Table<K, V> {
             _ => OptSpaceRes::NoOpt,
         }
     }
+
+    pub fn load_index(&self, index: usize) -> Option<*mut ()> {
+        self.nodes.get(index).map(|node| node.atomic.load(Acquire))
+    }
+}
+
+impl<K, V> fmt::Debug for Table<K, V> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmtr,
+            "Table {} nodes: {:?} {}",
+            '{', &self.nodes as &[Node<K, V>], '}'
+        )
+    }
 }
 
 struct Node<K, V> {
@@ -362,6 +377,12 @@ impl<K, V> Node<K, V> {
 impl<K, V> Node<K, V> {
     fn new() -> Self {
         Self { atomic: AtomicPtr::new(null_mut()), _marker: PhantomData }
+    }
+}
+
+impl<K, V> fmt::Debug for Node<K, V> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "Node {} pointer: {:?} {}", '{', self.atomic, '}')
     }
 }
 

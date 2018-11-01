@@ -3,13 +3,13 @@
 mod table;
 mod bucket;
 mod insertion;
-mod removed;
 mod guard;
+mod iter;
 
 pub use self::{
-    guard::ReadGuard,
+    guard::{ReadGuard, Removed},
     insertion::{Insertion, Preview},
-    removed::Removed,
+    iter::Iter,
 };
 pub use std::collections::hash_map::RandomState;
 
@@ -257,5 +257,15 @@ impl<K, V, H> Drop for Map<K, V, H> {
         while let Some(mut table) = tables.pop() {
             table.free_nodes(&mut tables);
         }
+    }
+}
+
+impl<'origin, K, V, H> IntoIterator for &'origin Map<K, V, H> {
+    type Item = ReadGuard<'origin, K, V>;
+
+    type IntoIter = Iter<'origin, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter::new(self.incin.pause(), &self.top)
     }
 }

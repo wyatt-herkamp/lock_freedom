@@ -149,6 +149,12 @@ impl<T> Incinerator<T> {
     }
 }
 
+impl<T> Default for Incinerator<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// An active incinerator pause. When a value of this type is alive, no
 /// sensitive data is dropped in the incinerator. When a value of this type is
 /// dropped, the incinerator counter is decremented.
@@ -161,11 +167,16 @@ where
 }
 
 impl<'incin, T> Pause<'incin, T> {
+    /// Returns the incinerator on which this pause acts.
+    pub fn incin(&self) -> &Incinerator<T> {
+        self.incin
+    }
+
     /// Forces drop and decrements the incinerator counter. If the counter
     /// becomes 0, the list associated with this thread is cleared. This method
     /// does not need to be called because the incinerator counter is
     /// decremented when the pause is dropped.
-    fn resume(self) {}
+    pub fn resume(self) {}
 }
 
 impl<'incin, T> Drop for Pause<'incin, T> {
@@ -178,9 +189,9 @@ impl<'incin, T> Drop for Pause<'incin, T> {
     }
 }
 
-impl<T> Default for Incinerator<T> {
-    fn default() -> Self {
-        Self::new()
+impl<'incin, T> Clone for Pause<'incin, T> {
+    fn clone(&self) -> Self {
+        self.incin.pause()
     }
 }
 
