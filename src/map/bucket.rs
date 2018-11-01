@@ -157,7 +157,8 @@ impl<K, V> Bucket<K, V> {
                         .atomic
                         .compare_and_swap(prev, new_prev, Release);
 
-                    if res == new_prev {
+                    if res == prev {
+                        inserter.take_pointer();
                         break InsertRes::Created;
                     }
 

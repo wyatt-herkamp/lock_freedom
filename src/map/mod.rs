@@ -68,7 +68,7 @@ where
         result.map(|pair| ReadGuard::new(pair, pause))
     }
 
-    pub fn insert<F>(&self, key: K, val: V) -> Option<Removed<K, V>>
+    pub fn insert(&self, key: K, val: V) -> Option<Removed<K, V>>
     where
         K: Hash + Ord,
     {
@@ -268,4 +268,257 @@ impl<'origin, K, V, H> IntoIterator for &'origin Map<K, V, H> {
     fn into_iter(self) -> Self::IntoIter {
         Iter::new(self.incin.pause(), &self.top)
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::{collections::HashMap, sync::Arc, thread};
+
+    #[test]
+    fn inserts_and_gets() {
+        let map = Map::new();
+        assert!(map.get("five").is_none());
+        assert!(map.insert("five".to_owned(), 5).is_none());
+        assert_eq!(*map.get("five").unwrap().val(), 5);
+        assert!(map.get("four").is_none());
+        assert!(map.insert("four".to_owned(), 4).is_none());
+        assert_eq!(*map.get("five").unwrap().val(), 5);
+        assert_eq!(*map.get("four").unwrap().val(), 4);
+        let guard = map.get("four").unwrap();
+        assert_eq!(guard.key(), "four");
+        assert_eq!(*guard.val(), 4);
+    }
+
+    /*
+    #[test]
+    fn create() {
+        let map = Map::new();
+        assert!(map
+            .insert_with(
+                "five".to_owned(),
+                |_, _, stored| if stored.is_none() {
+                    Preview::New(5)
+                } else {
+                    Preview::Discard
+                }
+            )
+            .created());
+        assert_eq!(map.get("five", |x| *x), Some(5));
+        assert!(map
+            .insert_with(
+                "five".to_owned(),
+                |_, _, stored| if stored.is_none() {
+                    Preview::New(500)
+                } else {
+                    Preview::Discard
+                }
+            )
+            .failed()
+            .is_some());
+    }
+
+    #[test]
+    fn update() {
+        let map = Map::new();
+        assert!(map
+            .insert_with("five".to_owned(), |_, _, stored| {
+                if let Some((_, n)) = stored {
+                    Preview::New(*n + 6)
+                } else {
+                    Preview::Discard
+                }
+            })
+            .failed()
+            .is_some());
+        assert!(map.insert("five".to_owned(), 5).is_none());
+        assert_eq!(
+            map.insert_with("five".to_owned(), |_, _, stored| {
+                if let Some((_, n)) = stored {
+                    Preview::New(*n + 7)
+                } else {
+                    Preview::Discard
+                }
+            })
+            .take_updated()
+            .unwrap(),
+            ("five", 5)
+        );
+        assert_eq!(map.get("five", |x| *x), Some(12));
+    }
+
+    #[test]
+    fn never_inserts() {
+        let map = Map::new();
+        assert!(map
+            .insert_with("five".to_owned(), |_, _, _| Preview::Discard)
+            .failed()
+            .is_some());
+        assert!(map.insert("five".to_owned(), 5).is_none());
+        assert!(map
+            .insert_with("five".to_owned(), |_, _, _| Preview::Discard)
+            .failed()
+            .is_some());
+    }
+
+    #[test]
+    fn inserts_reinserts() {
+        let map = Map::new();
+        assert!(map.insert("four".to_owned(), 4).is_none());
+        let prev = map.insert("four".to_owned(), 40).unwrap();
+        assert_eq!(prev, ("four", 4));
+        assert_eq!(map.reinsert(prev).unwrap(), ("four", 40));
+        assert!(map.get("four", |&x| x == 4).unwrap());
+    }
+
+    #[test]
+    fn never_reinserts() {
+        let map = Map::new();
+        map.insert("five".to_owned(), 5);
+        let prev = map.remove("five").unwrap();
+        let prev = map.reinsert_with(prev, |_, _| false).take_failed().unwrap();
+        assert!(map.insert("five".to_owned(), 5).is_none());
+        map.reinsert_with(prev, |_, _| false).take_failed().unwrap();
+    }
+
+    #[test]
+    fn reinserts_create() {
+        let map = Map::new();
+        map.insert("five".to_owned(), 5);
+        let first = map.remove("five").unwrap();
+        map.insert("five".to_owned(), 5);
+        let second = map.remove("five").unwrap();
+        assert!(map
+            .reinsert_with(first, |_, stored| stored.is_none())
+            .created());
+        assert_eq!(map.get("five", |x| *x), Some(5));
+        assert!(map
+            .reinsert_with(second, |_, stored| stored.is_none())
+            .failed()
+            .is_some());
+    }
+
+    #[test]
+    fn reinserts_update() {
+        let map = Map::new();
+        map.insert("five".to_owned(), 5);
+        let prev = map.remove("five").unwrap();
+        let prev = map
+            .reinsert_with(prev, |_, stored| stored.is_some())
+            .take_failed()
+            .unwrap();
+        map.insert("five".to_owned(), 5);
+        assert!(map
+            .reinsert_with(prev, |_, stored| stored.is_some())
+            .updated()
+            .is_some());
+    }
+
+    #[test]
+    fn inserts_and_removes() {
+        let map = Map::new();
+        assert!(map.remove("five").is_none());
+        assert!(map.remove("four").is_none());
+        map.insert("five".to_owned(), 5);
+        let removed = map.remove("five").unwrap();
+        assert_eq!(removed, ("five", 5));
+        assert!(map.insert("four".to_owned(), 4).is_none());
+        map.insert("three".to_owned(), 3);
+        assert!(map.remove("two").is_none());
+        map.insert("two".to_owned(), 2);
+        let removed = map.remove("three").unwrap();
+        assert_eq!(removed, ("three", 3));
+        let removed = map.remove("two").unwrap();
+        assert_eq!(removed, ("two", 2));
+        let removed = map.remove("four").unwrap();
+        assert_eq!(removed, ("four", 4));
+    }
+
+    #[test]
+    fn repeated_inserts() {
+        let map = Map::new();
+        assert!(map.insert("five".to_owned(), 5).is_none());
+        assert!(*map.insert("five".to_owned(), 5).unwrap().val() == 5);
+    }
+
+    #[test]
+    fn iter_valid_items() {
+        let map = Map::new();
+        for i in 0 .. 10u128 {
+            for j in 0 .. 32 {
+                map.insert((i, j), i << j);
+            }
+        }
+
+        let mut result = HashMap::new();
+        for (k, v) in map.iter(|&k, &v| (k, v)) {
+            let in_place = result.get(&(k, v)).map_or(0, |&x| x);
+            result.insert((k, v), in_place + 1);
+        }
+
+        for i in 0 .. 10 {
+            for j in 0 .. 32 {
+                let pair = ((i, j), i << j);
+                assert_eq!(*result.get(&pair).unwrap(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn remove_unneeded_preserves_needed() {
+        let mut map = Map::new();
+        for i in 0 .. 200u128 {
+            for j in 0 .. 128 {
+                map.insert((i, j), i << j);
+            }
+        }
+
+        for i in 0 .. 200 {
+            for j in 0 .. 16 {
+                map.remove(&(i, j));
+            }
+        }
+
+        map.remove_unneeded_tables();
+
+        let mut result = HashMap::new();
+        for (k, v) in map.iter(|&k, &v| (k, v)) {
+            let in_place = result.get(&(k, v)).map_or(0, |&x| x);
+            result.insert((k, v), in_place + 1);
+        }
+
+        for i in 0 .. 200 {
+            for j in 16 .. 128 {
+                let pair = ((i, j), i << j);
+                assert_eq!(*result.get(&pair).unwrap(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn multithreaded() {
+        let map = Arc::new(Map::new());
+        let mut threads = Vec::new();
+        for i in 1i64 ..= 20 {
+            let map = map.clone();
+            threads.push(thread::spawn(move || {
+                let prev = map
+                    .get(&format!("prefix{}suffix", i - 1), |x| *x)
+                    .unwrap_or(0);
+                map.insert(format!("prefix{}suffix", i), prev + i);
+                map.insert_with(
+                    format!("prefix{}suffix", i + 1),
+                    |_, stored, _| Preview::New(stored.map_or(0, |&x| x + i)),
+                );
+            }));
+        }
+        for thread in threads {
+            thread.join().expect("thread failed");
+        }
+        for i in 1i64 ..= 20 {
+            assert!(map
+                .get(&format!("prefix{}suffix", i), |x| *x > 0)
+                .unwrap());
+        }
+    }*/
 }

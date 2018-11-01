@@ -94,6 +94,7 @@ impl<K, V> Table<K, V> {
         }
     }
 
+    #[inline(never)]
     pub unsafe fn insert<I>(
         &self,
         mut inserter: I,
@@ -132,6 +133,7 @@ impl<K, V> Table<K, V> {
                 );
 
                 if res.is_null() {
+                    inserter.take_pointer();
                     break Insertion::Created;
                 }
 
