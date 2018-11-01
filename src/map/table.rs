@@ -1,15 +1,18 @@
 use super::{
-    bucket::{Bucket, Entry, Garbage, GetRes},
+    bucket::{Bucket, Entry, Garbage, GetRes, InsertRes},
     insertion::{Inserter, Insertion},
 };
 use atomic::AtomicBoxIncin;
 use incin::Incinerator;
-use owned_alloc::{OwnedAlloc, UninitAlloc};
+use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
     borrow::Borrow,
     marker::PhantomData,
-    ptr::null_mut,
-    sync::atomic::{AtomicPtr, Ordering::*},
+    ptr::{null_mut, NonNull},
+    sync::{
+        atomic::{AtomicPtr, Ordering::*},
+        Arc,
+    },
 };
 
 const BITS: usize = 8;
@@ -76,6 +79,11 @@ impl<K, V> Table<K, V> {
                             continue;
                         }
 
+                        let alloc = OwnedAlloc::from_raw(
+                            NonNull::new_unchecked(loaded as *mut _),
+                        );
+                        incin.add(Garbage::Bucket(alloc));
+
                         None
                     },
                 };
@@ -88,15 +96,108 @@ impl<K, V> Table<K, V> {
 
     pub unsafe fn insert<I>(
         &self,
-        inserter: I,
+        mut inserter: I,
         hash: u64,
-        incin: &Incinerator<Garbage<K, V>>,
+        incin: &Arc<Incinerator<Garbage<K, V>>>,
         box_incin: &AtomicBoxIncin<Entry<K, V>>,
     ) -> Insertion<K, V, I>
     where
         I: Inserter<K, V>,
+        K: Ord,
     {
-        unimplemented!()
+        let mut table = self;
+        let mut shifted = hash;
+        let mut depth = 1;
+        let mut tbl_cache = Cache::<OwnedAlloc<Self>>::new();
+
+        loop {
+            let index = shifted as usize & (1 << BITS) - 1;
+
+            let loaded = table.nodes[index].atomic.load(Acquire);
+
+            if loaded.is_null() {
+                inserter.input(None);
+                let pair = match inserter.pointer() {
+                    Some(nnptr) => nnptr,
+                    None => break Insertion::Failed(inserter),
+                };
+
+                let bucket = Bucket::new(hash, pair, box_incin.clone());
+                let bucket_nnptr = OwnedAlloc::new(bucket).into_raw();
+
+                let res = table.nodes[index].atomic.compare_and_swap(
+                    loaded,
+                    bucket_nnptr.as_ptr() as *mut (),
+                    Release,
+                );
+
+                if res.is_null() {
+                    break Insertion::Created;
+                }
+
+                OwnedAlloc::from_raw(bucket_nnptr);
+            } else if loaded as usize & 1 == 0 {
+                let bucket = &*(loaded as *mut Bucket<K, V>);
+
+                if bucket.hash() == hash {
+                    match bucket.insert(inserter, incin, box_incin) {
+                        InsertRes::Created => break Insertion::Created,
+
+                        InsertRes::Updated(old) => {
+                            break Insertion::Updated(old)
+                        },
+
+                        InsertRes::Failed(inserter) => {
+                            break Insertion::Failed(inserter)
+                        },
+
+                        InsertRes::Delete(returned) => {
+                            let res = table.nodes[index]
+                                .atomic
+                                .compare_and_swap(loaded, null_mut(), Release);
+
+                            if res == loaded {
+                                let alloc = OwnedAlloc::from_raw(
+                                    NonNull::new_unchecked(loaded as *mut _),
+                                );
+                                incin.add(Garbage::Bucket(alloc));
+                            }
+
+                            inserter = returned;
+                        },
+                    }
+                } else {
+                    let new_table = tbl_cache.take_or(|| Self::new_alloc());
+                    let other_shifted = bucket.hash() >> (depth * BITS);
+                    let other_index = other_shifted as usize & (1 << BITS) - 1;
+
+                    new_table.nodes[other_index].atomic.store(loaded, Relaxed);
+
+                    let new_table_nnptr = new_table.into_raw();
+                    let res = table.nodes[index].atomic.compare_and_swap(
+                        loaded,
+                        (new_table_nnptr.as_ptr() as usize | 1) as *mut (),
+                        Release,
+                    );
+
+                    if res == loaded {
+                        depth += 1;
+                        table = &*new_table_nnptr.as_ptr();
+                        shifted >>= BITS;
+                    } else {
+                        let new_table = OwnedAlloc::from_raw(new_table_nnptr);
+                        new_table.nodes[other_index]
+                            .atomic
+                            .store(null_mut(), Relaxed);
+                        tbl_cache.store(new_table);
+                    }
+                }
+            } else {
+                depth += 1;
+                table = &*((loaded as usize & !1) as *mut Self);
+                shifted >>= BITS;
+            }
+        }
     }
 }
 

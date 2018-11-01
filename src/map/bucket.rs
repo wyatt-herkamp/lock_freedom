@@ -1,13 +1,14 @@
-use atomic::{Atomic, AtomicBox};
+use super::{insertion::Inserter, Removed};
+use atomic::{Atomic, AtomicBox, AtomicBoxIncin};
 use incin::Incinerator;
-use owned_alloc::{OwnedAlloc, UninitAlloc};
+use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use ptr;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
     fmt,
     ptr::NonNull,
-    sync::atomic::Ordering::*,
+    sync::{atomic::Ordering::*, Arc},
 };
 
 pub struct Entry<K, V> {
@@ -17,8 +18,8 @@ pub struct Entry<K, V> {
 
 impl<K, V> Entry<K, V> {
     #[inline]
-    pub fn root() -> Self {
-        Self { pair: Some(ptr::non_zero_null()), next: None }
+    pub fn root(next: Option<NonNull<List<K, V>>>) -> Self {
+        Self { pair: Some(ptr::non_zero_null()), next }
     }
 
     #[inline]
@@ -52,6 +53,16 @@ pub struct List<K, V> {
     atomic: AtomicBox<Entry<K, V>>,
 }
 
+impl<K, V> List<K, V> {
+    #[inline]
+    pub fn new(
+        entry: Entry<K, V>,
+        box_incin: AtomicBoxIncin<Entry<K, V>>,
+    ) -> Self {
+        Self { atomic: AtomicBox::with_incinerator(entry, box_incin) }
+    }
+}
+
 #[repr(align(/* at least */ 2))]
 pub struct Bucket<K, V> {
     hash: u64,
@@ -59,6 +70,17 @@ pub struct Bucket<K, V> {
 }
 
 impl<K, V> Bucket<K, V> {
+    pub fn new(
+        hash: u64,
+        nnptr: NonNull<(K, V)>,
+        box_incin: AtomicBoxIncin<Entry<K, V>>,
+    ) -> Self {
+        let entry = Entry { pair: Some(nnptr), next: None };
+        let list = List::new(entry, box_incin.clone());
+        let list_ptr = Some(OwnedAlloc::new(list).into_raw());
+        Self { hash, list: List::new(Entry::root(list_ptr), box_incin) }
+    }
+
     pub fn hash(&self) -> u64 {
         self.hash
     }
@@ -80,6 +102,64 @@ impl<K, V> Bucket<K, V> {
             },
 
             FindRes::After { .. } => GetRes::NotFound,
+        }
+    }
+
+    pub unsafe fn insert<I>(
+        &self,
+        mut inserter: I,
+        incin: &Arc<Incinerator<Garbage<K, V>>>,
+        box_incin: &AtomicBoxIncin<Entry<K, V>>,
+    ) -> InsertRes<I, K, V>
+    where
+        I: Inserter<K, V>,
+        K: Ord,
+    {
+        loop {
+            match self.find(inserter.key(), &**incin) {
+                FindRes::Delete => break InsertRes::Delete(inserter),
+
+                FindRes::Exact { curr_list, curr_pair, curr_next } => {
+                    inserter.input(Some(curr_pair.as_ref()));
+                    let pair = match inserter.pointer() {
+                        Some(nnptr) => nnptr,
+                        None => break InsertRes::Failed(inserter),
+                    };
+                    let old = Entry { pair: Some(curr_pair), next: curr_next };
+                    let new = Entry { pair: Some(pair), next: curr_next };
+                    let res =
+                        curr_list.atomic.compare_and_swap(old, new, Release);
+                    if old == res {
+                        inserter.take_pointer();
+                        let alloc = OwnedAlloc::from_raw(curr_pair);
+                        let removed = Removed::new(alloc, incin);
+                        break InsertRes::Updated(removed);
+                    }
+                },
+
+                FindRes::After { prev_list, prev } => {
+                    inserter.input(None);
+                    let pair = match inserter.pointer() {
+                        Some(nnptr) => nnptr,
+                        None => break InsertRes::Failed(inserter),
+                    };
+                    let curr_entry =
+                        Entry { pair: Some(pair), next: prev.next };
+                    let curr_list = List::new(curr_entry, box_incin.clone());
+                    let curr_nnptr = OwnedAlloc::new(curr_list).into_raw();
+                    let new_prev =
+                        Entry { pair: prev.pair, next: Some(curr_nnptr) };
+                    let res = prev_list
+                        .atomic
+                        .compare_and_swap(prev, new_prev, Release);
+
+                    if res == new_prev {
+                        break InsertRes::Created;
+                    }
+
+                    OwnedAlloc::from_raw(curr_nnptr);
+                },
+            }
         }
     }
 
@@ -179,6 +259,13 @@ pub enum GetRes<'origin, K, V> {
     Found(&'origin (K, V)),
     NotFound,
     Delete,
+}
+
+pub enum InsertRes<I, K, V> {
+    Created,
+    Updated(Removed<K, V>),
+    Failed(I),
+    Delete(I),
 }
 
 enum FindRes<'list, K, V> {
