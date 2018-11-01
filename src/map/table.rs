@@ -1,5 +1,12 @@
+use super::bucket::{Bucket, Garbage, GetRes};
+use incin::Incinerator;
 use owned_alloc::{OwnedAlloc, UninitAlloc};
-use std::{marker::PhantomData, ptr::null_mut, sync::atomic::AtomicPtr};
+use std::{
+    borrow::Borrow,
+    marker::PhantomData,
+    ptr::null_mut,
+    sync::atomic::{AtomicPtr, Ordering::*},
+};
 
 const BITS: usize = 8;
 
@@ -18,6 +25,60 @@ impl<K, V> Table<K, V> {
     pub unsafe fn init_in_place(&mut self) {
         for node in &mut self.nodes as &mut [_] {
             (node as *mut Node<K, V>).write(Node::new())
+        }
+    }
+
+    pub unsafe fn get<'origin, Q>(
+        &'origin self,
+        key: &Q,
+        hash: u64,
+        incin: &Incinerator<Garbage<K, V>>,
+    ) -> Option<&'origin (K, V)>
+    where
+        Q: ?Sized + Ord,
+        K: Borrow<Q>,
+    {
+        let mut table = self;
+        let mut shifted = hash;
+
+        loop {
+            let index = shifted as usize & (1 << BITS) - 1;
+            let loaded = table.nodes[index].atomic.load(Acquire);
+
+            if loaded.is_null() {
+                break None;
+            }
+
+            if loaded as usize & 1 == 0 {
+                let bucket = &*(loaded as *mut Bucket<K, V>);
+
+                if bucket.hash() != hash {
+                    break None;
+                }
+
+                break match bucket.get(key, incin) {
+                    GetRes::Found(pair) => Some(pair),
+
+                    GetRes::NotFound => None,
+
+                    GetRes::Delete => {
+                        let res = self.nodes[index].atomic.compare_and_swap(
+                            loaded,
+                            null_mut(),
+                            Release,
+                        );
+
+                        if res != loaded {
+                            continue;
+                        }
+
+                        None
+                    },
+                };
+            }
+
+            table = &*((loaded as usize & !1) as *mut Self);
+            shifted >>= BITS;
         }
     }
 }

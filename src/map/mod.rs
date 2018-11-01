@@ -14,7 +14,7 @@ pub use self::{
 pub use std::collections::hash_map::RandomState;
 
 use self::{
-    bucket::{Elem, Garbage},
+    bucket::{Entry, Garbage},
     table::Table,
 };
 use atomic::AtomicBoxIncin;
@@ -30,7 +30,7 @@ use std::{
 pub struct Map<K, V, H = RandomState> {
     top: OwnedAlloc<Table<K, V>>,
     incin: Arc<Incinerator<Garbage<K, V>>>,
-    box_incin: AtomicBoxIncin<Elem<K, V>>,
+    box_incin: AtomicBoxIncin<Entry<K, V>>,
     builder: H,
 }
 
@@ -58,12 +58,13 @@ where
         key: &Q,
     ) -> Option<ReadGuard<'origin, K, V>>
     where
-        Q: ?Sized + Hash + Eq,
+        Q: ?Sized + Hash + Ord,
         K: Borrow<Q>,
     {
         let pause = self.incin.pause();
-        let result = unsafe { self.top.get(key, self.hash_of(key)) };
-        result.map(|pair| ReadGuard { pair, pause })
+        let result =
+            unsafe { self.top.get(key, self.hash_of(key), &self.incin) };
+        result.map(|pair| ReadGuard::new(pair, pause))
     }
 
     fn hash_of<Q>(&self, key: &Q) -> u64

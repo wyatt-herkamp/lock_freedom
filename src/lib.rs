@@ -58,3 +58,5 @@ pub mod set;
 
 /// Provides a doubly atomic reference counter.
 pub mod darc;
+
+mod ptr;
