@@ -85,6 +85,10 @@ impl<K, V> Bucket<K, V> {
         self.hash
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.list.atomic.load(Acquire).is_empty()
+    }
+
     pub unsafe fn get<'origin, Q>(
         &'origin self,
         key: &Q,

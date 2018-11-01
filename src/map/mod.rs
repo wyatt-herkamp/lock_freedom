@@ -15,7 +15,7 @@ pub use std::collections::hash_map::RandomState;
 
 use self::{
     bucket::{Entry, Garbage},
-    insertion::InsertNew,
+    insertion::{InsertNew, Reinsert},
     table::Table,
 };
 use atomic::AtomicBoxIncin;
@@ -68,6 +68,29 @@ where
         result.map(|pair| ReadGuard::new(pair, pause))
     }
 
+    pub fn insert<F>(&self, key: K, val: V) -> Option<Removed<K, V>>
+    where
+        K: Hash + Ord,
+    {
+        let insertion = self.incin.pause_with(|| {
+            let hash = self.hash_of(&key);
+            unsafe {
+                self.top.insert(
+                    InsertNew::with_pair(|_, _, _| Preview::Keep, (key, val)),
+                    hash,
+                    &self.incin,
+                    &self.box_incin,
+                )
+            }
+        });
+
+        match insertion {
+            Insertion::Created => None,
+            Insertion::Updated(old) => Some(old),
+            Insertion::Failed(_) => unreachable!(),
+        }
+    }
+
     pub fn insert_with<F>(
         &self,
         key: K,
@@ -81,7 +104,7 @@ where
             let hash = self.hash_of(&key);
             unsafe {
                 self.top.insert(
-                    InsertNew::new(interactive, key),
+                    InsertNew::with_key(interactive, key),
                     hash,
                     &self.incin,
                     &self.box_incin,
@@ -98,6 +121,67 @@ where
         }
     }
 
+    pub fn reinsert(&self, removed: Removed<K, V>) -> Option<Removed<K, V>>
+    where
+        K: Hash + Ord,
+    {
+        let insertion = self.incin.pause_with(|| {
+            let hash = self.hash_of(removed.key());
+            unsafe {
+                self.top.insert(
+                    Reinsert::new(|_, _| true, removed),
+                    hash,
+                    &self.incin,
+                    &self.box_incin,
+                )
+            }
+        });
+
+        match insertion {
+            Insertion::Created => None,
+            Insertion::Updated(old) => Some(old),
+            Insertion::Failed(_) => unreachable!(),
+        }
+    }
+
+    pub fn reinsert_with<F>(
+        &self,
+        removed: Removed<K, V>,
+        interactive: F,
+    ) -> Insertion<K, V, Removed<K, V>>
+    where
+        K: Hash + Ord,
+        F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
+    {
+        let insertion = self.incin.pause_with(|| {
+            let hash = self.hash_of(removed.key());
+            unsafe {
+                self.top.insert(
+                    Reinsert::new(interactive, removed),
+                    hash,
+                    &self.incin,
+                    &self.box_incin,
+                )
+            }
+        });
+
+        match insertion {
+            Insertion::Created => Insertion::Created,
+            Insertion::Updated(old) => Insertion::Updated(old),
+            Insertion::Failed(inserter) => {
+                Insertion::Failed(inserter.into_removed())
+            },
+        }
+    }
+
+    pub fn remove<Q, F>(&self, key: &Q) -> Option<Removed<K, V>>
+    where
+        Q: ?Sized + Hash + Ord,
+        K: Borrow<Q>,
+    {
+        self.remove_with(key, |_| true)
+    }
+
     pub fn remove_with<Q, F>(
         &self,
         key: &Q,
@@ -112,6 +196,23 @@ where
             let hash = self.hash_of(key);
             unsafe { self.top.remove(key, interactive, hash, &self.incin) }
         })
+    }
+
+    pub fn optimize_space(&mut self) {
+        self.incin.try_clear();
+        self.top.optimize_space();
+    }
+
+    pub fn clear(&mut self) {
+        self.incin.try_clear();
+
+        let mut tables = Vec::new();
+
+        self.top.clear(&mut tables);
+
+        while let Some(mut table) = tables.pop() {
+            table.free_nodes(&mut tables);
+        }
     }
 
     fn hash_of<Q>(&self, key: &Q) -> u64
@@ -151,10 +252,10 @@ impl<K, V, H> Drop for Map<K, V, H> {
     fn drop(&mut self) {
         let mut tables = Vec::new();
 
-        unsafe { self.top.free_nodes(&mut tables) }
+        self.top.free_nodes(&mut tables);
 
-        while let Some(table) = tables.pop() {
-            unsafe { table.free_nodes(&mut tables) }
+        while let Some(mut table) = tables.pop() {
+            table.free_nodes(&mut tables);
         }
     }
 }

@@ -254,19 +254,78 @@ impl<K, V> Table<K, V> {
     }
 
     #[inline]
-    pub unsafe fn free_nodes(
-        &self,
-        tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>,
-    ) {
+    pub fn free_nodes(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>) {
         for node in &self.nodes as &[Node<K, V>] {
-            Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
+            unsafe {
+                Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
+            }
         }
     }
 
     #[inline]
-    pub unsafe fn clear(&self, tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>) {
+    pub fn clear(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>) {
         for node in &self.nodes as &[Node<K, V>] {
-            Node::free_ptr(node.atomic.swap(null_mut(), Relaxed), tbl_stack);
+            unsafe {
+                Node::free_ptr(
+                    node.atomic.swap(null_mut(), Relaxed),
+                    tbl_stack,
+                );
+            }
+        }
+    }
+
+    pub fn optimize_space(&mut self) -> OptSpaceRes<K, V> {
+        let mut removed = 0usize;
+        let mut last_bucket = None;
+
+        for node in &self.nodes as &[Node<K, V>] {
+            let loaded = node.atomic.load(Relaxed);
+
+            if loaded.is_null() {
+                removed += 1;
+            } else if loaded as usize & 1 == 0 {
+                let bucket_ptr = loaded as *mut Bucket<K, V>;
+                if unsafe { (*bucket_ptr).is_empty() } {
+                    node.atomic.store(null_mut(), Release);
+                    removed += 1;
+
+                    unsafe {
+                        OwnedAlloc::from_raw(NonNull::new_unchecked(
+                            bucket_ptr,
+                        ));
+                    }
+                } else {
+                    let nnptr = unsafe { NonNull::new_unchecked(bucket_ptr) };
+                    last_bucket = Some(nnptr);
+                }
+            } else {
+                let table_ptr = (loaded as usize & !1) as *mut Table<K, V>;
+
+                match unsafe { &mut *table_ptr }.optimize_space() {
+                    OptSpaceRes::NoOpt => (),
+
+                    OptSpaceRes::Remove => {
+                        node.atomic.store(null_mut(), Relaxed);
+                        unsafe {
+                            let nnptr = NonNull::new_unchecked(table_ptr);
+                            OwnedAlloc::from_raw(nnptr);
+                        }
+                        removed += 1;
+                    },
+
+                    OptSpaceRes::TableToBucket(nnptr) => {
+                        node.atomic.store(nnptr.as_ptr() as *mut _, Relaxed)
+                    },
+                }
+            }
+        }
+
+        match (last_bucket, self.nodes.len() - removed) {
+            (Some(nnptr), 1) => OptSpaceRes::TableToBucket(nnptr),
+
+            (_, 0) => OptSpaceRes::Remove,
+
+            _ => OptSpaceRes::NoOpt,
         }
     }
 }
@@ -304,4 +363,10 @@ impl<K, V> Node<K, V> {
     fn new() -> Self {
         Self { atomic: AtomicPtr::new(null_mut()), _marker: PhantomData }
     }
+}
+
+pub enum OptSpaceRes<K, V> {
+    NoOpt,
+    Remove,
+    TableToBucket(NonNull<Bucket<K, V>>),
 }

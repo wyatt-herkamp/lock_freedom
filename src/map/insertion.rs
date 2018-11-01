@@ -103,7 +103,7 @@ impl<F, K, V> InsertNew<F, K, V>
 where
     F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
 {
-    pub fn new(interactive: F, key: K) -> Self {
+    pub fn with_key(interactive: F, key: K) -> Self {
         Self {
             interactive,
             nnptr: unsafe {
@@ -113,6 +113,14 @@ where
                 alloc.into_raw()
             },
             is_val_init: false,
+        }
+    }
+
+    pub fn with_pair(interactive: F, pair: (K, V)) -> Self {
+        Self {
+            interactive,
+            nnptr: OwnedAlloc::new(pair).forget_inner().into_raw(),
+            is_val_init: true,
         }
     }
 

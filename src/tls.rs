@@ -68,12 +68,12 @@ impl<T> ThreadLocal<T> {
         let mut tables = Vec::new();
 
         // Method clear means we are also resetting all node pointers to null.
-        unsafe { self.top.clear(&mut tables) }
+        self.top.clear(&mut tables);
 
-        while let Some(table) = tables.pop() {
+        while let Some(mut table) = tables.pop() {
             // Method free_nodes means we are only freeing node pointers but not
             // clearing them.
-            unsafe { table.free_nodes(&mut tables) }
+            table.free_nodes(&mut tables);
         }
     }
 
@@ -261,10 +261,10 @@ impl<T> Drop for ThreadLocal<T> {
         // Method free_nodes means we are only freeing node pointers but not
         // clearing them (no need to clear since nobody will ever use them
         // again, we are dropping the TLS).
-        unsafe { self.top.free_nodes(&mut tables) }
+        self.top.free_nodes(&mut tables);
 
-        while let Some(table) = tables.pop() {
-            unsafe { table.free_nodes(&mut tables) }
+        while let Some(mut table) = tables.pop() {
+            table.free_nodes(&mut tables);
         }
     }
 }
@@ -339,16 +339,21 @@ impl<T> Table<T> {
     }
 
     #[inline]
-    unsafe fn free_nodes(&self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
+    fn free_nodes(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
         for node in &self.nodes as &[Node<_>] {
-            Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
+            unsafe { Node::free_ptr(node.atomic.load(Relaxed), tbl_stack) };
         }
     }
 
     #[inline]
-    unsafe fn clear(&self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
+    fn clear(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
         for node in &self.nodes as &[Node<_>] {
-            Node::free_ptr(node.atomic.swap(null_mut(), Relaxed), tbl_stack);
+            unsafe {
+                Node::free_ptr(
+                    node.atomic.swap(null_mut(), Relaxed),
+                    tbl_stack,
+                );
+            }
         }
     }
 }
