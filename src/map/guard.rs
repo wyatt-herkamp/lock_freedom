@@ -118,8 +118,9 @@ impl<K, V> Removed<K, V> {
         Self { nnptr: alloc.into_raw(), origin: Arc::downgrade(origin) }
     }
 
-    pub(super) fn into_alloc(this: Self) -> OwnedAlloc<(K, V)> {
+    pub(super) fn into_alloc(mut this: Self) -> OwnedAlloc<(K, V)> {
         let alloc = unsafe { OwnedAlloc::from_raw(this.nnptr) };
+        unsafe { (&mut this.origin as *mut Weak<_>).drop_in_place() }
         forget(this);
         alloc
     }

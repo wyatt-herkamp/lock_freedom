@@ -244,4 +244,8 @@ where
         let (key, _) = &*self.removed;
         key
     }
+
+    fn take_pointer(self) {
+        forget(Removed::into_alloc(self.removed));
+    }
 }

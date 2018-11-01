@@ -174,7 +174,7 @@ where
         }
     }
 
-    pub fn remove<Q, F>(&self, key: &Q) -> Option<Removed<K, V>>
+    pub fn remove<Q>(&self, key: &Q) -> Option<Removed<K, V>>
     where
         Q: ?Sized + Hash + Ord,
         K: Borrow<Q>,
@@ -290,7 +290,6 @@ mod test {
         assert_eq!(*guard.val(), 4);
     }
 
-    /*
     #[test]
     fn create() {
         let map = Map::new();
@@ -304,7 +303,7 @@ mod test {
                 }
             )
             .created());
-        assert_eq!(map.get("five", |x| *x), Some(5));
+        assert_eq!(*map.get("five").unwrap().val(), 5);
         assert!(map
             .insert_with(
                 "five".to_owned(),
@@ -332,8 +331,8 @@ mod test {
             .failed()
             .is_some());
         assert!(map.insert("five".to_owned(), 5).is_none());
-        assert_eq!(
-            map.insert_with("five".to_owned(), |_, _, stored| {
+        let guard = map
+            .insert_with("five".to_owned(), |_, _, stored| {
                 if let Some((_, n)) = stored {
                     Preview::New(*n + 7)
                 } else {
@@ -341,10 +340,10 @@ mod test {
                 }
             })
             .take_updated()
-            .unwrap(),
-            ("five", 5)
-        );
-        assert_eq!(map.get("five", |x| *x), Some(12));
+            .unwrap();
+        assert_eq!(guard.key(), "five");
+        assert_eq!(*guard.val(), 5);
+        assert_eq!(*map.get("five").unwrap().val(), 12);
     }
 
     #[test]
@@ -366,9 +365,12 @@ mod test {
         let map = Map::new();
         assert!(map.insert("four".to_owned(), 4).is_none());
         let prev = map.insert("four".to_owned(), 40).unwrap();
-        assert_eq!(prev, ("four", 4));
-        assert_eq!(map.reinsert(prev).unwrap(), ("four", 40));
-        assert!(map.get("four", |&x| x == 4).unwrap());
+        assert_eq!(prev.key(), "four");
+        assert_eq!(*prev.val(), 4);
+        let prev = map.reinsert(prev).unwrap();
+        assert_eq!(prev.key(), "four");
+        assert_eq!(*prev.val(), 40);
+        assert!(*map.get("four").unwrap().val() == 4);
     }
 
     #[test]
@@ -381,6 +383,7 @@ mod test {
         map.reinsert_with(prev, |_, _| false).take_failed().unwrap();
     }
 
+    /*
     #[test]
     fn reinserts_create() {
         let map = Map::new();
