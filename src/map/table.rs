@@ -1,6 +1,7 @@
 use super::{
-    bucket::{Bucket, Entry, Garbage, GetRes, InsertRes},
+    bucket::{Bucket, Entry, Garbage, GetRes, InsertRes, RemoveRes},
     insertion::{Inserter, Insertion},
+    removed::Removed,
 };
 use atomic::AtomicBoxIncin;
 use incin::Incinerator;
@@ -75,14 +76,12 @@ impl<K, V> Table<K, V> {
                             Release,
                         );
 
-                        if res != loaded {
-                            continue;
+                        if res == loaded {
+                            let alloc = OwnedAlloc::from_raw(
+                                NonNull::new_unchecked(loaded as *mut _),
+                            );
+                            incin.add(Garbage::Bucket(alloc));
                         }
-
-                        let alloc = OwnedAlloc::from_raw(
-                            NonNull::new_unchecked(loaded as *mut _),
-                        );
-                        incin.add(Garbage::Bucket(alloc));
 
                         None
                     },
@@ -197,6 +196,60 @@ impl<K, V> Table<K, V> {
                 table = &*((loaded as usize & !1) as *mut Self);
                 shifted >>= BITS;
             }
+        }
+    }
+
+    pub unsafe fn remove<Q, F>(
+        &self,
+        key: &Q,
+        interactive: F,
+        hash: u64,
+        incin: &Arc<Incinerator<Garbage<K, V>>>,
+    ) -> Option<Removed<K, V>>
+    where
+        Q: ?Sized + Ord,
+        K: Borrow<Q>,
+        F: FnMut(&(K, V)) -> bool,
+    {
+        let mut table = self;
+        let mut shifted = hash;
+
+        loop {
+            let index = shifted as usize & (1 << BITS) - 1;
+            let loaded = table.nodes[index].atomic.load(Acquire);
+
+            if loaded.is_null() {
+                break None;
+            }
+
+            if loaded as usize & 1 == 0 {
+                let bucket = &*(loaded as *mut Bucket<K, V>);
+
+                if bucket.hash() != hash {
+                    break None;
+                }
+
+                let res = bucket.remove(key, interactive, incin);
+
+                if res.delete {
+                    let res = self.nodes[index].atomic.compare_and_swap(
+                        loaded,
+                        null_mut(),
+                        Release,
+                    );
+
+                    if res == loaded {
+                        let alloc = OwnedAlloc::from_raw(
+                            NonNull::new_unchecked(loaded as *mut _),
+                        );
+                        incin.add(Garbage::Bucket(alloc));
+                    }
+                }
+                break res.pair;
+            }
+
+            table = &*((loaded as usize & !1) as *mut Self);
+            shifted >>= BITS;
         }
     }
 }

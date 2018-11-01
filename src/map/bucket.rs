@@ -119,7 +119,7 @@ impl<K, V> Bucket<K, V> {
             match self.find(inserter.key(), &**incin) {
                 FindRes::Delete => break InsertRes::Delete(inserter),
 
-                FindRes::Exact { curr_list, curr_pair, curr_next } => {
+                FindRes::Exact { curr_list, curr_pair, curr_next, .. } => {
                     inserter.input(Some(curr_pair.as_ref()));
                     let pair = match inserter.pointer() {
                         Some(nnptr) => nnptr,
@@ -158,6 +158,87 @@ impl<K, V> Bucket<K, V> {
                     }
 
                     OwnedAlloc::from_raw(curr_nnptr);
+                },
+            }
+        }
+    }
+
+    pub unsafe fn remove<Q, F>(
+        &self,
+        key: &Q,
+        mut interactive: F,
+        incin: &Arc<Incinerator<Garbage<K, V>>>,
+    ) -> RemoveRes<K, V>
+    where
+        Q: ?Sized + Ord,
+        K: Borrow<Q>,
+        F: FnMut(&(K, V)) -> bool,
+    {
+        loop {
+            match self.find(key, &*incin) {
+                FindRes::Delete => break RemoveRes { pair: None, delete: true },
+
+                FindRes::Exact { prev, curr_list, curr_pair, curr_next } => {
+                    if !interactive(&*curr_pair.as_ptr()) {
+                        break RemoveRes { pair: None, delete: false };
+                    }
+
+                    let old = Entry { pair: Some(curr_pair), next: curr_next };
+                    let new = Entry { pair: None, next: curr_next };
+                    let res =
+                        curr_list.atomic.compare_and_swap(old, new, Release);
+
+                    if res == old {
+                        let prev = Entry { pair: prev.pair, next: curr_next };
+                        let delete =
+                            prev.is_empty() && self.try_clear_first(&*incin);
+                        let alloc = OwnedAlloc::from_raw(curr_pair);
+                        break RemoveRes {
+                            pair: Some(Removed::new(alloc, incin)),
+                            delete,
+                        };
+                    }
+                },
+
+                FindRes::After { .. } => {
+                    break RemoveRes { pair: None, delete: false }
+                },
+            }
+        }
+    }
+
+    unsafe fn try_clear_first(
+        &self,
+        incin: &Incinerator<Garbage<K, V>>,
+    ) -> bool {
+        let mut prev = self.list.atomic.load(Acquire);
+        loop {
+            let (curr_list, curr_ptr) = match prev.next {
+                Some(curr) => (&*curr.as_ptr(), curr),
+                None => break true,
+            };
+
+            let curr = curr_list.atomic.load(Acquire);
+
+            match curr.pair {
+                Some(_) => break false,
+
+                None => {
+                    let new = Entry { pair: prev.pair, next: curr.next };
+                    let res =
+                        self.list.atomic.compare_and_swap(prev, new, Release);
+                    if res != prev {
+                        break false;
+                    }
+
+                    let alloc = OwnedAlloc::from_raw(curr_ptr);
+                    incin.add(Garbage::List(alloc));
+
+                    if new.is_empty() {
+                        break true;
+                    }
+
+                    prev = new;
                 },
             }
         }
@@ -219,6 +300,7 @@ impl<K, V> Bucket<K, V> {
                 match comparison {
                     Ordering::Equal => {
                         break 'retry FindRes::Exact {
+                            prev,
                             curr_list,
                             curr_pair,
                             curr_next: curr.next,
@@ -268,8 +350,14 @@ pub enum InsertRes<I, K, V> {
     Delete(I),
 }
 
+pub struct RemoveRes<K, V> {
+    pub pair: Option<Removed<K, V>>,
+    pub delete: bool,
+}
+
 enum FindRes<'list, K, V> {
     Exact {
+        prev: Entry<K, V>,
         curr_list: &'list List<K, V>,
         curr_pair: NonNull<(K, V)>,
         curr_next: Option<NonNull<List<K, V>>>,

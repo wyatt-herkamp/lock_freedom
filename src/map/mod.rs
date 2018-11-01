@@ -63,8 +63,8 @@ where
         K: Borrow<Q>,
     {
         let pause = self.incin.pause();
-        let result =
-            unsafe { self.top.get(key, self.hash_of(key), &self.incin) };
+        let hash = self.hash_of(key);
+        let result = unsafe { self.top.get(key, hash, &self.incin) };
         result.map(|pair| ReadGuard::new(pair, pause))
     }
 
@@ -96,6 +96,22 @@ where
                 Insertion::Failed(inserter.into_pair())
             },
         }
+    }
+
+    pub fn remove_with<Q, F>(
+        &self,
+        key: &Q,
+        interactive: F,
+    ) -> Option<Removed<K, V>>
+    where
+        Q: ?Sized + Hash + Ord,
+        K: Borrow<Q>,
+        F: FnMut(&(K, V)) -> bool,
+    {
+        self.incin.pause_with(|| {
+            let hash = self.hash_of(key);
+            unsafe { self.top.remove(key, interactive, hash, &self.incin) }
+        })
     }
 
     fn hash_of<Q>(&self, key: &Q) -> u64
