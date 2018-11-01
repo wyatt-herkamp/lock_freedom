@@ -15,6 +15,7 @@ pub use std::collections::hash_map::RandomState;
 
 use self::{
     bucket::{Entry, Garbage},
+    insertion::InsertNew,
     table::Table,
 };
 use atomic::AtomicBoxIncin;
@@ -65,6 +66,36 @@ where
         let result =
             unsafe { self.top.get(key, self.hash_of(key), &self.incin) };
         result.map(|pair| ReadGuard::new(pair, pause))
+    }
+
+    pub fn insert_with<F>(
+        &self,
+        key: K,
+        interactive: F,
+    ) -> Insertion<K, V, (K, Option<V>)>
+    where
+        K: Hash + Ord,
+        F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
+    {
+        let insertion = self.incin.pause_with(|| {
+            let hash = self.hash_of(&key);
+            unsafe {
+                self.top.insert(
+                    InsertNew::new(interactive, key),
+                    hash,
+                    &self.incin,
+                    &self.box_incin,
+                )
+            }
+        });
+
+        match insertion {
+            Insertion::Created => Insertion::Created,
+            Insertion::Updated(old) => Insertion::Updated(old),
+            Insertion::Failed(inserter) => {
+                Insertion::Failed(inserter.into_pair())
+            },
+        }
     }
 
     fn hash_of<Q>(&self, key: &Q) -> u64

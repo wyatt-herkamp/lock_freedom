@@ -1,4 +1,8 @@
-use super::bucket::{Bucket, Garbage, GetRes};
+use super::{
+    bucket::{Bucket, Entry, Garbage, GetRes},
+    insertion::{Inserter, Insertion},
+};
+use atomic::AtomicBoxIncin;
 use incin::Incinerator;
 use owned_alloc::{OwnedAlloc, UninitAlloc};
 use std::{
@@ -80,6 +84,19 @@ impl<K, V> Table<K, V> {
             table = &*((loaded as usize & !1) as *mut Self);
             shifted >>= BITS;
         }
+    }
+
+    pub unsafe fn insert<I>(
+        &self,
+        inserter: I,
+        hash: u64,
+        incin: &Incinerator<Garbage<K, V>>,
+        box_incin: &AtomicBoxIncin<Entry<K, V>>,
+    ) -> Insertion<K, V, I>
+    where
+        I: Inserter<K, V>,
+    {
+        unimplemented!()
     }
 }
 
