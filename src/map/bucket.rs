@@ -89,6 +89,12 @@ impl<K, V> Bucket<K, V> {
         self.list.atomic.load(Acquire).is_empty()
     }
 
+    pub fn take_first(&mut self) -> Option<Entry<K, V>> {
+        self.list.atomic.swap(Entry::root(None), Relaxed).next.map(
+            |nnptr| unsafe { OwnedAlloc::from_raw(nnptr).atomic.load(Relaxed) },
+        )
+    }
+
     pub unsafe fn get<'origin, Q>(
         &'origin self,
         key: &Q,
@@ -234,7 +240,7 @@ impl<K, V> Bucket<K, V> {
             loop {
                 let (curr_list, curr_ptr) = match prev.next {
                     Some(curr) => (&*curr.as_ptr(), curr),
-                    None => break,
+                    None => break 'retry,
                 };
 
                 let curr = curr_list.atomic.load(Acquire);
@@ -255,7 +261,7 @@ impl<K, V> Bucket<K, V> {
                         incin.add(Garbage::List(alloc));
 
                         if new.is_empty() {
-                            break;
+                            break 'retry;
                         }
 
                         continue;
@@ -415,7 +421,11 @@ impl<K, V> fmt::Debug for Garbage<K, V> {
     }
 }
 
-pub enum GetRes<'origin, K, V> {
+pub enum GetRes<'origin, K, V>
+where
+    K: 'origin,
+    V: 'origin,
+{
     Found(&'origin (K, V)),
     NotFound,
     Delete,
@@ -433,7 +443,11 @@ pub struct RemoveRes<K, V> {
     pub delete: bool,
 }
 
-enum FindRes<'list, K, V> {
+enum FindRes<'list, K, V>
+where
+    K: 'list,
+    V: 'list,
+{
     Exact {
         prev: Entry<K, V>,
         curr_list: &'list List<K, V>,

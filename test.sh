@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 
 test_with_toolchain() {
-    cargo $1 test --target x86_64-unknown-linux-gnu -- --test-threads=1 || exit 1
-    cargo $1 test --release --target x86_64-unknown-linux-gnu -- --test-threads=1 || exit 1
+    cargo $1 test --target x86_64-unknown-linux-gnu -- --test-threads=1 --nocapture || exit 1
+    cargo $1 test --release --target x86_64-unknown-linux-gnu -- --test-threads=1 --nocapture || exit 1
 }
 
 test_with_toolchain +stable

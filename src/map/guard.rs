@@ -2,6 +2,7 @@ use super::bucket::Garbage;
 use incin::{Incinerator, Pause};
 use owned_alloc::OwnedAlloc;
 use std::{
+    borrow::Borrow,
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
@@ -12,7 +13,11 @@ use std::{
 };
 
 #[derive(Debug)]
-pub struct ReadGuard<'origin, K, V> {
+pub struct ReadGuard<'origin, K, V>
+where
+    K: 'origin,
+    V: 'origin,
+{
     pair: &'origin (K, V),
     pause: Pause<'origin, Garbage<K, V>>,
 }
@@ -102,6 +107,18 @@ where
         H: Hasher,
     {
         (**self).hash(hasher)
+    }
+}
+
+impl<'origin, K, V> AsRef<(K, V)> for ReadGuard<'origin, K, V> {
+    fn as_ref(&self) -> &(K, V) {
+        &**self
+    }
+}
+
+impl<'origin, K, V> Borrow<(K, V)> for ReadGuard<'origin, K, V> {
+    fn borrow(&self) -> &(K, V) {
+        &**self
     }
 }
 
@@ -239,5 +256,17 @@ where
         H: Hasher,
     {
         (**self).hash(hasher)
+    }
+}
+
+impl<K, V> AsRef<(K, V)> for Removed<K, V> {
+    fn as_ref(&self) -> &(K, V) {
+        &**self
+    }
+}
+
+impl<K, V> Borrow<(K, V)> for Removed<K, V> {
+    fn borrow(&self) -> &(K, V) {
+        &**self
     }
 }

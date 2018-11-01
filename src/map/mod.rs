@@ -383,7 +383,6 @@ mod test {
         map.reinsert_with(prev, |_, _| false).take_failed().unwrap();
     }
 
-    /*
     #[test]
     fn reinserts_create() {
         let map = Map::new();
@@ -394,7 +393,7 @@ mod test {
         assert!(map
             .reinsert_with(first, |_, stored| stored.is_none())
             .created());
-        assert_eq!(map.get("five", |x| *x), Some(5));
+        assert_eq!(*map.get("five").unwrap().val(), 5);
         assert!(map
             .reinsert_with(second, |_, stored| stored.is_none())
             .failed()
@@ -424,17 +423,21 @@ mod test {
         assert!(map.remove("four").is_none());
         map.insert("five".to_owned(), 5);
         let removed = map.remove("five").unwrap();
-        assert_eq!(removed, ("five", 5));
+        assert_eq!(removed.key(), "five");
+        assert_eq!(*removed.val(), 5);
         assert!(map.insert("four".to_owned(), 4).is_none());
         map.insert("three".to_owned(), 3);
         assert!(map.remove("two").is_none());
         map.insert("two".to_owned(), 2);
         let removed = map.remove("three").unwrap();
-        assert_eq!(removed, ("three", 3));
+        assert_eq!(removed.key(), "three");
+        assert_eq!(*removed.val(), 3);
         let removed = map.remove("two").unwrap();
-        assert_eq!(removed, ("two", 2));
+        assert_eq!(removed.key(), "two");
+        assert_eq!(*removed.val(), 2);
         let removed = map.remove("four").unwrap();
-        assert_eq!(removed, ("four", 4));
+        assert_eq!(removed.key(), "four");
+        assert_eq!(*removed.val(), 4);
     }
 
     #[test]
@@ -454,7 +457,8 @@ mod test {
         }
 
         let mut result = HashMap::new();
-        for (k, v) in map.iter(|&k, &v| (k, v)) {
+        for guard in &map {
+            let (k, v) = *guard;
             let in_place = result.get(&(k, v)).map_or(0, |&x| x);
             result.insert((k, v), in_place + 1);
         }
@@ -468,7 +472,7 @@ mod test {
     }
 
     #[test]
-    fn remove_unneeded_preserves_needed() {
+    fn optimize_space_preserves_entries() {
         let mut map = Map::new();
         for i in 0 .. 200u128 {
             for j in 0 .. 128 {
@@ -482,10 +486,11 @@ mod test {
             }
         }
 
-        map.remove_unneeded_tables();
+        map.optimize_space();
 
         let mut result = HashMap::new();
-        for (k, v) in map.iter(|&k, &v| (k, v)) {
+        for guard in &map {
+            let (k, v) = *guard;
             let in_place = result.get(&(k, v)).map_or(0, |&x| x);
             result.insert((k, v), in_place + 1);
         }
@@ -506,12 +511,14 @@ mod test {
             let map = map.clone();
             threads.push(thread::spawn(move || {
                 let prev = map
-                    .get(&format!("prefix{}suffix", i - 1), |x| *x)
-                    .unwrap_or(0);
+                    .get(&format!("prefix{}suffix", i - 1))
+                    .map_or(0, |guard| *guard.val());
                 map.insert(format!("prefix{}suffix", i), prev + i);
                 map.insert_with(
                     format!("prefix{}suffix", i + 1),
-                    |_, stored, _| Preview::New(stored.map_or(0, |&x| x + i)),
+                    |_, _, stored| {
+                        Preview::New(stored.map_or(0, |&(_, x)| x + i))
+                    },
                 );
             }));
         }
@@ -519,9 +526,8 @@ mod test {
             thread.join().expect("thread failed");
         }
         for i in 1i64 ..= 20 {
-            assert!(map
-                .get(&format!("prefix{}suffix", i), |x| *x > 0)
-                .unwrap());
+            let val = *map.get(&format!("prefix{}suffix", i)).unwrap().val();
+            assert!(val > 0);
         }
-    }*/
+    }
 }

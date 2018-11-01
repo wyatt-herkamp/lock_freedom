@@ -137,7 +137,8 @@ impl<K, V> Table<K, V> {
                     break Insertion::Created;
                 }
 
-                OwnedAlloc::from_raw(bucket_nnptr);
+                let mut bucket = OwnedAlloc::from_raw(bucket_nnptr);
+                bucket.take_first();
             } else if loaded as usize & 1 == 0 {
                 let bucket = &*(loaded as *mut Bucket<K, V>);
 
@@ -317,6 +318,10 @@ impl<K, V> Table<K, V> {
                     },
 
                     OptSpaceRes::TableToBucket(nnptr) => {
+                        unsafe {
+                            let nnptr = NonNull::new_unchecked(table_ptr);
+                            OwnedAlloc::from_raw(nnptr);
+                        }
                         node.atomic.store(nnptr.as_ptr() as *mut _, Relaxed)
                     },
                 }
