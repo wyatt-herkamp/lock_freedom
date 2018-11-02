@@ -21,6 +21,7 @@ echo '' >> $FILE
 echo '## THREAD-LOCAL STORAGE' >> $FILE
 echo '```' >> $FILE
 cargo run --bin tls --release >> $FILE || exit 1
+echo '```' >> $FILE
 echo '## QUEUE' >> $FILE
 echo '```' >> $FILE
 cargo run --bin queue --release >> $FILE || exit 1
