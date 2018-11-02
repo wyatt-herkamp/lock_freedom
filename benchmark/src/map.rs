@@ -106,7 +106,7 @@ impl Target for LockfreeGet {
     fn round(&mut self) {
         let i = self.i;
         self.i += 1;
-        self.inner.get(&make_key(i), |x| prevent_opt(x));
+        prevent_opt(self.inner.get(&make_key(i)));
     }
 }
 
@@ -179,7 +179,7 @@ impl Target for LockfreeMixed {
         let i = self.i;
         self.i += 1;
         let key = make_key(i);
-        match self.inner.get(&key, |&x| x) {
+        match self.inner.get(&key).map(|guard| *guard.val()) {
             Some(j) => {
                 self.inner.insert(key, i.wrapping_add(j));
                 self.inner.remove(&make_key(j));
