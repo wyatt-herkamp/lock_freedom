@@ -12,6 +12,8 @@ use std::{
     sync::{Arc, Weak},
 };
 
+/// An on `Map` read-operations guard. This ensures no entry allocation is
+/// mutated or freed while potential reads are performed.
 #[derive(Debug)]
 pub struct ReadGuard<'origin, K, V>
 where
@@ -29,14 +31,16 @@ impl<'origin, K, V> ReadGuard<'origin, K, V> {
     ) -> Self {
         Self { pair, pause }
     }
-}
 
-impl<'origin, K, V> ReadGuard<'origin, K, V> {
+    /// Utility method. Returns the key of this borrowed entry.
+    // Shouldn't this be an associated function instead?
     pub fn key(&self) -> &K {
         let (k, _) = &**self;
         k
     }
 
+    /// Utility method. Returns the value of this borrowed entry.
+    // Shouldn't this be an associated function instead?
     pub fn val(&self) -> &V {
         let (_, v) = &**self;
         v
@@ -122,6 +126,9 @@ impl<'origin, K, V> Borrow<(K, V)> for ReadGuard<'origin, K, V> {
     }
 }
 
+/// A removed entry. It can be reinserted at the same `Map` it was removed. It
+/// can also be inserted on another `Map`, but only if it is either dropped or
+/// there are no sensitive reads running on that `Map`.
 pub struct Removed<K, V> {
     nnptr: NonNull<(K, V)>,
     origin: Weak<Incinerator<Garbage<K, V>>>,
@@ -146,26 +153,70 @@ impl<K, V> Removed<K, V> {
         this.nnptr
     }
 
+    pub(super) fn is_usable_by(
+        this: &mut Self,
+        origin: &Arc<Incinerator<Garbage<K, V>>>,
+    ) -> bool {
+        match &this.origin.upgrade() {
+            None => true,
+            Some(arc) if Arc::ptr_eq(arc, origin) => true,
+            Some(arc) => {
+                if arc.try_clear() {
+                    this.origin = Weak::new();
+                    true
+                } else {
+                    false
+                }
+            },
+        }
+    }
+
+    /// Utility method. Returns the key of this removed entry.
+    // Shouldn't this be an associated function instead?
     pub fn key(&self) -> &K {
         let (k, _) = &**self;
         k
     }
 
+    /// Utility method. Returns the value of this removed entry.
+    // Shouldn't this be an associated function instead?
     pub fn val(&self) -> &V {
         let (_, v) = &**self;
         v
     }
 
+    /// Tries to acquire a mutable reference to the pair. Succeeds only if
+    /// either the original `Map` was dropped or no sensitive reads are being
+    /// performed.
     pub fn try_as_mut(this: &mut Self) -> Option<&mut (K, V)> {
-        if this.origin.upgrade().is_none() {
+        let success = match this.origin.upgrade() {
+            None => true,
+            Some(arc) => {
+                if arc.try_clear() {
+                    this.origin = Weak::new();
+                    true
+                } else {
+                    false
+                }
+            },
+        };
+
+        if success {
             Some(unsafe { this.nnptr.as_mut() })
         } else {
             None
         }
     }
 
+    /// Tries to convert this wrapper into the pair. Succeeds only if either the
+    /// original `Map` was dropped or no sensitive reads are being performed.
     pub fn try_into(this: Self) -> Result<(K, V), Self> {
-        if this.origin.upgrade().is_none() {
+        let success = match this.origin.upgrade() {
+            None => true,
+            Some(arc) => arc.try_clear(),
+        };
+
+        if success {
             let (ret, _) =
                 unsafe { OwnedAlloc::from_raw(this.nnptr) }.move_inner();
             forget(this);

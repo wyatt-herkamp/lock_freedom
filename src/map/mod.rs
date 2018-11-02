@@ -1,5 +1,3 @@
-#![allow(dead_code, missing_docs, unused_imports)]
-
 mod table;
 mod bucket;
 mod insertion;
@@ -28,6 +26,40 @@ use std::{
     sync::Arc,
 };
 
+/// A lock-free map. Implemented using multi-level hash-tables (in a tree
+/// fashion) with ordered buckets.
+///
+/// # Design
+/// In order to implement this map, we shall fix a constant named `BITS`, which
+/// should be smaller than the number of bits in the hash (and not 0). We chose
+/// `8` for it. Now, we define a table structure: an array of nodes with length
+/// `1 << BITS` (`256` in this case).
+///
+/// For inserting, we take the first `BITS` bits of the hash. Now, we verify
+/// the node. If it is empty, insert a new bucket with our entry (a leaf of the
+/// tree), and assign our hash to the bucket. If there is a branch (i.e. a
+/// sub-table), we shift the hash `BITS` bits to the left, but we also keep the
+/// original hash for consultation. Then we try again in the sub-table. If
+/// there is another leaf, and if the hash of the leaf's bucket is equal to
+/// ours, we insert our entry into the bucket. If the hashes are not equal, we
+/// create a sub-table, insert the old leaf into the new sub-table, and insert
+/// our pair after.
+///
+/// Entries in a bucket are a single linked list ordered by key. The ordering
+/// of the list is because of possible race conditions if e.g. new nodes were
+/// always inserted at end. And if a bucket is detected to be empty, the
+/// table will be requested to delete the bucket.
+///
+/// For searching, in a similar way, the hash is shifted and sub-tables are
+/// entered until either a node is empty or a leaf is found. If the hash of the
+/// leaf's bucket is equal to our hash, we search for the entry into the bucket.
+/// Because the bucket is ordered, we may know the entry is not present with
+/// ease.
+///
+/// Because of limitation of sharing in concurrent contexts, we do return plain
+/// references to the entries, neither allow the user to move out removed
+/// values, as they must be deinitialized correctly. Instead, we return guarded
+/// references to the entries and wrappers over removed entries.
 pub struct Map<K, V, H = RandomState> {
     top: OwnedAlloc<Table<K, V>>,
     incin: Arc<Incinerator<Garbage<K, V>>>,
@@ -36,6 +68,7 @@ pub struct Map<K, V, H = RandomState> {
 }
 
 impl<K, V> Map<K, V> {
+    /// Creates a new `Map` with the default hasher builder.
     pub fn new() -> Self {
         Self::default()
     }
@@ -45,6 +78,7 @@ impl<K, V, H> Map<K, V, H>
 where
     H: BuildHasher,
 {
+    /// Creates the `Map` using the given hasher builder.
     pub fn with_hasher(builder: H) -> Self {
         Self {
             top: Table::new_alloc(),
@@ -54,10 +88,42 @@ where
         }
     }
 
+    /// The hasher buider used by this `Map`.
     pub fn hasher(&self) -> &H {
         &self.builder
     }
 
+    /// Tries to optimize space by removing unnecessary tables *without removing
+    /// any entry*. This method cannot be performed in a shared context.
+    pub fn optimize_space(&mut self) {
+        self.incin.try_clear();
+        self.top.optimize_space();
+    }
+
+    /// Removes all entries. This method cannot be performed in a shared
+    /// context.
+    pub fn clear(&mut self) {
+        self.incin.try_clear();
+        let mut tables = Vec::new();
+        self.top.clear(&mut tables);
+
+        while let Some(mut table) = tables.pop() {
+            table.free_nodes(&mut tables);
+        }
+    }
+
+    /// Creates an iterator over the key-value-pair entries. `IntoIterator` is
+    /// implemented with this iterator.
+    pub fn iter(&self) -> Iter<K, V> {
+        self.into_iter()
+    }
+
+    /// Searches for the entry identified by the given key. The returned value
+    /// is a guarded reference, to ensure no thread deallocates the allocation
+    /// for the entry while it is being used. The method accepts a type resulted
+    /// from borrowing the stored key. This method will only work correctly if
+    /// `Hash` and `Ord` are implemented in the same way for the borrowed type
+    /// and the stored type. If the entry was not found, `None` is returned.
     pub fn get<'origin, Q>(
         &'origin self,
         key: &Q,
@@ -72,6 +138,8 @@ where
         result.map(|pair| ReadGuard::new(pair, pause))
     }
 
+    /// Inserts unconditionally the given key and value. If there was a
+    /// previously stored value, it is returned.
     pub fn insert(&self, key: K, val: V) -> Option<Removed<K, V>>
     where
         K: Hash + Ord,
@@ -95,6 +163,18 @@ where
         }
     }
 
+    /// Inserts _interactively_ the given key. A closure is passed to generate
+    /// the value part of the entry and validate it with the stored value. Even
+    /// though the closure may have already accepted some condition, it might
+    /// get recalled many times due to concurrent modifications of the `Map`.
+    ///
+    /// The first argument passed to the closure is the key passed in first
+    /// place. The second argument is an optional mutable reference to a
+    /// previously generated value. Obviously, if no value was ever generated,
+    /// it is `None`. The third argument is a reference to the found stored
+    /// entry. Obviously, if no stored entry was found, it is `None`. The return
+    /// value of the closure is a specification of "what to do with the
+    /// insertion now".
     pub fn insert_with<F>(
         &self,
         key: K,
@@ -125,10 +205,23 @@ where
         }
     }
 
-    pub fn reinsert(&self, removed: Removed<K, V>) -> Option<Removed<K, V>>
+    /// Reinserts a previously removed entry. The entry must have been either:
+    /// 1. Removed from this very `Map`.
+    /// 2. Removed from an already dead `Map`.
+    /// 3. Removed from a `Map` which has no sensitive reads active.
+    /// If the removed entry does not fit any category, the insertion will fail.
+    /// Otherwise, insertion cannot fail.
+    pub fn reinsert(
+        &self,
+        mut removed: Removed<K, V>,
+    ) -> Insertion<K, V, Removed<K, V>>
     where
         K: Hash + Ord,
     {
+        if !Removed::is_usable_by(&mut removed, &self.incin) {
+            return Insertion::Failed(removed);
+        }
+
         let insertion = self.incin.pause_with(|| {
             let hash = self.hash_of(removed.key());
             unsafe {
@@ -142,21 +235,41 @@ where
         });
 
         match insertion {
-            Insertion::Created => None,
-            Insertion::Updated(old) => Some(old),
+            Insertion::Created => Insertion::Created,
+            Insertion::Updated(old) => Insertion::Updated(old),
             Insertion::Failed(_) => unreachable!(),
         }
     }
 
+    /// Reinserts _interactively_ a previously removed entry. A closure will be
+    /// passed to validate if the conditions are correct for the reinsertion.
+    /// The first argument passed to the closure is a reference to the removed
+    /// entry, the second argument is a reference to the stored found entry.
+    /// Obviously, if no stored entry was found, the argument is `None`. The
+    /// returned value is a boolean indicating if the reinsertion should go on.
+    /// Even though the closure may have already accepted some condition, it
+    /// might get recalled many times due to concurrent modifications of the
+    /// `Map`.
+    ///
+    /// The entry must have been either:
+    /// 1. Removed from this very `Map`.
+    /// 2. Removed from an already dead `Map`.
+    /// 3. Removed from a `Map` which has no sensitive reads active.
+    /// If the removed entry does not fit any category, the insertion will fail.
+    /// Otherwise, insertion cannot fail.
     pub fn reinsert_with<F>(
         &self,
-        removed: Removed<K, V>,
+        mut removed: Removed<K, V>,
         interactive: F,
     ) -> Insertion<K, V, Removed<K, V>>
     where
         K: Hash + Ord,
         F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
     {
+        if !Removed::is_usable_by(&mut removed, &self.incin) {
+            return Insertion::Failed(removed);
+        }
+
         let insertion = self.incin.pause_with(|| {
             let hash = self.hash_of(removed.key());
             unsafe {
@@ -178,6 +291,11 @@ where
         }
     }
 
+    /// Removes unconditionally the entry identified by the given key. If no
+    /// entry was found, `None` is returned. This method will only work
+    /// correctly if `Hash` and `Ord` are implemented in the same way for the
+    /// borrowed type and the stored type. If the entry was not found, `None` is
+    /// returned.
     pub fn remove<Q>(&self, key: &Q) -> Option<Removed<K, V>>
     where
         Q: ?Sized + Hash + Ord,
@@ -186,6 +304,13 @@ where
         self.remove_with(key, |_| true)
     }
 
+    /// Removes _interactively_ the entry identified by the given key. A closure
+    /// is passed to validate the removal. The only argument passed to the
+    /// closure is a reference to the found entry. The closure returns if the
+    /// removal should go on. If no entry was found, `None` is returned. This
+    /// method will only work correctly if `Hash` and `Ord` are implemented
+    /// in the same way for the borrowed type and the stored type. If the
+    /// entry was not found, `None` is returned.
     pub fn remove_with<Q, F>(
         &self,
         key: &Q,
@@ -200,23 +325,6 @@ where
             let hash = self.hash_of(key);
             unsafe { self.top.remove(key, interactive, hash, &self.incin) }
         })
-    }
-
-    pub fn optimize_space(&mut self) {
-        self.incin.try_clear();
-        self.top.optimize_space();
-    }
-
-    pub fn clear(&mut self) {
-        self.incin.try_clear();
-
-        let mut tables = Vec::new();
-
-        self.top.clear(&mut tables);
-
-        while let Some(mut table) = tables.pop() {
-            table.free_nodes(&mut tables);
-        }
     }
 
     fn hash_of<Q>(&self, key: &Q) -> u64
@@ -371,7 +479,7 @@ mod test {
         let prev = map.insert("four".to_owned(), 40).unwrap();
         assert_eq!(prev.key(), "four");
         assert_eq!(*prev.val(), 4);
-        let prev = map.reinsert(prev).unwrap();
+        let prev = map.reinsert(prev).take_updated().unwrap();
         assert_eq!(prev.key(), "four");
         assert_eq!(*prev.val(), 40);
         assert!(*map.get("four").unwrap().val() == 4);

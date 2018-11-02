@@ -11,7 +11,8 @@ const BITS: usize = 8;
 
 /// Per Object Thread Local Storage. The stored data is not dropped on thread
 /// exit. It is only dropped when the structure itself is dropped. After the
-/// thread exited, the data might be reused for other threads.
+/// thread exited, the data might be reused for other threads. This TLS's
+/// operation are also wait-free.
 ///
 /// # Example
 /// ```

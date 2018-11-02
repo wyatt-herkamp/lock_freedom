@@ -1,11 +1,13 @@
 use super::{
-    bucket::{Bucket, Garbage, List},
+    bucket::{Bucket, Garbage},
     guard::ReadGuard,
     table::Table,
 };
 use incin::Pause;
 use std::mem::replace;
 
+/// An iterator over key-vaue-pair entries of a `Map`. The `Item` of this
+/// iterator is a `ReadGuard`.
 #[derive(Debug)]
 pub struct Iter<'origin, K, V>
 where

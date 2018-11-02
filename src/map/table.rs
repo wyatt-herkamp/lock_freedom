@@ -1,5 +1,5 @@
 use super::{
-    bucket::{Bucket, Entry, Garbage, GetRes, InsertRes, RemoveRes},
+    bucket::{Bucket, Entry, Garbage, GetRes, InsertRes},
     guard::Removed,
     insertion::{Inserter, Insertion},
 };

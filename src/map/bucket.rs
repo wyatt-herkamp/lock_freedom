@@ -1,7 +1,7 @@
 use super::{guard::Removed, insertion::Inserter};
 use atomic::{Atomic, AtomicBox, AtomicBoxIncin};
 use incin::Incinerator;
-use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
+use owned_alloc::OwnedAlloc;
 use ptr;
 use std::{
     borrow::Borrow,
