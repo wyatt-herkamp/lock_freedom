@@ -311,7 +311,7 @@ impl<T, E> Insertion<T, E> {
     }
 }
 
-/// A read-operations guard. This ensures no element allocation is
+/// A read-operation guard. This ensures no element allocation is
 /// mutated or freed while potential reads are performed.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ReadGuard<'origin, T>

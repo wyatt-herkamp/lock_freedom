@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-/// A read-operations guard. This ensures no entry allocation is
+/// A read-operation guard. This ensures no entry allocation is
 /// mutated or freed while potential reads are performed.
 #[derive(Debug)]
 pub struct ReadGuard<'origin, K, V>
