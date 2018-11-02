@@ -54,6 +54,10 @@ where
         }
     }
 
+    pub fn hasher(&self) -> &H {
+        &self.builder
+    }
+
     pub fn get<'origin, Q>(
         &'origin self,
         key: &Q,

@@ -51,7 +51,10 @@ impl BadHash {
     }
 
     fn get(&self, index: usize) -> u8 {
-        self.bytes.get(index).map_or(0, |&x| x)
+        index
+            .checked_rem(self.bytes.len())
+            .map(|index| self.bytes[index])
+            .unwrap_or(0)
     }
 }
 
@@ -106,12 +109,12 @@ impl Machine for MapMachine {
                 self.key2 = bytecode.next().unwrap_or(0);
                 self.key3 = bytecode.next().unwrap_or(0);
                 let key = self.make_key(bytecode);
-                self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
+                self.val = self.map.get(&key).map_or(0, |guard| *guard.val());
             },
 
             3 => {
                 let key = self.make_key(bytecode);
-                self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
+                self.val = self.map.get(&key).map_or(0, |guard| *guard.val());
                 self.key2 = self.key0;
                 self.key0 = bytecode.next().unwrap_or(0);
                 self.key3 ^= self.key0;
@@ -119,7 +122,7 @@ impl Machine for MapMachine {
 
             4 => {
                 let key = self.make_key(bytecode);
-                self.val = self.map.get(&key, |&byte| byte).unwrap_or(0);
+                self.val = self.map.get(&key).map_or(0, |guard| *guard.val());
                 self.key3 = self.key1;
                 self.key1 = bytecode.next().unwrap_or(0);
                 self.key2 ^= self.val;
@@ -139,16 +142,16 @@ impl Machine for MapMachine {
                         2 | 3 => Preview::Keep,
                         4 => Preview::New(
                             inc.wrapping_add(key.get(1))
-                                .wrapping_add(stored.map_or(0, |(_, &x)| x))
-                                .wrapping_add(val.map_or(0, |&x| x)),
+                                .wrapping_add(stored.map_or(0, |&(_, x)| x))
+                                .wrapping_add(val.map_or(0, |x| *x)),
                         ),
                         5 => Preview::New(inc.wrapping_add(key.get(2))),
                         6 => Preview::New(
-                            inc.wrapping_add(stored.map_or(0, |(_, &x)| x)),
+                            inc.wrapping_add(stored.map_or(0, |&(_, x)| x)),
                         ),
                         7 => Preview::New(
                             key.get(3)
-                                .wrapping_add(stored.map_or(0, |(_, &x)| x)),
+                                .wrapping_add(stored.map_or(0, |&(_, x)| x)),
                         ),
                         _ => unreachable!(),
                     }
@@ -163,28 +166,29 @@ impl Machine for MapMachine {
                 };
                 let decision = bytecode.next().unwrap_or(0);
                 let test = bytecode.next().unwrap_or(0);
-                self.map.reinsert_with(
-                    removed,
-                    |removed, stored| match decision % 5 {
-                        0 => removed.val().wrapping_add(test) % 2 == 0,
-                        1 => removed.val().wrapping_mul(test) % 2 == 0,
+                self.map.reinsert_with(removed, |&(_, val), stored| {
+                    match decision % 5 {
+                        0 => val.wrapping_add(test) % 2 == 0,
+                        1 => val.wrapping_mul(test) % 2 == 0,
                         2 => {
-                            let res = removed.val().wrapping_mul(
-                                test ^ stored.map_or(0, |(_, &x)| x),
+                            let res = val.wrapping_mul(
+                                test ^ stored.map_or(0, |&(_, x)| x),
                             );
                             res % 2 == 0
                         },
                         3 => stored.is_some(),
                         4 => stored.is_none(),
                         _ => unreachable!(),
-                    },
-                );
+                    }
+                });
             },
 
             9 => {
                 let mut sum = 0u8;
-                for (k, v) in self.map.iter(|k, &v| (k.get(9), v)) {
-                    sum = sum.wrapping_add(k).wrapping_add(v);
+                for guard in &*self.map {
+                    let (k, v) = &*guard;
+                    let k = k.get(sum as usize);
+                    sum = sum.wrapping_add(k).wrapping_add(*v);
                 }
                 self.key2 = sum;
             },
@@ -204,8 +208,8 @@ impl Machine for MapMachine {
             12 => {
                 let key = self.make_key(bytecode);
                 if let Some(removed) = self.map.remove(&key) {
-                    self.map.reinsert_with(removed, |removed, inside| {
-                        inside.map_or(*removed.val(), |(_, &v)| v) % 2 == 1
+                    self.map.reinsert_with(removed, |&(_, val), inside| {
+                        inside.map_or(val, |&(_, v)| v) % 2 == 1
                     });
                 }
             },

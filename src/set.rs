@@ -1,10 +1,12 @@
+#![allow(missing_docs)]
+
 pub use map::RandomState;
 use map::{
     Insertion as MapInsertion,
     Iter as MapIter,
-    IterReader as MapIterReader,
     Map,
     Preview,
+    ReadGuard as MapGuard,
     Removed as MapRemoved,
 };
 use std::{
@@ -15,36 +17,50 @@ use std::{
     ops::Deref,
 };
 
-/// A lockfree set. Implemented using multi-level hash-tables (in a tree
-/// fashion) with ordered buckets. For more implementation details, see
-/// `Map` documentation.
 pub struct Set<T, H = RandomState> {
     inner: Map<T, (), H>,
 }
 
 impl<T> Set<T> {
-    /// Creates this set with random state.
     pub fn new() -> Self {
         Self { inner: Map::new() }
     }
 }
 
-impl<T, H> Set<T, H> {
-    /// Creates this set with a hasher builder.
-    pub fn with_hasher(hasher_builder: H) -> Self
-    where
-        H: BuildHasher,
-    {
+impl<T, H> Set<T, H>
+where
+    H: BuildHasher,
+{
+    pub fn with_hasher(hasher_builder: H) -> Self {
         Self { inner: Map::with_hasher(hasher_builder) }
     }
 
-    /// Inserts an element into the set. If the element is already present,
-    /// nothing is changed and an error is returned with the element passed by
-    /// argument.
+    pub fn hasher(&self) -> &H {
+        self.inner.hasher()
+    }
+
+    pub fn contains<U>(&self, elem: &U) -> bool
+    where
+        U: Hash + Ord,
+        T: Borrow<U>,
+    {
+        self.inner.get(elem).is_some()
+    }
+
+    pub fn get<'origin, U>(
+        &'origin self,
+        elem: &U,
+    ) -> Option<ReadGuard<'origin, T>>
+    where
+        U: Hash + Ord,
+        T: Borrow<U>,
+    {
+        self.inner.get(elem).map(ReadGuard::new)
+    }
+
     pub fn insert(&self, elem: T) -> Result<(), T>
     where
         T: Hash + Ord,
-        H: BuildHasher,
     {
         let result = self.inner.insert_with(elem, |_, _, stored| {
             if stored.is_some() {
@@ -60,19 +76,13 @@ impl<T, H> Set<T, H> {
         }
     }
 
-    /// An _interactive_ insertion. The element to be inserted is passed with a
-    /// checker function. The first argument of the function is the provided
-    /// element, while the second is the already present element, equal to
-    /// the provided, if any. Then, the function returns whether to insert or
-    /// not, given the conditions.
-    pub fn insert_with<F>(&self, elem: T, mut checker: F) -> Insertion<T, T>
+    pub fn insert_with<F>(&self, elem: T, mut interactive: F) -> Insertion<T, T>
     where
         F: FnMut(&T, Option<&T>) -> bool,
         T: Hash + Ord,
-        H: BuildHasher,
     {
         let result = self.inner.insert_with(elem, |elem, _, stored| {
-            if checker(elem, stored.map(|(elem, _)| elem)) {
+            if interactive(elem, stored.map(|(elem, _)| elem)) {
                 Preview::New(())
             } else {
                 Preview::Discard
@@ -86,13 +96,9 @@ impl<T, H> Set<T, H> {
         }
     }
 
-    /// Reinserts a previously removed element from the set. If the element is
-    /// already present, nothing is changed and an error is returned with the
-    /// element passed by argument.
     pub fn reinsert(&self, elem: Removed<T>) -> Result<(), Removed<T>>
     where
         T: Hash + Ord,
-        H: BuildHasher,
     {
         let result =
             self.inner.reinsert_with(elem.inner, |_, stored| stored.is_none());
@@ -103,24 +109,19 @@ impl<T, H> Set<T, H> {
         }
     }
 
-    /// An _interactive_ reinsertion. The element to be inserted (previously
-    /// removed) is passed with a checker function. The first argument of
-    /// the function is the provided element, while the second is the
-    /// already present element, equal to the provided, if any. Then, the
-    /// function returns whether to insert or not, given the conditions.
     pub fn reinsert_with<F>(
         &self,
         elem: Removed<T>,
-        mut checker: F,
+        mut interactive: F,
     ) -> Insertion<T, Removed<T>>
     where
         F: FnMut(&T, Option<&T>) -> bool,
         T: Hash + Ord,
-        H: BuildHasher,
     {
-        let result = self.inner.reinsert_with(elem.inner, |elem, stored| {
-            checker(elem.key(), stored.map(|(elem, _)| elem))
-        });
+        let result =
+            self.inner.reinsert_with(elem.inner, |(elem, _), stored| {
+                interactive(elem, stored.map(|(elem, _)| elem))
+            });
 
         match result {
             MapInsertion::Created => Insertion::Created,
@@ -129,66 +130,12 @@ impl<T, H> Set<T, H> {
         }
     }
 
-    /// Tests whether an element is present or not. For this method to work,
-    /// besides being borrowable from `T`, `U` must implement `Hash` in the
-    /// same way as `T`.
-    pub fn contains<U>(&self, elem: &U) -> bool
-    where
-        H: BuildHasher,
-        U: Hash + Ord,
-        T: Borrow<U>,
-    {
-        self.inner.get(elem, |_| ()).is_some()
-    }
-
-    /// Gets the element into a temporary reference to be read by a provided
-    /// closure. The return of the closure is wrapped into a `Some`, and if
-    /// there was no element, `None` is returned.
-    pub fn get<U, F, A>(&self, elem: &U, reader: F) -> Option<A>
-    where
-        H: BuildHasher,
-        U: Hash + Ord,
-        T: Borrow<U>,
-        F: FnOnce(&T) -> A,
-    {
-        self.inner.get_pair(elem, |k, _| reader(k))
-    }
-
-    /// Removes the element from the set. For this method to work,
-    /// besides being borrowable from `T`, `U` must implement `Hash` in the
-    /// same way as `T`.
     pub fn remove<U>(&self, elem: &U) -> Option<Removed<T>>
     where
-        H: BuildHasher,
         U: Hash + Ord,
         T: Borrow<U>,
     {
         self.inner.remove(elem).map(Removed::new)
-    }
-
-    /// Iterates over the set with a given reader. The reader must be a
-    /// function/closure. This methods is just a specific version of
-    /// `iter_with_reader` due to Rust limitations on inference of closures
-    /// polymorphic on lifetimes.
-    pub fn iter<'set, F, U>(&'set self, reader: F) -> Iter<'set, T, F>
-    where
-        F: FnMut(&T) -> U,
-    {
-        self.iter_with_reader(reader)
-    }
-
-    /// Iterates over the set with a given reader. The reader may be a closure,
-    /// primitive function, or any other type that implements the reader trait.
-    pub fn iter_with_reader<'set, R>(&'set self, reader: R) -> Iter<'set, T, R>
-    where
-        R: IterReader<T>,
-    {
-        Iter { inner: self.inner.iter_with_reader(BridgeReader { reader }) }
-    }
-
-    /// The hasher builder with which this set was created.
-    pub fn hasher(&self) -> &H {
-        self.inner.hasher()
     }
 }
 
@@ -206,34 +153,28 @@ where
     H: fmt::Debug,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmtr,
-            "Set {} hasher_builder = {:?}, elements = ... {}",
-            '{',
-            self.inner.hasher(),
-            '}'
-        )
+        write!(fmtr, "Set {} inner_map: {:?} {}", '{', self.inner, '}')
     }
 }
 
-/// The result of an _interactive_ insertion.
+impl<'origin, T, H> IntoIterator for &'origin Set<T, H> {
+    type Item = ReadGuard<'origin, T>;
+
+    type IntoIter = Iter<'origin, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter { inner: self.inner.into_iter() }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Insertion<T, E> {
-    /// If this is returned, an entry for the given element was successfully
-    /// created i.e. there was no entry before.
     Created,
-    /// If this is returned, an entry for the given element already existed and
-    /// was successfully updated with the provided value. The field is the old
-    /// entry element.
     Updated(Removed<T>),
-    /// If this is returned, the insertion failed and no action was done.
-    /// Failure may have happened because the given closure rejected the
-    /// conditions. The field will depend on the method you called.
     Failed(E),
 }
 
 impl<T, E> Insertion<T, E> {
-    /// Is this insertion a creation?
     pub fn created(&self) -> bool {
         match self {
             Insertion::Created => true,
@@ -241,8 +182,6 @@ impl<T, E> Insertion<T, E> {
         }
     }
 
-    /// Is this insertion an update? If so, the return is a reference to the
-    /// old value.
     pub fn updated(&self) -> Option<&Removed<T>> {
         match self {
             Insertion::Updated(pair) => Some(pair),
@@ -250,8 +189,6 @@ impl<T, E> Insertion<T, E> {
         }
     }
 
-    /// Is this insertion an update? If so, the old value is taken and
-    /// returned. Otherwise, the insertion is returned.
     pub fn take_updated(self) -> Result<Removed<T>, Self> {
         match self {
             Insertion::Updated(pair) => Ok(pair),
@@ -259,7 +196,6 @@ impl<T, E> Insertion<T, E> {
         }
     }
 
-    /// Is this a failure? If so, return a reference to the custom field.
     pub fn failed(&self) -> Option<&E> {
         match self {
             Insertion::Failed(err) => Some(err),
@@ -267,8 +203,6 @@ impl<T, E> Insertion<T, E> {
         }
     }
 
-    /// Is this a failure? If so, the custom field is taken and
-    /// returned. Otherwise, the insertion is returned.
     pub fn take_failed(self) -> Result<E, Self> {
         match self {
             Insertion::Failed(e) => Ok(e),
@@ -277,9 +211,76 @@ impl<T, E> Insertion<T, E> {
     }
 }
 
-/// A removed entry from the set. It is reinsertable. Note that because it is
-/// shared between threads, it is not safe to be moved out without proper
-/// specific deallocation.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ReadGuard<'origin, T>
+where
+    T: 'origin,
+{
+    inner: MapGuard<'origin, T, ()>,
+}
+
+impl<'origin, T> ReadGuard<'origin, T> {
+    fn new(inner: MapGuard<'origin, T, ()>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'origin, T> Deref for ReadGuard<'origin, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.inner.key()
+    }
+}
+
+impl<'origin, T> fmt::Debug for ReadGuard<'origin, T>
+where
+    T: fmt::Debug,
+{
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt(fmtr)
+    }
+}
+
+impl<'origin, T> fmt::Display for ReadGuard<'origin, T>
+where
+    T: fmt::Display,
+{
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        (**self).fmt(fmtr)
+    }
+}
+
+impl<'origin, T> PartialEq<T> for ReadGuard<'origin, T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &T) -> bool {
+        **self == *other
+    }
+}
+
+impl<'origin, T> PartialOrd<T> for ReadGuard<'origin, T>
+where
+    T: PartialOrd,
+{
+    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
+        (**self).partial_cmp(other)
+    }
+}
+
+impl<'origin, T> Borrow<T> for ReadGuard<'origin, T> {
+    fn borrow(&self) -> &T {
+        self.deref()
+    }
+}
+
+impl<'origin, T> AsRef<T> for ReadGuard<'origin, T> {
+    fn as_ref(&self) -> &T {
+        self.deref()
+    }
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Removed<T> {
     inner: MapRemoved<T, ()>,
@@ -347,71 +348,19 @@ impl<T> AsRef<T> for Removed<T> {
     }
 }
 
-/// An iterator over `Set`. As in the `Map`'s `get` method, we cannot return a
-/// reference to the elements. Therefore, the iterator has a reader which reads
-/// a temporary reference and returns the actual iterator `Item`.
-pub struct Iter<'set, T, R>
+#[derive(Debug)]
+pub struct Iter<'origin, T>
 where
-    T: 'set,
-    R: IterReader<T>,
+    T: 'origin,
 {
-    inner: MapIter<'set, T, (), BridgeReader<R>>,
+    inner: MapIter<'origin, T, ()>,
 }
 
-impl<'set, T, R> Iterator for Iter<'set, T, R>
-where
-    R: IterReader<T>,
-{
-    type Item = R::Out;
+impl<'origin, T> Iterator for Iter<'origin, T> {
+    type Item = ReadGuard<'origin, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-}
-
-impl<'set, T, R> fmt::Debug for Iter<'set, T, R>
-where
-    R: IterReader<T>,
-    R::Out: fmt::Debug,
-{
-    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        self.inner.fmt(fmtr)
-    }
-}
-
-/// A reader on set's iterator's temporary reference to elements.
-pub trait IterReader<T> {
-    /// The actual item of the iterator which is coupled with this reader.
-    type Out;
-
-    /// Transforms the temporary references into the iterator item.
-    fn read(&mut self, elem: &T) -> Self::Out;
-}
-
-impl<T, F, U> IterReader<T> for F
-where
-    F: FnMut(&T) -> U,
-{
-    type Out = U;
-
-    fn read(&mut self, elem: &T) -> Self::Out {
-        self(elem)
-    }
-}
-
-#[derive(Debug)]
-struct BridgeReader<R> {
-    reader: R,
-}
-
-impl<T, R> MapIterReader<T, ()> for BridgeReader<R>
-where
-    R: IterReader<T>,
-{
-    type Out = R::Out;
-
-    fn read(&mut self, elem: &T, _: &()) -> Self::Out {
-        self.reader.read(elem)
+        self.inner.next().map(ReadGuard::new)
     }
 }
 

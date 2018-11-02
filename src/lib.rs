@@ -51,10 +51,8 @@ pub mod stack;
 /// A lock-free map.
 pub mod map;
 
-/*
 /// A lock-free set.
 pub mod set;
-*/
 
 /// Provides a doubly atomic reference counter.
 pub mod darc;
