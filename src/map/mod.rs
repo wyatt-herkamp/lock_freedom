@@ -564,6 +564,17 @@ mod test {
     }
 
     #[test]
+    fn reinsert_from_other_map_fails() {
+        let other = Map::new();
+        other.insert(5, 3);
+        other.insert(0, 0);
+        let removed = other.remove(&5).unwrap();
+        let _active_read = other.get(&0).unwrap();
+        let map = Map::new();
+        map.reinsert(removed).failed().unwrap();
+    }
+
+    #[test]
     fn iter_valid_items() {
         let map = Map::new();
         for i in 0 .. 10u128 {
