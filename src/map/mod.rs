@@ -206,9 +206,11 @@ where
     }
 
     /// Reinserts a previously removed entry. The entry must have been either:
+    ///
     /// 1. Removed from this very `Map`.
     /// 2. Removed from an already dead `Map`.
     /// 3. Removed from a `Map` which has no sensitive reads active.
+    ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.
     pub fn reinsert(
@@ -252,9 +254,11 @@ where
     /// `Map`.
     ///
     /// The entry must have been either:
+    ///
     /// 1. Removed from this very `Map`.
     /// 2. Removed from an already dead `Map`.
     /// 3. Removed from a `Map` which has no sensitive reads active.
+    ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.
     pub fn reinsert_with<F>(

@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-/// An on `Map` read-operations guard. This ensures no entry allocation is
+/// A read-operations guard. This ensures no entry allocation is
 /// mutated or freed while potential reads are performed.
 #[derive(Debug)]
 pub struct ReadGuard<'origin, K, V>
@@ -127,8 +127,8 @@ impl<'origin, K, V> Borrow<(K, V)> for ReadGuard<'origin, K, V> {
 }
 
 /// A removed entry. It can be reinserted at the same `Map` it was removed. It
-/// can also be inserted on another `Map`, but only if it is either dropped or
-/// there are no sensitive reads running on that `Map`.
+/// can also be inserted on another `Map`, but only if either the `Map` is
+/// dropped or there are no sensitive reads running on that `Map`.
 pub struct Removed<K, V> {
     nnptr: NonNull<(K, V)>,
     origin: Weak<Incinerator<Garbage<K, V>>>,
