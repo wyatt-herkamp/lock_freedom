@@ -119,11 +119,12 @@ where
     }
 
     /// Searches for the entry identified by the given key. The returned value
-    /// is a guarded reference, to ensure no thread deallocates the allocation
-    /// for the entry while it is being used. The method accepts a type resulted
-    /// from borrowing the stored key. This method will only work correctly if
-    /// `Hash` and `Ord` are implemented in the same way for the borrowed type
-    /// and the stored type. If the entry was not found, `None` is returned.
+    /// is a guarded reference. Guarded to ensure no thread deallocates the
+    /// allocation for the entry while it is being used. The method accepts
+    /// a type resulted from borrowing the stored key. This method will only
+    /// work correctly if `Hash` and `Ord` are implemented in the same way
+    /// for the borrowed type and the stored type. If the entry was not
+    /// found, `None` is returned.
     pub fn get<'origin, Q>(
         &'origin self,
         key: &Q,
@@ -164,7 +165,7 @@ where
     }
 
     /// Inserts _interactively_ the given key. A closure is passed to generate
-    /// the value part of the entry and validate it with the stored value. Even
+    /// the value part of the entry and validate it with the found value. Even
     /// though the closure may have already accepted some condition, it might
     /// get recalled many times due to concurrent modifications of the `Map`.
     ///

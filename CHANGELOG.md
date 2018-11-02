@@ -1,4 +1,4 @@
-# 0.3.0 (preview)
+# 0.3.0 (release)
 * Added `AtomicOptionBox`
 * Added per-object `ThreadLocal`
 * Rewrote `Incinerator` so it would be per-object
