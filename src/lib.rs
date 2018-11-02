@@ -4,15 +4,16 @@
 //!
 //! The incinerator is the API which tries to solve the "ABA problem" when
 //! related to pointer dropping. With incinerator, every thread has a local
-//! deletion queue. Dropping a shared consist of first removing the pointer
-//! from the shared context, then adding the pointer to the local queue. Then,
-//! a global counter is checked. If the counter is zero, then the whole queue
-//! is deleted, otherwise, the queue will only be deleted later.
+//! garbage list. Dropping a shared object consist of first removing the pointer
+//! from the shared context, then adding the pointer to the garbage list.
+//! A "pause counter" is checked. If the counter is zero, then the whole list
+//! is deleted, otherwise, the list will only be deleted later.
 //!
 //! This counter is counting how many times the incinerator was asked to
 //! "pause". A thread may pause the incinerator to load and use the shared
 //! pointer, and this is why it is important to remove the pointer from the
-//! shared context before deleting.
+//! shared context before deleting. Previous version of lockfree used a global
+//! incinerator. Currently, a per-object incinerator is used.
 //!
 //! This crate is under development, and there are plans for some structures.
 //! We have:
@@ -24,7 +25,7 @@
 //!
 //! # Performance Guide
 //! In order to achieve a better time performance with lockfree, it is
-//! recommended to avoid global locking things like heap allocation.
+//! recommended to avoid global locking stuff like heap allocation.
 
 extern crate owned_alloc;
 
@@ -36,7 +37,7 @@ pub mod prelude;
 /// inner type for more details.
 pub mod incin;
 
-/// Lock-free per-object Thread Local Storage (TLS).
+/// A wait-free per-object Thread Local Storage (TLS).
 pub mod tls;
 
 /// Atomic abstractions, such an atomic trait and atomic boxes.
