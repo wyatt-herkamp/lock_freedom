@@ -1,6 +1,8 @@
 # 0.3.0 (preview)
 * Added `AtomicOptionBox`
 * Added per-object `ThreadLocal`
+* Rewrote `Incinerator` so it would be per-object
+* Rewrote `Map` and `Set`. Now They have more flexible reading.
 
 # 0.2.0 (release)
 * Introduced Map
