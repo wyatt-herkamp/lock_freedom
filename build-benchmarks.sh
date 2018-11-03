@@ -34,3 +34,7 @@ echo '## MAP' >> $FILE
 echo '```' >> $FILE
 cargo run --bin map --release >> $FILE || exit 1
 echo '```' >> $FILE
+echo '## REQUEST PROGRAM' >> $FILE
+echo '```' >> $FILE
+cargo run --bin request --release >> $FILE || exit 1
+echo '```' >> $FILE

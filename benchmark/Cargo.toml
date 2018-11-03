@@ -27,3 +27,7 @@ path = "src/map.rs"
 [[bin]]
 name = "tls"
 path = "src/tls.rs"
+
+[[bin]]
+name = "request"
+path = "src/request.rs"

@@ -359,7 +359,7 @@ impl<T> Table<T> {
     }
 }
 
-#[repr(align(/* at least */ 2))]
+#[repr(align(/* at least */ 64))]
 struct Entry<T> {
     id: usize,
     val: T,

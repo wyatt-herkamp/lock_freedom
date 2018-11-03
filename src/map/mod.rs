@@ -94,16 +94,17 @@ where
     }
 
     /// Tries to optimize space by removing unnecessary tables *without removing
-    /// any entry*. This method cannot be performed in a shared context.
+    /// any entry*. This method might also clear delayed resource destruction.
+    /// This method cannot be performed in a shared context.
     pub fn optimize_space(&mut self) {
-        self.incin.try_clear();
+        self.try_clear_incin();
         self.top.optimize_space();
     }
 
-    /// Removes all entries. This method cannot be performed in a shared
-    /// context.
+    /// Removes all entries. This method might also clear delayed resource
+    /// destruction. This method cannot be performed in a shared context.
     pub fn clear(&mut self) {
-        self.incin.try_clear();
+        self.try_clear_incin();
         let mut tables = Vec::new();
         self.top.clear(&mut tables);
 
@@ -339,6 +340,15 @@ where
         let mut hasher = self.builder.build_hasher();
         key.hash(&mut hasher);
         hasher.finish()
+    }
+
+    fn try_clear_incin(&mut self) {
+        if Arc::weak_count(&self.incin) == 0 {
+            debug_assert!(Arc::strong_count(&self.incin) == 1);
+            Arc::get_mut(&mut self.incin).expect("Inconsistent Arc").clear();
+        } else {
+            self.incin.try_clear();
+        }
     }
 }
 
