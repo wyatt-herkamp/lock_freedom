@@ -14,6 +14,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+const STEP1: usize = 2500;
+const STEP2: usize = 2000;
+const SLEEP1: u64 = 62;
+const SLEEP2: u64 = 2;
+const SAMPLES: u32 = 5;
+
 fn prevent_opt<T>(val: T) {
     unsafe {
         let mut _local = uninitialized();
@@ -89,15 +95,10 @@ where
     }
 
     fn send_default_requests(&self) {
-        const STEP1: usize = 2000;
-        const STEP2: usize = 200;
-        const SLEEP1: u64 = 52;
-        const SLEEP2: u64 = 2;
-
         let mut pairs = Vec::with_capacity(STEP1);
         for i in 0 .. STEP1 {
-            let mut key = String::with_capacity(STEP1 * 2);
-            for j in 0 .. STEP1 {
+            let mut key = String::with_capacity(STEP1 / 10 * 2);
+            for j in 0 .. STEP1 / 10 {
                 write!(key, "{}{}", i * j, (i + j) as u8 as char).unwrap();
             }
             let mut val = format!("{}", i);
@@ -117,8 +118,8 @@ where
         thread::sleep(Duration::from_millis(SLEEP1));
 
         for i in 0 .. STEP2 {
-            let mut key = String::with_capacity(STEP2 * 2);
-            for j in 0 .. STEP2 {
+            let mut key = String::with_capacity(STEP2 / 10 * 2);
+            for j in 0 .. STEP2 / 10 {
                 write!(key, "{}{}", (i + j) as u8 as char, (i + j * 2))
                     .unwrap();
             }
@@ -236,15 +237,22 @@ fn main() {
 
     for &nthread in &[2, 4, 8, 16] {
         println!();
+
+        let mut mutexed = Duration::default();
+        let mut lockfree = Duration::default();
+
+        for _ in 0 .. SAMPLES {
+            mutexed += Server::<Mutex<_>, Mutex<_>>::measure(nthread);
+            lockfree += Server::<LfQueue<_>, LfMap<_, _>>::measure(nthread);
+        }
+
         println!(
             "Mutexed structures with {} threads total time: {:?}",
-            nthread,
-            Server::<Mutex<_>, Mutex<_>>::measure(nthread)
+            nthread, mutexed
         );
         println!(
             "Lockfree structures with {} threads total time: {:?}",
-            nthread,
-            Server::<LfQueue<_>, LfMap<_, _>>::measure(nthread)
+            nthread, lockfree
         );
     }
 }

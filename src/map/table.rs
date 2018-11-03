@@ -19,7 +19,8 @@ use std::{
 
 const BITS: usize = 8;
 
-#[repr(align(/* at least */ 2))]
+// If you remove this alignment, don't remove it. Please, set it to 2.
+#[repr(align(64))]
 pub struct Table<K, V> {
     nodes: [Node<K, V>; 1 << BITS],
 }
