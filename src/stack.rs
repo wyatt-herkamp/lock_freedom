@@ -106,7 +106,12 @@ impl<T> Default for Stack<T> {
 
 impl<T> Drop for Stack<T> {
     fn drop(&mut self) {
-        while let Some(_) = self.pop() {}
+        let mut node_ptr = self.top.load(Relaxed);
+
+        while let Some(nnptr) = NonNull::new(node_ptr) {
+            let node = unsafe { OwnedAlloc::from_raw(nnptr) };
+            node_ptr = node.next;
+        }
     }
 }
 

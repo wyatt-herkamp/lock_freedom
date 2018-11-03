@@ -10,7 +10,6 @@ use std::{
 
 /// A lock-free queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.
-#[repr(align(64))]
 pub struct Queue<T> {
     front: AtomicPtr<Node<T>>,
     back: AtomicPtr<Node<T>>,
@@ -137,11 +136,10 @@ impl<T> Default for Queue<T> {
 
 impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
-        while let Some(_) = self.pop() {}
-        if let Some(nnptr) = NonNull::new(self.front.load(Acquire)) {
-            unsafe {
-                OwnedAlloc::from_raw(nnptr);
-            }
+        let mut node_ptr = self.front.load(Relaxed);
+        while let Some(nnptr) = NonNull::new(node_ptr) {
+            let node = unsafe { OwnedAlloc::from_raw(nnptr) };
+            node_ptr = node.next.load(Relaxed);
         }
     }
 }

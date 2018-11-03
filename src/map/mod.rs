@@ -60,7 +60,6 @@ use std::{
 /// references to the entries, neither allow the user to move out removed
 /// values, as they must be deinitialized correctly. Instead, we return guarded
 /// references to the entries and wrappers over removed entries.
-#[repr(align(64))]
 pub struct Map<K, V, H = RandomState> {
     top: OwnedAlloc<Table<K, V>>,
     incin: Arc<Incinerator<Garbage<K, V>>>,
