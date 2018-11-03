@@ -5,7 +5,7 @@ use std::{
     iter::FromIterator,
     mem::ManuallyDrop,
     ptr::{null_mut, NonNull},
-    sync::atomic::{AtomicBool, AtomicPtr, Ordering::*},
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
 
 /// A lock-free queue. FIFO semanthics are fully respected.
@@ -32,17 +32,15 @@ impl<T> Queue<T> {
         let node = Node::new(val);
         let alloc = OwnedAlloc::new(node);
         let node_ptr = alloc.into_raw().as_ptr();
-        // Very simple schema: let's replace the back with our node, and then...
         self.incin.pause_with(|| {
             let ptr = self.back.swap(node_ptr, AcqRel);
             if let Some(back) = unsafe { ptr.as_ref() } {
-                // ...put our node as the "next" of the previous back, if it
-                // was not null...
-                let _next = back.next.swap(node_ptr, Release);
-                debug_assert!(_next.is_null());
+                let res =
+                    back.next.compare_and_swap(null_mut(), node_ptr, Release);
+                if !res.is_null() {
+                    self.front.compare_and_swap(ptr, node_ptr, Release);
+                }
             } else {
-                // ...otherwise, if it was null, front will also be null. We
-                // need to update front.
                 self.front.compare_and_swap(null_mut(), node_ptr, Release);
             }
         })
@@ -51,41 +49,42 @@ impl<T> Queue<T> {
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let PopIterRes { item, node } = self.incin.pause_with(|| {
-                // First, let's load the current pointer.
-                let ptr = self.front.load(Acquire);
-                // Then, if it is null, the queue never ever had an element.
-                let mut nnptr = match NonNull::new(ptr) {
+            let res = self.incin.pause_with(|| {
+                let front_ptr = self.front.load(Acquire);
+                let front_nnptr = match NonNull::new(front_ptr) {
                     Some(nnptr) => nnptr,
-                    None => return PopIterRes { item: Err(true), node: None },
+                    None => return Some(None),
                 };
 
-                let prev_removed =
-                    unsafe { nnptr.as_ref() }.removed.swap(true, Release);
+                let next_ptr =
+                    unsafe { front_nnptr.as_ref() }.next.load(Acquire) as usize;
 
-                if prev_removed {
-                    unsafe { self.clean_front_first(nnptr) }
-                } else {
-                    PopIterRes {
-                        item: Ok(unsafe {
-                            (&mut *nnptr.as_mut().val as *mut T).read()
-                        }),
-                        // let's be polite and clean it up anyway.
-                        node: unsafe { self.clean_front_first(nnptr) }.node,
+                if next_ptr & 1 == 0 {
+                    let res =
+                        unsafe { front_nnptr.as_ref() }.next.compare_and_swap(
+                            next_ptr as *mut _,
+                            (next_ptr | 1) as *mut _,
+                            Release,
+                        );
+
+                    if res == next_ptr as *mut _ {
+                        self.clear_first(front_ptr, next_ptr as *mut _);
+                        Some(Some(front_nnptr))
+                    } else {
+                        None
                     }
+                } else {
+                    self.clear_first(front_ptr, (next_ptr & !1) as *mut _);
+                    None
                 }
             });
 
-            if let Some(node) = node {
-                self.incin.add(node);
-            }
-
-            match item {
-                Ok(item) => break Some(item),
-
-                Err(true) => break None,
-
-                Err(false) => (),
+            if let Some(maybe_nnptr) = res {
+                break maybe_nnptr.map(|mut nnptr| unsafe {
+                    let val = (&mut *nnptr.as_mut().val as *mut T).read();
+                    self.incin.add(OwnedAlloc::from_raw(nnptr));
+                    val
+                });
             }
         }
     }
@@ -105,26 +104,9 @@ impl<T> Queue<T> {
         Iter { queue: self }
     }
 
-    unsafe fn clean_front_first(
-        &self,
-        expected: NonNull<Node<T>>,
-    ) -> PopIterRes<T> {
-        let next = expected.as_ref().next.load(Acquire);
-        if next.is_null() {
-            PopIterRes { item: Err(true), node: None }
-        } else {
-            let res =
-                self.front.compare_and_swap(expected.as_ptr(), next, Release);
-
-            PopIterRes {
-                item: Err(false),
-                node: if res == expected.as_ptr() {
-                    Some(OwnedAlloc::from_raw(expected))
-                } else {
-                    None
-                },
-            }
-        }
+    fn clear_first(&self, expected: *mut Node<T>, desired: *mut Node<T>) {
+        self.front.compare_and_swap(expected, desired, Release);
+        self.back.compare_and_swap(expected, desired, Release);
     }
 }
 
@@ -195,30 +177,21 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-struct PopIterRes<T> {
-    item: Result<T, bool>,
-    node: Option<OwnedAlloc<Node<T>>>,
-}
-
+#[repr(align(/* at least */ 2))]
 struct Node<T> {
-    removed: AtomicBool,
-    next: AtomicPtr<Node<T>>,
     val: ManuallyDrop<T>,
+    next: AtomicPtr<Node<T>>,
 }
 
 impl<T> Node<T> {
     fn new(val: T) -> Self {
-        Self {
-            removed: AtomicBool::new(false),
-            next: AtomicPtr::new(null_mut()),
-            val: ManuallyDrop::new(val),
-        }
+        Self { val: ManuallyDrop::new(val), next: AtomicPtr::new(null_mut()) }
     }
 }
 
 impl<T> Drop for Node<T> {
     fn drop(&mut self) {
-        if !self.removed.load(Relaxed) {
+        if self.next.load(Acquire) as usize & 1 == 0 {
             unsafe { ManuallyDrop::drop(&mut self.val) }
         }
     }
