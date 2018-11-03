@@ -3,12 +3,14 @@ use owned_alloc::OwnedAlloc;
 use std::{
     fmt,
     iter::FromIterator,
+    mem::ManuallyDrop,
     ptr::{null_mut, NonNull},
-    sync::atomic::{AtomicPtr, Ordering::*},
+    sync::atomic::{AtomicBool, AtomicPtr, Ordering::*},
 };
 
 /// A lock-free queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.
+#[repr(align(64))]
 pub struct Queue<T> {
     front: AtomicPtr<Node<T>>,
     back: AtomicPtr<Node<T>>,
@@ -54,36 +56,24 @@ impl<T> Queue<T> {
                 // First, let's load the current pointer.
                 let ptr = self.front.load(Acquire);
                 // Then, if it is null, the queue never ever had an element.
-                let nnptr = match NonNull::new(ptr) {
+                let mut nnptr = match NonNull::new(ptr) {
                     Some(nnptr) => nnptr,
                     None => return PopIterRes { item: Err(true), node: None },
                 };
 
-                // We are really interested in this pointer
-                let item_ptr = unsafe { nnptr.as_ref() }.val.load(Acquire);
+                let prev_removed =
+                    unsafe { nnptr.as_ref() }.removed.swap(true, Release);
 
-                // If it is null, this item already was removed. We need to
-                // clean it.
-                let item_nnptr = match NonNull::new(item_ptr) {
-                    Some(nnptr) => nnptr,
-                    _ => return unsafe { self.clean_front_first(nnptr) },
-                };
-
-                // To remove, we simply set the item to null.
-                let res = unsafe { nnptr.as_ref() }.val.compare_and_swap(
-                    item_ptr,
-                    null_mut(),
-                    Release,
-                );
-
-                if res == item_ptr {
+                if prev_removed {
+                    unsafe { self.clean_front_first(nnptr) }
+                } else {
                     PopIterRes {
-                        item: Ok(unsafe { OwnedAlloc::from_raw(item_nnptr) }),
+                        item: Ok(unsafe {
+                            (&mut *nnptr.as_mut().val as *mut T).read()
+                        }),
                         // let's be polite and clean it up anyway.
                         node: unsafe { self.clean_front_first(nnptr) }.node,
                     }
-                } else {
-                    PopIterRes { item: Err(false), node: None }
                 }
             });
 
@@ -92,12 +82,7 @@ impl<T> Queue<T> {
             }
 
             match item {
-                Ok(alloc) => {
-                    break Some({
-                        let (item, _) = alloc.move_inner();
-                        item
-                    })
-                },
+                Ok(item) => break Some(item),
 
                 Err(true) => break None,
 
@@ -212,23 +197,31 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-#[derive(Debug)]
 struct PopIterRes<T> {
-    item: Result<OwnedAlloc<T>, bool>,
+    item: Result<T, bool>,
     node: Option<OwnedAlloc<Node<T>>>,
 }
 
-#[derive(Debug)]
 struct Node<T> {
-    val: AtomicPtr<T>,
+    removed: AtomicBool,
     next: AtomicPtr<Node<T>>,
+    val: ManuallyDrop<T>,
 }
 
 impl<T> Node<T> {
     fn new(val: T) -> Self {
         Self {
-            val: AtomicPtr::new(OwnedAlloc::new(val).into_raw().as_ptr()),
+            removed: AtomicBool::new(false),
             next: AtomicPtr::new(null_mut()),
+            val: ManuallyDrop::new(val),
+        }
+    }
+}
+
+impl<T> Drop for Node<T> {
+    fn drop(&mut self) {
+        if !self.removed.load(Relaxed) {
+            unsafe { ManuallyDrop::drop(&mut self.val) }
         }
     }
 }
