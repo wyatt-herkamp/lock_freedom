@@ -234,7 +234,7 @@ impl Queue for Mutex<VecDeque<Request>> {
 fn main() {
     println!("A program simulating a concurrent server.");
 
-    for &nthread in &[4, 8, 16, 32] {
+    for &nthread in &[2, 4, 8, 16] {
         println!();
         println!(
             "Mutexed structures with {} threads total time: {:?}",
