@@ -17,6 +17,7 @@
 //!
 //! This crate is under development, and there are plans for some structures.
 //! We have:
+//! - `[x]` Per-Object Thread-Local Storage
 //! - `[x]` Stack
 //! - `[x]` Queue
 //! - `[ ]` Deque
