@@ -52,7 +52,7 @@ impl Target for StdTarget {
 
 fn main() {
     bench! {
-        levels 1, 4, 16, 32, 128, 512;
+        levels 1, 4, 16, 32, 128;
         "std/global" => StdTarget::default(),
         "blocking" => BlockingTarget::default(),
         "lockfree" => LockfreeTarget::default(),

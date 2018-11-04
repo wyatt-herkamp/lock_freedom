@@ -52,7 +52,7 @@ impl Target for LockfreeTarget {
 
 fn main() {
     bench! {
-        levels 1, 2, 4, 8;
+        levels 1, 2, 4, 8, 16;
         "mutex vector" => MutexVecTarget::default(),
         "mutex linked list" => MutexListTarget::default(),
         "lockfree" => LockfreeTarget::default(),

@@ -3,15 +3,15 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering::*},
         Arc,
-        Barrier,
     },
     thread,
     time::{Duration, Instant},
 };
 
-pub const ITER_PER_TRY: usize = 100;
+pub const ITER_PER_TRY: usize = 0x400;
 
 pub trait Target: Clone + Send + 'static {
+    #[inline(always)]
     fn round(&mut self);
 }
 
@@ -87,43 +87,30 @@ impl Executor {
         T: Target,
     {
         let mut threads = Vec::new();
-        let mut total = Duration::new(0, 0);
         let count = Arc::new(AtomicUsize::new(0));
-
         let exit = Arc::new(AtomicBool::new(false));
-        let barrier = Arc::new(Barrier::new(self.threads + 1));
 
         for _ in 0 .. self.threads {
             let mut target = target.clone();
-            let barrier = barrier.clone();
             let exit = exit.clone();
             let count = count.clone();
             threads.push(thread::spawn(move || {
-                barrier.wait();
                 while !exit.load(Acquire) {
                     for _ in 0 .. ITER_PER_TRY {
                         target.round();
                     }
                     count.fetch_add(ITER_PER_TRY, Relaxed);
-                    barrier.wait();
-                    barrier.wait();
                 }
             }))
         }
 
-        let until = Duration::from_millis(1500);
-        while total < until {
-            barrier.wait();
-            let start = Instant::now();
-            barrier.wait();
-            total += start.elapsed();
-        }
-
+        let start = Instant::now();
+        thread::sleep(Duration::from_millis(1250));
         exit.store(true, Release);
-        barrier.wait();
         for thread in threads {
             thread.join().unwrap()
         }
+        let total = start.elapsed();
 
         self.stats.push(Stat { duration: total, rounds: count.load(Relaxed) });
     }
