@@ -38,10 +38,10 @@ impl<T> Queue<T> {
                 let res =
                     back.next.compare_and_swap(null_mut(), node_ptr, Release);
                 if !res.is_null() {
-                    self.front.compare_and_swap(ptr, node_ptr, Release);
+                    self.front.store(node_ptr, Release);
                 }
             } else {
-                self.front.compare_and_swap(null_mut(), node_ptr, Release);
+                self.front.store(node_ptr, Release);
             }
         })
     }

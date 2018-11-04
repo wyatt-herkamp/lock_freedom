@@ -1,3 +1,6 @@
+# 0.3.2 (release)
+* Fixed a queue bug
+
 # 0.3.1 (release)
 * Performance improvement
 

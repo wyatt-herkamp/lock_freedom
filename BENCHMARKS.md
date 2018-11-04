@@ -14,7 +14,7 @@ CPU family:          6
 Model:               142
 Model name:          Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz
 Stepping:            9
-CPU MHz:             1027.635
+CPU MHz:             600.033
 CPU max MHz:         3100.0000
 CPU min MHz:         400.0000
 BogoMIPS:            5426.00
@@ -39,243 +39,243 @@ As you can see, there is a lot to improve!
 ```
 Result for 1 threads:
 Target 0 (std/global):
-mean of 382976448.810 r/s (478804992 rounds in 1.250 seconds)
+mean of 507702516.249 r/s (634727424 rounds in 1.250 seconds)
 Target 1 (blocking):
-mean of 141491969.047 r/s (176894976 rounds in 1.250 seconds)
+mean of 137870401.565 r/s (172363776 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 168138683.081 r/s (210205696 rounds in 1.250 seconds)
+mean of 167908969.795 r/s (209916928 rounds in 1.250 seconds)
 
 Result for 4 threads:
 Target 0 (std/global):
-mean of 875055153.256 r/s (1093926912 rounds in 1.250 seconds)
+mean of 1201494164.238 r/s (1502033920 rounds in 1.250 seconds)
 Target 1 (blocking):
-mean of 192204951.174 r/s (240281600 rounds in 1.250 seconds)
+mean of 199097907.138 r/s (248896512 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 247813531.624 r/s (309797888 rounds in 1.250 seconds)
+mean of 275372574.913 r/s (344248320 rounds in 1.250 seconds)
 
 Result for 16 threads:
 Target 0 (std/global):
-mean of 874015048.448 r/s (1093091328 rounds in 1.251 seconds)
+mean of 1197968280.139 r/s (1497885696 rounds in 1.250 seconds)
 Target 1 (blocking):
-mean of 125644396.654 r/s (157110272 rounds in 1.250 seconds)
+mean of 127151648.832 r/s (158982144 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 250557483.227 r/s (313274368 rounds in 1.250 seconds)
+mean of 276306975.238 r/s (345464832 rounds in 1.250 seconds)
 
 Result for 32 threads:
 Target 0 (std/global):
-mean of 874710588.134 r/s (1093868544 rounds in 1.251 seconds)
+mean of 1202302934.960 r/s (1503462400 rounds in 1.250 seconds)
 Target 1 (blocking):
-mean of 88833276.601 r/s (111112192 rounds in 1.251 seconds)
+mean of 90471055.235 r/s (113153024 rounds in 1.251 seconds)
 Target 2 (lockfree):
-mean of 233130814.862 r/s (291556352 rounds in 1.251 seconds)
+mean of 274143314.557 r/s (342829056 rounds in 1.251 seconds)
 
 Result for 128 threads:
 Target 0 (std/global):
-mean of 872981526.129 r/s (1093917696 rounds in 1.253 seconds)
+mean of 1196797913.474 r/s (1498395648 rounds in 1.252 seconds)
 Target 1 (blocking):
-mean of 44073162.760 r/s (55349248 rounds in 1.256 seconds)
+mean of 38954430.311 r/s (48899072 rounds in 1.255 seconds)
 Target 2 (lockfree):
-mean of 259472956.622 r/s (325004288 rounds in 1.253 seconds)
+mean of 204507608.385 r/s (256094208 rounds in 1.252 seconds)
 
 ```
 ## QUEUE
 ```
 Result for 1 threads:
 Target 0 (mutex vector):
-mean of 45621318.675 r/s (57036800 rounds in 1.250 seconds)
+mean of 45865666.688 r/s (57341952 rounds in 1.250 seconds)
 Target 1 (mutex linked list):
-mean of 26212242.442 r/s (32771072 rounds in 1.250 seconds)
+mean of 29777985.284 r/s (37225472 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 11304821.335 r/s (14134272 rounds in 1.250 seconds)
+mean of 12613278.250 r/s (15769600 rounds in 1.250 seconds)
 
 Result for 2 threads:
 Target 0 (mutex vector):
-mean of 9150681.870 r/s (11440128 rounds in 1.250 seconds)
+mean of 11975288.826 r/s (14972928 rounds in 1.250 seconds)
 Target 1 (mutex linked list):
-mean of 2458757.626 r/s (3074048 rounds in 1.250 seconds)
+mean of 4009181.359 r/s (5012480 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 5544808.527 r/s (6932480 rounds in 1.250 seconds)
+mean of 3604348.289 r/s (4506624 rounds in 1.250 seconds)
 
 Result for 4 threads:
 Target 0 (mutex vector):
-mean of 7836991.003 r/s (9799680 rounds in 1.250 seconds)
+mean of 8641242.663 r/s (10804224 rounds in 1.250 seconds)
 Target 1 (mutex linked list):
-mean of 4538477.699 r/s (5675008 rounds in 1.250 seconds)
+mean of 4961305.473 r/s (6202368 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 5001630.014 r/s (6254592 rounds in 1.251 seconds)
+mean of 3850200.523 r/s (4815872 rounds in 1.251 seconds)
 
 Result for 8 threads:
 Target 0 (mutex vector):
-mean of 7413078.716 r/s (9272320 rounds in 1.251 seconds)
+mean of 8247637.752 r/s (10313728 rounds in 1.251 seconds)
 Target 1 (mutex linked list):
-mean of 4409662.694 r/s (5515264 rounds in 1.251 seconds)
+mean of 4887162.681 r/s (6111232 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 4926683.752 r/s (6163456 rounds in 1.251 seconds)
+mean of 3966698.284 r/s (4977664 rounds in 1.255 seconds)
 
 Result for 16 threads:
 Target 0 (mutex vector):
-mean of 7369219.190 r/s (9221120 rounds in 1.251 seconds)
+mean of 8232350.886 r/s (10301440 rounds in 1.251 seconds)
 Target 1 (mutex linked list):
-mean of 4388091.403 r/s (5493760 rounds in 1.252 seconds)
+mean of 4868416.249 r/s (6092800 rounds in 1.251 seconds)
 Target 2 (lockfree):
-mean of 4910420.701 r/s (6147072 rounds in 1.252 seconds)
+mean of 3949844.057 r/s (4956160 rounds in 1.255 seconds)
 
 ```
 ## STACK
 ```
 Result for 1 threads:
 Target 0 (mutex vector):
-mean of 48345315.167 r/s (60441600 rounds in 1.250 seconds)
+mean of 48698296.138 r/s (60882944 rounds in 1.250 seconds)
 Target 1 (mutex linked list):
-mean of 24574297.506 r/s (30723072 rounds in 1.250 seconds)
+mean of 27281847.399 r/s (34105344 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 19236837.244 r/s (24050688 rounds in 1.250 seconds)
+mean of 19892717.537 r/s (24868864 rounds in 1.250 seconds)
 
 Result for 2 threads:
 Target 0 (mutex vector):
-mean of 8301412.462 r/s (10378240 rounds in 1.250 seconds)
+mean of 8732940.111 r/s (10917888 rounds in 1.250 seconds)
 Target 1 (mutex linked list):
-mean of 3247567.932 r/s (4060160 rounds in 1.250 seconds)
+mean of 4728348.861 r/s (5911552 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 5986439.920 r/s (7484416 rounds in 1.250 seconds)
+mean of 5831042.409 r/s (7290880 rounds in 1.250 seconds)
 
 Result for 4 threads:
 Target 0 (mutex vector):
-mean of 7729290.955 r/s (9665536 rounds in 1.251 seconds)
+mean of 7672210.405 r/s (9592832 rounds in 1.250 seconds)
 Target 1 (mutex linked list):
-mean of 4426244.151 r/s (5534720 rounds in 1.250 seconds)
+mean of 5115147.730 r/s (6395904 rounds in 1.250 seconds)
 Target 2 (lockfree):
-mean of 5649741.614 r/s (7064576 rounds in 1.250 seconds)
+mean of 5600703.837 r/s (7003136 rounds in 1.250 seconds)
 
 Result for 8 threads:
 Target 0 (mutex vector):
-mean of 7367773.291 r/s (9213952 rounds in 1.251 seconds)
+mean of 7238489.980 r/s (9052160 rounds in 1.251 seconds)
 Target 1 (mutex linked list):
-mean of 4357486.774 r/s (5450752 rounds in 1.251 seconds)
+mean of 4924829.077 r/s (6159360 rounds in 1.251 seconds)
 Target 2 (lockfree):
-mean of 5558750.117 r/s (6969344 rounds in 1.254 seconds)
+mean of 5641496.023 r/s (7062528 rounds in 1.252 seconds)
 
 Result for 16 threads:
 Target 0 (mutex vector):
-mean of 7383921.925 r/s (9241600 rounds in 1.252 seconds)
+mean of 7218661.524 r/s (9033728 rounds in 1.251 seconds)
 Target 1 (mutex linked list):
-mean of 4337292.214 r/s (5430272 rounds in 1.252 seconds)
+mean of 4884313.874 r/s (6112256 rounds in 1.251 seconds)
 Target 2 (lockfree):
-mean of 5566823.500 r/s (7008256 rounds in 1.259 seconds)
+mean of 5604583.804 r/s (7041024 rounds in 1.256 seconds)
 
 ```
 ## MAP
 ```
 Result for 1 threads:
 Target 0 (mutex insert):
-mean of 3226549.793 r/s (4520960 rounds in 1.401 seconds)
+mean of 3245663.189 r/s (4520960 rounds in 1.393 seconds)
 Target 1 (lockfree insert):
-mean of 2417858.495 r/s (3022848 rounds in 1.250 seconds)
+mean of 1878293.411 r/s (2349056 rounds in 1.251 seconds)
 
 Result for 2 threads:
 Target 0 (mutex insert):
-mean of 1951193.561 r/s (2440192 rounds in 1.251 seconds)
+mean of 1955374.895 r/s (2445312 rounds in 1.251 seconds)
 Target 1 (lockfree insert):
-mean of 2247680.873 r/s (2811904 rounds in 1.251 seconds)
+mean of 2074364.447 r/s (2594816 rounds in 1.251 seconds)
 
 Result for 4 threads:
 Target 0 (mutex insert):
-mean of 2226614.797 r/s (2785280 rounds in 1.251 seconds)
+mean of 2248484.902 r/s (2811904 rounds in 1.251 seconds)
 Target 1 (lockfree insert):
-mean of 2824016.261 r/s (3532800 rounds in 1.251 seconds)
+mean of 2529447.944 r/s (3166208 rounds in 1.252 seconds)
 
 Result for 8 threads:
 Target 0 (mutex insert):
-mean of 2321219.133 r/s (2907136 rounds in 1.252 seconds)
+mean of 2418818.767 r/s (3026944 rounds in 1.251 seconds)
 Target 1 (lockfree insert):
-mean of 2762057.004 r/s (3462144 rounds in 1.253 seconds)
+mean of 2386679.528 r/s (2997248 rounds in 1.256 seconds)
 
 Result for 1 threads:
 Target 0 (mutex get):
-mean of 6170187.304 r/s (7714816 rounds in 1.250 seconds)
+mean of 6234657.210 r/s (7794688 rounds in 1.250 seconds)
 Target 1 (lockfree get):
-mean of 3703641.394 r/s (4630528 rounds in 1.250 seconds)
+mean of 3893628.721 r/s (4868096 rounds in 1.250 seconds)
 
 Result for 2 threads:
 Target 0 (mutex get):
-mean of 1990736.605 r/s (2489344 rounds in 1.250 seconds)
+mean of 1997583.613 r/s (2498560 rounds in 1.251 seconds)
 Target 1 (lockfree get):
-mean of 3544282.008 r/s (4431872 rounds in 1.250 seconds)
+mean of 3422334.020 r/s (4280320 rounds in 1.251 seconds)
 
 Result for 4 threads:
 Target 0 (mutex get):
-mean of 2375643.678 r/s (2971648 rounds in 1.251 seconds)
+mean of 2368185.870 r/s (2963456 rounds in 1.251 seconds)
 Target 1 (lockfree get):
-mean of 4927310.204 r/s (6160384 rounds in 1.250 seconds)
+mean of 4928136.404 r/s (6163456 rounds in 1.251 seconds)
 
 Result for 8 threads:
 Target 0 (mutex get):
-mean of 2384735.607 r/s (2984960 rounds in 1.252 seconds)
+mean of 2389979.966 r/s (2990080 rounds in 1.251 seconds)
 Target 1 (lockfree get):
-mean of 5156623.916 r/s (6450176 rounds in 1.251 seconds)
+mean of 4957998.278 r/s (6203392 rounds in 1.251 seconds)
 
 Result for 1 threads:
 Target 0 (mutex remove):
-mean of 20202995.699 r/s (25257984 rounds in 1.250 seconds)
+mean of 21530076.185 r/s (26916864 rounds in 1.250 seconds)
 Target 1 (lockfree remove):
-mean of 1685627.329 r/s (2108416 rounds in 1.251 seconds)
+mean of 1813681.443 r/s (2268160 rounds in 1.251 seconds)
 
 Result for 2 threads:
 Target 0 (mutex remove):
-mean of 12888012.958 r/s (16111616 rounds in 1.250 seconds)
+mean of 13327937.249 r/s (16661504 rounds in 1.250 seconds)
 Target 1 (lockfree remove):
-mean of 3763581.016 r/s (4706304 rounds in 1.250 seconds)
+mean of 3660741.868 r/s (4583424 rounds in 1.252 seconds)
 
 Result for 4 threads:
 Target 0 (mutex remove):
-mean of 10561294.048 r/s (13205504 rounds in 1.250 seconds)
+mean of 10562804.879 r/s (13205504 rounds in 1.250 seconds)
 Target 1 (lockfree remove):
-mean of 7600924.371 r/s (9502720 rounds in 1.250 seconds)
+mean of 7386938.751 r/s (9244672 rounds in 1.251 seconds)
 
 Result for 8 threads:
 Target 0 (mutex remove):
-mean of 10431730.848 r/s (13044736 rounds in 1.250 seconds)
+mean of 10364420.400 r/s (12960768 rounds in 1.251 seconds)
 Target 1 (lockfree remove):
-mean of 8386584.818 r/s (10500096 rounds in 1.252 seconds)
+mean of 8097692.443 r/s (10127360 rounds in 1.251 seconds)
 
 Result for 1 threads:
 Target 0 (mutex mixed):
-mean of 4449050.395 r/s (5563392 rounds in 1.250 seconds)
+mean of 4440336.780 r/s (5552128 rounds in 1.250 seconds)
 Target 1 (lockfree mixed):
-mean of 1568698.959 r/s (1961984 rounds in 1.251 seconds)
+mean of 1373250.940 r/s (1717248 rounds in 1.250 seconds)
 
 Result for 2 threads:
 Target 0 (mutex mixed):
-mean of 1516633.958 r/s (1896448 rounds in 1.250 seconds)
+mean of 1481844.670 r/s (1853440 rounds in 1.251 seconds)
 Target 1 (lockfree mixed):
-mean of 916111.760 r/s (1146880 rounds in 1.252 seconds)
+mean of 836986.122 r/s (1046528 rounds in 1.250 seconds)
 
 Result for 4 threads:
 Target 0 (mutex mixed):
-mean of 1308330.577 r/s (1637376 rounds in 1.252 seconds)
+mean of 1285632.698 r/s (1608704 rounds in 1.251 seconds)
 Target 1 (lockfree mixed):
-mean of 908570.362 r/s (1136640 rounds in 1.251 seconds)
+mean of 1024728.383 r/s (1283072 rounds in 1.252 seconds)
 
 Result for 8 threads:
 Target 0 (mutex mixed):
-mean of 1230896.319 r/s (1543168 rounds in 1.254 seconds)
+mean of 1370936.161 r/s (1720320 rounds in 1.255 seconds)
 Target 1 (lockfree mixed):
-mean of 1145833.551 r/s (1472512 rounds in 1.285 seconds)
+mean of 896221.335 r/s (1274880 rounds in 1.423 seconds)
 
 ```
 ## REQUEST PROGRAM
 ```
 A program simulating a concurrent server.
 
-Mutexed structures with 2 threads total time: 788.622584ms
-Lockfree structures with 2 threads total time: 774.831752ms
+Mutexed structures with 2 threads total time: 801.557332ms
+Lockfree structures with 2 threads total time: 766.807919ms
 
-Mutexed structures with 4 threads total time: 881.279874ms
-Lockfree structures with 4 threads total time: 1.069009616s
+Mutexed structures with 4 threads total time: 849.087745ms
+Lockfree structures with 4 threads total time: 987.866822ms
 
-Mutexed structures with 8 threads total time: 923.821453ms
-Lockfree structures with 8 threads total time: 1.356380976s
+Mutexed structures with 8 threads total time: 997.107577ms
+Lockfree structures with 8 threads total time: 1.332784084s
 
-Mutexed structures with 16 threads total time: 1.721107142s
-Lockfree structures with 16 threads total time: 2.155549363s
+Mutexed structures with 16 threads total time: 1.53092204s
+Lockfree structures with 16 threads total time: 1.946800344s
 ```
