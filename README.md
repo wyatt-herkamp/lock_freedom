@@ -1,5 +1,15 @@
 # lockfree
-Lockfree data structures for Rust
+Lockfree data structures for Rust.
+
+We currently have:
+* Per-Object Thread-Local Storage
+* Map
+* Set
+* Queue
+* Stack
+* Doubly Atomic Reference Counter
+* Atomic Box
+* Atomic Optional Box
 
 # Documentation
 <https://bzim.gitlab.io/lockfree/lockfree/>
