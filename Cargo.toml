@@ -1,6 +1,6 @@
 [package]
 name = "lockfree"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
 description = "This crate provides concurrent data structures and a solution to the ABA problem as an alternative of hazard pointers"
 repository = "https://gitlab.com/bzim/lockfree/"
