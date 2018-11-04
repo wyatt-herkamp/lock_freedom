@@ -38,48 +38,55 @@ impl<T> Queue<T> {
                 let res =
                     back.next.compare_and_swap(null_mut(), node_ptr, Release);
                 if !res.is_null() {
-                    self.front.store(node_ptr, Release);
+                    self.front.compare_and_swap(ptr, node_ptr, Release);
                 }
             } else {
-                self.front.store(node_ptr, Release);
+                self.front.compare_and_swap(null_mut(), node_ptr, Release);
             }
         })
     }
 
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
-        let res = self.incin.pause_with(|| loop {
-            let front_ptr = self.front.load(Acquire);
-            let front_nnptr = match NonNull::new(front_ptr) {
-                Some(nnptr) => nnptr,
-                None => break None,
-            };
+        loop {
+            let res = self.incin.pause_with(|| {
+                let front_ptr = self.front.load(Acquire);
+                let front_nnptr = match NonNull::new(front_ptr) {
+                    Some(nnptr) => nnptr,
+                    None => return Some(None),
+                };
 
-            let next_ptr =
-                unsafe { front_nnptr.as_ref() }.next.load(Acquire) as usize;
+                let next_ptr =
+                    unsafe { front_nnptr.as_ref() }.next.load(Acquire) as usize;
 
-            if next_ptr & 1 == 0 {
-                let res =
-                    unsafe { front_nnptr.as_ref() }.next.compare_and_swap(
-                        next_ptr as *mut _,
-                        (next_ptr | 1) as *mut _,
-                        Release,
-                    );
+                if next_ptr & 1 == 0 {
+                    let res =
+                        unsafe { front_nnptr.as_ref() }.next.compare_and_swap(
+                            next_ptr as *mut _,
+                            (next_ptr | 1) as *mut _,
+                            Release,
+                        );
 
-                if res == next_ptr as *mut _ {
-                    self.clear_first(front_ptr, next_ptr as *mut _);
-                    break Some(front_nnptr);
+                    if res == next_ptr as *mut _ {
+                        self.clear_first(front_ptr, next_ptr as *mut _);
+                        Some(Some(front_nnptr))
+                    } else {
+                        None
+                    }
+                } else {
+                    self.clear_first(front_ptr, (next_ptr & !1) as *mut _);
+                    None
                 }
-            } else {
-                self.clear_first(front_ptr, (next_ptr & !1) as *mut _);
-            }
-        });
+            });
 
-        res.map(|mut nnptr| unsafe {
-            let val = (&mut *nnptr.as_mut().val as *mut T).read();
-            self.incin.add(OwnedAlloc::from_raw(nnptr));
-            val
-        })
+            if let Some(maybe_nnptr) = res {
+                break maybe_nnptr.map(|mut nnptr| unsafe {
+                    let val = (&mut *nnptr.as_mut().val as *mut T).read();
+                    self.incin.add(OwnedAlloc::from_raw(nnptr));
+                    val
+                });
+            }
+        }
     }
 
     /// Extends the queue from a given iterable.
@@ -97,7 +104,6 @@ impl<T> Queue<T> {
         Iter { queue: self }
     }
 
-    #[inline]
     fn clear_first(&self, expected: *mut Node<T>, desired: *mut Node<T>) {
         self.front.compare_and_swap(expected, desired, Release);
         self.back.compare_and_swap(expected, desired, Release);
@@ -115,7 +121,7 @@ impl<T> Drop for Queue<T> {
         let mut node_ptr = self.front.load(Relaxed);
         while let Some(nnptr) = NonNull::new(node_ptr) {
             let node = unsafe { OwnedAlloc::from_raw(nnptr) };
-            node_ptr = (node.next.load(Relaxed) as usize & !1) as *mut _;
+            node_ptr = node.next.load(Relaxed);
         }
     }
 }
