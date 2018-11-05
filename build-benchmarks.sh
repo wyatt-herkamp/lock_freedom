@@ -22,19 +22,30 @@ echo '## THREAD-LOCAL STORAGE' >> $FILE
 echo '```' >> $FILE
 cargo run --bin tls --release >> $FILE || exit 1
 echo '```' >> $FILE
+echo '' >> $FILE
 echo '## QUEUE' >> $FILE
 echo '```' >> $FILE
 cargo run --bin queue --release >> $FILE || exit 1
 echo '```' >> $FILE
+echo '' >> $FILE
 echo '## STACK' >> $FILE
 echo '```' >> $FILE
+echo '' >> $FILE
 cargo run --bin stack --release >> $FILE || exit 1
 echo '```' >> $FILE
+echo '' >> $FILE
 echo '## MAP' >> $FILE
 echo '```' >> $FILE
 cargo run --bin map --release >> $FILE || exit 1
 echo '```' >> $FILE
+echo '' >> $FILE
 echo '## REQUEST PROGRAM' >> $FILE
 echo '```' >> $FILE
 cargo run --bin request --release >> $FILE || exit 1
 echo '```' >> $FILE
+echo '' >> $FILE
+echo '## MESSAGE REVERB PROGRAM' >> $FILE
+echo '```' >> $FILE
+cargo run --bin reverb --release >> $FILE || exit 1
+echo '```' >> $FILE
+echo '' >> $FILE

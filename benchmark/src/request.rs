@@ -2,7 +2,7 @@ extern crate lockfree;
 
 use lockfree::{map::Map as LfMap, queue::Queue as LfQueue};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, LinkedList, VecDeque},
     fmt::Write,
     mem::uninitialized,
     sync::{
@@ -232,23 +232,40 @@ impl Queue for Mutex<VecDeque<Request>> {
     }
 }
 
+impl Queue for Mutex<LinkedList<Request>> {
+    fn push(&self, request: Request) {
+        self.lock().unwrap().push_back(request)
+    }
+
+    fn pop(&self) -> Option<Request> {
+        self.lock().unwrap().pop_front()
+    }
+}
+
 fn main() {
     println!("A program simulating a concurrent server.");
 
     for &nthread in &[2, 4, 8, 16] {
         println!();
 
-        let mut mutexed = Duration::default();
+        let mut deque = Duration::default();
+        let mut linked = Duration::default();
         let mut lockfree = Duration::default();
 
         for _ in 0 .. SAMPLES {
-            mutexed += Server::<Mutex<_>, Mutex<_>>::measure(nthread);
+            deque += Server::<Mutex<VecDeque<_>>, Mutex<_>>::measure(nthread);
+            linked +=
+                Server::<Mutex<LinkedList<_>>, Mutex<_>>::measure(nthread);
             lockfree += Server::<LfQueue<_>, LfMap<_, _>>::measure(nthread);
         }
 
         println!(
-            "Mutexed structures with {} threads total time: {:?}",
-            nthread, mutexed
+            "Mutexed HashMap and VecDeque with {} threads total time: {:?}",
+            nthread, deque
+        );
+        println!(
+            "Mutexed HashMap and LinkedList with {} threads total time: {:?}",
+            nthread, linked
         );
         println!(
             "Lockfree structures with {} threads total time: {:?}",

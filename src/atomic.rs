@@ -133,6 +133,14 @@ pub trait Atomic: Send + Sync {
             }
         }
     }
+
+    /// Returns the inner value stored within this atomic.
+    fn into_inner(self) -> Self::Inner
+    where
+        Self: Sized,
+    {
+        self.load(Relaxed)
+    }
 }
 
 macro_rules! impl_atomic {
@@ -252,6 +260,12 @@ where
     /// The shared incinerator used by this `AtomicBox`.
     pub fn incinerator(&self) -> AtomicBoxIncin<T> {
         AtomicBoxIncin { inner: self.incin.clone() }
+    }
+
+    /// Returns a mutable reference to the stored data.
+    /// This is safe because it requires a mutable (thus exclusive) reference.
+    pub fn get_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.ptr.load(Relaxed) }
     }
 }
 
@@ -507,6 +521,12 @@ where
     /// The shared incinerator used by this `AtomicOptionBox`.
     pub fn incinerator(&self) -> AtomicBoxIncin<T> {
         AtomicBoxIncin { inner: self.incin.clone() }
+    }
+
+    /// Returns a mutable reference to the stored data, if any.
+    /// This is safe because it requires a mutable (thus exclusive) reference.
+    pub fn get_mut(&mut self) -> Option<&mut T> {
+        unsafe { self.ptr.load(Relaxed).as_mut() }
     }
 
     fn make_ptr(val: Option<T>) -> *mut T {

@@ -31,3 +31,7 @@ path = "src/tls.rs"
 [[bin]]
 name = "request"
 path = "src/request.rs"
+
+[[bin]]
+name = "reverb"
+path = "src/reverb.rs"
