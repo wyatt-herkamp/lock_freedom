@@ -14,12 +14,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const STEP1: usize = 2500;
-const STEP2: usize = 2000;
-const SLEEP1: u64 = 62;
-const SLEEP2: u64 = 2;
-const SAMPLES: u32 = 5;
-
 fn prevent_opt<T>(val: T) {
     unsafe {
         let mut _local = uninitialized();
@@ -94,11 +88,19 @@ where
         self.shared.requests.push(request)
     }
 
-    fn send_default_requests(&self) {
-        let mut pairs = Vec::with_capacity(STEP1);
-        for i in 0 .. STEP1 {
-            let mut key = String::with_capacity(STEP1 / 10 * 2);
-            for j in 0 .. STEP1 / 10 {
+    fn send_default_requests(
+        &self,
+        step1: usize,
+        step2: usize,
+        nest1: usize,
+        nest2: usize,
+        sleep1: u64,
+        sleep2: u64,
+    ) {
+        let mut pairs = Vec::with_capacity(step1);
+        for i in 0 .. step1 {
+            let mut key = String::with_capacity(step1 * nest1 * 2 + 1);
+            for j in 0 .. nest1 {
                 write!(key, "{}{}", i * j, (i + j) as u8 as char).unwrap();
             }
             let mut val = format!("{}", i);
@@ -115,11 +117,11 @@ where
             self.send_request(Request::Delete(key));
         }
 
-        thread::sleep(Duration::from_millis(SLEEP1));
+        thread::sleep(Duration::from_millis(sleep1));
 
-        for i in 0 .. STEP2 {
-            let mut key = String::with_capacity(STEP2 / 10 * 2);
-            for j in 0 .. STEP2 / 10 {
+        for i in 0 .. step2 {
+            let mut key = String::with_capacity(nest2 * step2 * 2 + 1);
+            for j in 0 .. nest2 {
                 write!(key, "{}{}", (i + j) as u8 as char, (i + j * 2))
                     .unwrap();
             }
@@ -136,7 +138,7 @@ where
             self.send_request(Request::Delete(key));
         }
 
-        thread::sleep(Duration::from_millis(SLEEP2));
+        thread::sleep(Duration::from_millis(sleep2));
         self.send_request(Request::Delete(Arc::from("not in the map")));
     }
 
@@ -147,10 +149,18 @@ where
         }
     }
 
-    fn measure(threads: usize) -> Duration {
+    fn measure(
+        threads: usize,
+        step1: usize,
+        step2: usize,
+        nest1: usize,
+        nest2: usize,
+        sleep1: u64,
+        sleep2: u64,
+    ) -> Duration {
         let mut this = Self::new(threads);
         let then = Instant::now();
-        this.send_default_requests();
+        this.send_default_requests(step1, step2, nest1, nest2, sleep1, sleep2);
         this.await_threads();
         then.elapsed()
     }
@@ -245,19 +255,25 @@ impl Queue for Mutex<LinkedList<Request>> {
 fn main() {
     println!("A program simulating a concurrent server.");
 
+    const STEP1: usize = 0x20000;
+    const STEP2: usize = 0x4000;
+    const NEST1: usize = 5;
+    const NEST2: usize = 10;
+    const SLEEP1: u64 = 62;
+    const SLEEP2: u64 = 2;
+
     for &nthread in &[2, 4, 8, 16] {
         println!();
 
-        let mut deque = Duration::default();
-        let mut linked = Duration::default();
-        let mut lockfree = Duration::default();
-
-        for _ in 0 .. SAMPLES {
-            deque += Server::<Mutex<VecDeque<_>>, Mutex<_>>::measure(nthread);
-            linked +=
-                Server::<Mutex<LinkedList<_>>, Mutex<_>>::measure(nthread);
-            lockfree += Server::<LfQueue<_>, LfMap<_, _>>::measure(nthread);
-        }
+        let mut deque = Server::<Mutex<VecDeque<_>>, Mutex<_>>::measure(
+            nthread, STEP1, STEP2, NEST1, NEST2, SLEEP1, SLEEP2,
+        );
+        let mut linked = Server::<Mutex<LinkedList<_>>, Mutex<_>>::measure(
+            nthread, STEP1, STEP2, NEST1, NEST2, SLEEP1, SLEEP2,
+        );
+        let mut lockfree = Server::<LfQueue<_>, LfMap<_, _>>::measure(
+            nthread, STEP1, STEP2, NEST1, NEST2, SLEEP1, SLEEP2,
+        );
 
         println!(
             "Mutexed HashMap and VecDeque with {} threads total time: {:?}",

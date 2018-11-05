@@ -35,3 +35,7 @@ path = "src/request.rs"
 [[bin]]
 name = "reverb"
 path = "src/reverb.rs"
+
+[[bin]]
+name = "mining"
+path = "src/mining.rs"

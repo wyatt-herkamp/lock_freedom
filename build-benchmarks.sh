@@ -49,3 +49,8 @@ echo '```' >> $FILE
 cargo run --bin reverb --release >> $FILE || exit 1
 echo '```' >> $FILE
 echo '' >> $FILE
+echo '## HASH MINING' >> $FILE
+echo '```' >> $FILE
+cargo run --bin mining --release >> $FILE || exit 1
+echo '```' >> $FILE
+echo '' >> $FILE

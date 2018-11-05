@@ -8,10 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SAMPLES: usize = 10;
-const ITER: u128 = 0x4000;
-
-fn measure<Q>(nthread: usize) -> Duration
+fn measure<Q>(nthread: usize, niter: u128) -> Duration
 where
     Q: Queue + Send + Sync + 'static,
 {
@@ -19,12 +16,20 @@ where
     let then = Instant::now();
     let mut threads = Vec::with_capacity(nthread);
 
-    for _ in 0 .. nthread {
+    for i in 0 .. nthread {
         let channel = channel.clone();
         threads.push(thread::spawn(move || {
-            for j in 0 .. ITER {
+            let start = i as u128 * niter / nthread as u128;
+            let end = if i + 1 == nthread {
+                niter
+            } else {
+                (i as u128 + 1) * niter / nthread as u128
+            };
+
+            for j in start .. end {
                 let popped = channel.pop();
                 channel.push(j);
+                channel.push(i as u128 + j);
                 if let Some(num) = popped {
                     channel.push(num + j);
                 }
@@ -79,6 +84,9 @@ impl Queue for Mutex<LinkedList<u128>> {
 fn main() {
     println!("A program which reverberates messages");
 
+    const SAMPLES: usize = 5;
+    const NITER: u128 = 0x10000;
+
     for &nthread in &[2, 4, 8, 16] {
         println!();
 
@@ -87,9 +95,9 @@ fn main() {
         let mut lockfree = Duration::default();
 
         for _ in 0 .. SAMPLES {
-            deque += measure::<Mutex<VecDeque<_>>>(nthread);
-            linked += measure::<Mutex<LinkedList<_>>>(nthread);
-            lockfree += measure::<LfQueue<_>>(nthread);
+            deque += measure::<Mutex<VecDeque<_>>>(nthread, NITER);
+            linked += measure::<Mutex<LinkedList<_>>>(nthread, NITER);
+            lockfree += measure::<LfQueue<_>>(nthread, NITER);
         }
 
         println!(
