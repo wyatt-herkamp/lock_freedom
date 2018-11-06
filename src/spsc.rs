@@ -71,6 +71,9 @@ impl<T> Drop for Sender<T> {
     }
 }
 
+unsafe impl<T> Send for Sender<T> where T: Send {}
+unsafe impl<T> Sync for Sender<T> where T: Send {}
+
 pub struct Receiver<T> {
     front: NonNull<Node<T>>,
 }
@@ -138,8 +141,43 @@ impl<T> Drop for Receiver<T> {
     }
 }
 
+unsafe impl<T> Send for Receiver<T> where T: Send {}
+unsafe impl<T> Sync for Receiver<T> where T: Send {}
+
 #[repr(align(/* at least */ 2))]
 struct Node<T> {
     val: Option<T>,
     next: AtomicPtr<Node<T>>,
+}
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::thread;
+
+    #[test]
+    fn correct_sequence() {
+        let (mut sender, mut receiver) = channel::<usize>();
+        let thread = thread::spawn(move || {
+            for i in 0 .. 512 {
+                loop {
+                    match receiver.recv() {
+                        Ok(j) => {
+                            assert_eq!(i, j);
+                            break;
+                        },
+
+                        Err(RecvErr::NoMessage) => (),
+
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        });
+
+        for i in 0 .. 512 {
+            sender.send(i).unwrap();
+        }
+
+        thread.join().unwrap();
+    }
 }
