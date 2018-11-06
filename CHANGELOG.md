@@ -1,23 +1,27 @@
+# 0.4.0 (preview)
+* Added SPSC channel.
+* Added methods `get_mut` and `into_inner` for atomics.
+
 # 0.3.2 (release)
-* Fixed a queue bug
+* Fixed a queue bug.
 
 # 0.3.1 (release)
-* Performance improvement
+* Performance improvement.
 
 # 0.3.0 (release)
-* Added `AtomicOptionBox`
-* Added per-object `ThreadLocal`
-* Rewrote `Incinerator` so it would be per-object
+* Added `AtomicOptionBox`.
+* Added per-object `ThreadLocal`.
+* Rewrote `Incinerator` so it would be per-object.
 * Rewrote `Map` and `Set`. Now They have more flexible reading.
 
 # 0.2.0 (release)
-* Introduced Map
-* Introduced Set
-* Fixed design of Queue in order to make it really lockfree
-* Removed `Ordering`s from Darc
+* Introduced Map.
+* Introduced Set.
+* Fixed design of Queue in order to make it really lockfree.
+* Removed `Ordering`s from Darc.
 
 # 0.1.X (release)
-* Introduced Incinerator
-* Introduced Queue
-* Introduced Stack
-* Introduced Doubly-Atomic Reference Counter (Darc)
+* Introduced Incinerator.
+* Introduced Queue.
+* Introduced Stack.
+* Introduced Doubly-Atomic Reference Counter (Darc).
