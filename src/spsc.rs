@@ -1,22 +1,31 @@
-#![allow(missing_docs)]
-
 use owned_alloc::OwnedAlloc;
 use std::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
 
+/// The error of `Sender::send` operation. Occurs if the receiver was
+/// disconnected.
 #[derive(Debug, Clone, Copy)]
 pub struct NoRecv<T> {
+    /// The message which was attempted to be sent.
     pub message: T,
 }
 
+/// The error of `Receiver::recv` operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecvErr {
+    /// Returned when there are no messages, the channel is empty, but the
+    /// sender is still connected.
     NoMessage,
+    /// Returned when the sender was disconnected.
     NoSender,
 }
 
+/// Creates an asynchronous lock-free Single-Producer-Single-Consumer (SPSC)
+/// channel. The receiver does not provide any sort of `wait-for-message`
+/// operation. It would not be lock-free otherwise. If you need such a
+/// mechanism, consider using this channel with a `CondVar` (not lock-free).
 pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
     let alloc = OwnedAlloc::new(Node {
         val: None,
@@ -27,11 +36,13 @@ pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
     (Sender { back: nnptr }, Receiver { front: nnptr })
 }
 
+/// The `Sender` handle of a SPSC channel. Created by `channel` function.
 pub struct Sender<T> {
     back: NonNull<Node<T>>,
 }
 
 impl<T> Sender<T> {
+    /// Sends a message and if the receiver disconnected, an error is returned.
     pub fn send(&mut self, val: T) -> Result<(), NoRecv<T>> {
         let alloc = OwnedAlloc::new(Node {
             val: Some(val),
@@ -74,11 +85,15 @@ impl<T> Drop for Sender<T> {
 unsafe impl<T> Send for Sender<T> where T: Send {}
 unsafe impl<T> Sync for Sender<T> where T: Send {}
 
+/// The `Receiver` handle of a SPSC channel. Created by `channel` function.
 pub struct Receiver<T> {
     front: NonNull<Node<T>>,
 }
 
 impl<T> Receiver<T> {
+    /// Tries to receive a message. If no message is available,
+    /// `Err(RecvErr::NoMessage)` is returned. If the sender disconnected,
+    /// `Err(RecvErr::NoSender)` is returned.
     pub fn recv(&mut self) -> Result<T, RecvErr> {
         loop {
             let node = unsafe { &mut *self.front.as_ptr() };

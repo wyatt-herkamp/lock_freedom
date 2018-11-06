@@ -59,6 +59,7 @@ pub mod set;
 /// Provides a doubly atomic reference counter.
 pub mod darc;
 
+/// A lock-free Single-Producer-Single-Consumer (SPSC) FIFO channel.
 pub mod spsc;
 
 #[allow(dead_code)]
