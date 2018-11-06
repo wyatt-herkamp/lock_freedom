@@ -1,8 +1,10 @@
 #!/usr/bin/env sh
 
+set -e
+
 test_with_toolchain() {
-    cargo $1 test --target x86_64-unknown-linux-gnu -- --nocapture || exit 1
-    cargo $1 test --release --target x86_64-unknown-linux-gnu -- --nocapture || exit 1
+    cargo $1 test --target x86_64-unknown-linux-gnu -- --nocapture
+    cargo $1 test --release --target x86_64-unknown-linux-gnu -- --nocapture
 }
 
 test_with_toolchain +stable
