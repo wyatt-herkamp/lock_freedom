@@ -34,7 +34,9 @@ impl<T> Darc<T> {
 
     /// The shared incinerator used by this `Darc`.
     pub fn incinerator(&self) -> DarcIncin<T> {
-        DarcIncin { inner: self.incin.clone() }
+        DarcIncin {
+            inner: self.incin.clone(),
+        }
     }
 
     /// Loads the `Darc` into an `Arc`.
@@ -255,7 +257,9 @@ pub struct DarcIncin<T> {
 impl<T> DarcIncin<T> {
     /// Creates a new incinerator for darcs.
     pub fn new() -> Self {
-        Self { inner: Arc::new(Incinerator::new()) }
+        Self {
+            inner: Arc::new(Incinerator::new()),
+        }
     }
 }
 
@@ -267,7 +271,9 @@ impl<T> Default for DarcIncin<T> {
 
 impl<T> Clone for DarcIncin<T> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -334,8 +340,14 @@ mod test {
         let y = Arc::new(6);
         let z = Arc::new(7);
         let darc = Darc::new(x.clone());
-        assert!(!Arc::ptr_eq(&y, &darc.compare_and_swap(y.clone(), z.clone())));
-        assert!(Arc::ptr_eq(&x, &darc.compare_and_swap(x.clone(), z.clone())));
+        assert!(!Arc::ptr_eq(
+            &y,
+            &darc.compare_and_swap(y.clone(), z.clone())
+        ));
+        assert!(Arc::ptr_eq(
+            &x,
+            &darc.compare_and_swap(x.clone(), z.clone())
+        ));
         assert!(Arc::ptr_eq(&z, &darc.load()));
     }
 

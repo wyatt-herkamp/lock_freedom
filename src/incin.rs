@@ -71,7 +71,10 @@ pub struct Incinerator<T> {
 impl<T> Incinerator<T> {
     /// Creates a new incinerator, with no pauses and empty garbage list.
     pub fn new() -> Self {
-        Self { counter: AtomicUsize::new(0), tls_list: ThreadLocal::new() }
+        Self {
+            counter: AtomicUsize::new(0),
+            tls_list: ThreadLocal::new(),
+        }
     }
 
     /// Increments the pause counter and creates a pause associated with this
@@ -123,7 +126,8 @@ impl<T> Incinerator<T> {
             drop(val);
         } else {
             // Not safe to drop. We have to save the value in the garbage list.
-            self.tls_list.with_init(GarbageList::new, |list| list.add(val));
+            self.tls_list
+                .with_init(GarbageList::new, |list| list.add(val));
         }
     }
 
@@ -201,7 +205,9 @@ struct GarbageList<T> {
 
 impl<T> GarbageList<T> {
     fn new() -> Self {
-        Self { list: Cell::new(Vec::new()) }
+        Self {
+            list: Cell::new(Vec::new()),
+        }
     }
 
     fn add(&self, val: T) {

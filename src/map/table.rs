@@ -1,9 +1,8 @@
 use super::{
-    bucket::{Bucket, Entry, Garbage, GetRes, InsertRes},
+    bucket::{Bucket, Garbage, GetRes, InsertRes},
     guard::Removed,
     insertion::{Inserter, Insertion},
 };
-use atomic::AtomicBoxIncin;
 use incin::Incinerator;
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
@@ -101,7 +100,6 @@ impl<K, V> Table<K, V> {
         mut inserter: I,
         hash: u64,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
-        box_incin: &AtomicBoxIncin<Entry<K, V>>,
     ) -> Insertion<K, V, I>
     where
         I: Inserter<K, V>,
@@ -124,7 +122,7 @@ impl<K, V> Table<K, V> {
                     None => break Insertion::Failed(inserter),
                 };
 
-                let bucket = Bucket::new(hash, pair, box_incin.clone());
+                let bucket = Bucket::new(hash, pair);
                 let bucket_nnptr = OwnedAlloc::new(bucket).into_raw();
 
                 let res = table.nodes[index].atomic.compare_and_swap(
@@ -144,7 +142,7 @@ impl<K, V> Table<K, V> {
                 let bucket = &*(loaded as *mut Bucket<K, V>);
 
                 if bucket.hash() == hash {
-                    match bucket.insert(inserter, incin, box_incin) {
+                    match bucket.insert(inserter, incin) {
                         InsertRes::Created => break Insertion::Created,
 
                         InsertRes::Updated(old) => {
@@ -384,7 +382,10 @@ impl<K, V> Node<K, V> {
 
 impl<K, V> Node<K, V> {
     fn new() -> Self {
-        Self { atomic: AtomicPtr::new(null_mut()), _marker: PhantomData }
+        Self {
+            atomic: AtomicPtr::new(null_mut()),
+            _marker: PhantomData,
+        }
     }
 }
 

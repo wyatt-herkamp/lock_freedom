@@ -16,7 +16,10 @@ pub struct Stack<T> {
 impl<T> Stack<T> {
     /// Creates a new empty stack.
     pub fn new() -> Self {
-        Self { top: AtomicPtr::new(null_mut()), incin: Incinerator::new() }
+        Self {
+            top: AtomicPtr::new(null_mut()),
+            incin: Incinerator::new(),
+        }
     }
 
     /// Pushes a new value onto the top of the stack.

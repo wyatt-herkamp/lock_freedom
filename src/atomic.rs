@@ -259,7 +259,9 @@ where
 
     /// The shared incinerator used by this `AtomicBox`.
     pub fn incinerator(&self) -> AtomicBoxIncin<T> {
-        AtomicBoxIncin { inner: self.incin.clone() }
+        AtomicBoxIncin {
+            inner: self.incin.clone(),
+        }
     }
 
     /// Returns a mutable reference to the stored data.
@@ -515,12 +517,17 @@ where
     /// Creates the `AtomicOptionBox` with an initial value and a given shared
     /// incinerator.
     pub fn with_incinerator(init: Option<T>, incin: AtomicBoxIncin<T>) -> Self {
-        Self { ptr: Self::make_ptr(init).into_atomic(), incin: incin.inner }
+        Self {
+            ptr: Self::make_ptr(init).into_atomic(),
+            incin: incin.inner,
+        }
     }
 
     /// The shared incinerator used by this `AtomicOptionBox`.
     pub fn incinerator(&self) -> AtomicBoxIncin<T> {
-        AtomicBoxIncin { inner: self.incin.clone() }
+        AtomicBoxIncin {
+            inner: self.incin.clone(),
+        }
     }
 
     /// Returns a mutable reference to the stored data, if any.
@@ -560,7 +567,8 @@ where
     }
 
     fn load(&self, ord: Ordering) -> Self::Inner {
-        self.incin.pause_with(|| unsafe { Self::make_val(self.ptr.load(ord)) })
+        self.incin
+            .pause_with(|| unsafe { Self::make_val(self.ptr.load(ord)) })
     }
 
     fn store(&self, val: Self::Inner, ord: Ordering) {
@@ -790,13 +798,19 @@ pub struct AtomicBoxIncin<T> {
 impl<T> AtomicBoxIncin<T> {
     /// Creates a new incinerator for atomic boxes.
     pub fn new() -> Self {
-        Self { inner: Arc::new(Incinerator::new()) }
+        Self {
+            inner: Arc::new(Incinerator::new()),
+        }
     }
 }
 
 impl<T> fmt::Debug for AtomicBoxIncin<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "AtomicBoxIncin {} inner: {:?} {}", '{', self.inner, '}')
+        write!(
+            fmtr,
+            "AtomicBoxIncin {} inner: {:?} {}",
+            '{', self.inner, '}'
+        )
     }
 }
 
@@ -808,7 +822,9 @@ impl<T> Default for AtomicBoxIncin<T> {
 
 impl<T> Clone for AtomicBoxIncin<T> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 

@@ -12,11 +12,10 @@ pub use self::{
 pub use std::collections::hash_map::RandomState;
 
 use self::{
-    bucket::{Entry, Garbage},
+    bucket::Garbage,
     insertion::{InsertNew, Reinsert},
     table::Table,
 };
-use atomic::AtomicBoxIncin;
 use incin::Incinerator;
 use owned_alloc::OwnedAlloc;
 use std::{
@@ -63,7 +62,6 @@ use std::{
 pub struct Map<K, V, H = RandomState> {
     top: OwnedAlloc<Table<K, V>>,
     incin: Arc<Incinerator<Garbage<K, V>>>,
-    box_incin: AtomicBoxIncin<Entry<K, V>>,
     builder: H,
 }
 
@@ -83,7 +81,6 @@ where
         Self {
             top: Table::new_alloc(),
             incin: Arc::new(Incinerator::new()),
-            box_incin: AtomicBoxIncin::new(),
             builder,
         }
     }
@@ -153,7 +150,6 @@ where
                     InsertNew::with_pair(|_, _, _| Preview::Keep, (key, val)),
                     hash,
                     &self.incin,
-                    &self.box_incin,
                 )
             }
         });
@@ -193,7 +189,6 @@ where
                     InsertNew::with_key(interactive, key),
                     hash,
                     &self.incin,
-                    &self.box_incin,
                 )
             }
         });
@@ -233,7 +228,6 @@ where
                     Reinsert::new(|_, _| true, removed),
                     hash,
                     &self.incin,
-                    &self.box_incin,
                 )
             }
         });
@@ -283,7 +277,6 @@ where
                     Reinsert::new(interactive, removed),
                     hash,
                     &self.incin,
-                    &self.box_incin,
                 )
             }
         });
@@ -345,7 +338,9 @@ where
     fn try_clear_incin(&mut self) {
         if Arc::weak_count(&self.incin) == 0 {
             debug_assert!(Arc::strong_count(&self.incin) == 1);
-            Arc::get_mut(&mut self.incin).expect("Inconsistent Arc").clear();
+            Arc::get_mut(&mut self.incin)
+                .expect("Inconsistent Arc")
+                .clear();
         } else {
             self.incin.try_clear();
         }
@@ -368,9 +363,8 @@ where
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "Map {} top_table: {:?}, incin: {:?}, box_incin: {:?}, \
-             build_hasher: {:?}  {}",
-            '{', self.top, self.incin, self.box_incin, self.builder, '}'
+            "Map {} top_table: {:?}, incin: {:?}, build_hasher: {:?}  {}",
+            '{', self.top, self.incin, self.builder, '}'
         )
     }
 }

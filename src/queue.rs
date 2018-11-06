@@ -185,7 +185,10 @@ struct Node<T> {
 
 impl<T> Node<T> {
     fn new(val: T) -> Self {
-        Self { val: ManuallyDrop::new(val), next: AtomicPtr::new(null_mut()) }
+        Self {
+            val: ManuallyDrop::new(val),
+            next: AtomicPtr::new(null_mut()),
+        }
     }
 }
 

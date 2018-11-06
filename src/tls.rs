@@ -59,7 +59,9 @@ pub struct ThreadLocal<T> {
 impl<T> ThreadLocal<T> {
     /// Creates an empty thread local storage.
     pub fn new() -> Self {
-        Self { top: Table::new_alloc() }
+        Self {
+            top: Table::new_alloc(),
+        }
     }
 
     /// Removes and drops all entries. The TLS is considered empty then. This
