@@ -59,5 +59,7 @@ pub mod set;
 /// Provides a doubly atomic reference counter.
 pub mod darc;
 
+pub mod spsc;
+
 #[allow(dead_code)]
 mod ptr;

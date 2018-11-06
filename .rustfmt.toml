@@ -1,7 +1,7 @@
 disable_all_formatting = false
 
 indent_style = "Block"
-use_small_heuristics = "Max"
+use_small_heuristics = "Default"
 binop_separator = "Front"
 combine_control_expr = true
 comment_width = 80
@@ -47,7 +47,7 @@ type_punctuation_density = "Wide"
 use_field_init_shorthand = true
 use_try_shorthand = true
 wrap_comments = true
-match_arm_blocks = true
+match_arm_blocks = false
 blank_lines_upper_bound = 1
 blank_lines_lower_bound = 0
 hide_parse_errors = false
