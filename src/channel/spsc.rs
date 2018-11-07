@@ -1,34 +1,17 @@
+use super::{NoRecv, RecvErr};
 use owned_alloc::OwnedAlloc;
 use std::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
 
-/// The error of `Sender::send` operation. Occurs if the receiver was
-/// disconnected.
-#[derive(Debug, Clone, Copy)]
-pub struct NoRecv<T> {
-    /// The message which was attempted to be sent.
-    pub message: T,
-}
-
-/// The error of `Receiver::recv` operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecvErr {
-    /// Returned when there are no messages, the channel is empty, but the
-    /// sender is still connected.
-    NoMessage,
-    /// Returned when the sender was disconnected.
-    NoSender,
-}
-
 /// Creates an asynchronous lock-free Single-Producer-Single-Consumer (SPSC)
 /// channel. The receiver does not provide any sort of `wait-for-message`
 /// operation. It would not be lock-free otherwise. If you need such a
 /// mechanism, consider using this channel with a `CondVar` (not lock-free).
-pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
+pub fn create<T>() -> (Sender<T>, Receiver<T>) {
     let alloc = OwnedAlloc::new(Node {
-        val: None,
+        message: None,
         next: AtomicPtr::new(null_mut()),
     });
     let nnptr = alloc.into_raw();
@@ -43,9 +26,9 @@ pub struct Sender<T> {
 
 impl<T> Sender<T> {
     /// Sends a message and if the receiver disconnected, an error is returned.
-    pub fn send(&mut self, val: T) -> Result<(), NoRecv<T>> {
+    pub fn send(&mut self, message: T) -> Result<(), NoRecv<T>> {
         let alloc = OwnedAlloc::new(Node {
-            val: Some(val),
+            message: Some(message),
             next: AtomicPtr::new(null_mut()),
         });
         let nnptr = alloc.into_raw();
@@ -62,7 +45,7 @@ impl<T> Sender<T> {
         } else {
             let (node, _) = unsafe { OwnedAlloc::from_raw(nnptr).move_inner() };
             Err(NoRecv {
-                message: node.val.unwrap(),
+                message: node.message.unwrap(),
             })
         }
     }
@@ -98,7 +81,7 @@ impl<T> Receiver<T> {
         loop {
             let node = unsafe { &mut *self.front.as_ptr() };
 
-            match node.val.take() {
+            match node.message.take() {
                 Some(val) => {
                     let next = node.next.load(Acquire) as usize;
 
@@ -161,19 +144,19 @@ unsafe impl<T> Sync for Receiver<T> where T: Send {}
 
 #[repr(align(/* at least */ 2))]
 struct Node<T> {
-    val: Option<T>,
+    message: Option<T>,
     // lower bit is 1 for "disconnected" and 0 for "connected"
     next: AtomicPtr<Node<T>>,
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super as spsc;
     use std::thread;
 
     #[test]
     fn correct_sequence() {
-        let (mut sender, mut receiver) = channel::<usize>();
+        let (mut sender, mut receiver) = spsc::create::<usize>();
         let thread = thread::spawn(move || {
             for i in 0 .. 512 {
                 loop {

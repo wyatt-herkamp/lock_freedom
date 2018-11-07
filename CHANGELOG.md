@@ -1,5 +1,5 @@
 # 0.4.0 (preview)
-* Added SPSC channel.
+* Added SPSC and MPSC channels.
 * Added methods `get_mut` and `into_inner` for atomics.
 * Added `removable`
 

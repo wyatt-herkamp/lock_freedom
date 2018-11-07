@@ -73,3 +73,6 @@ impl<T> Drop for Removable<T> {
         }
     }
 }
+
+unsafe impl<T> Send for Removable<T> where T: Send {}
+unsafe impl<T> Sync for Removable<T> where T: Send {}

@@ -56,8 +56,8 @@ pub mod map;
 /// A lock-free set.
 pub mod set;
 
-/// A lock-free Single-Producer-Single-Consumer (SPSC) FIFO channel.
-pub mod spsc;
+/// Collection of lock-free FIFO channels.
+pub mod channel;
 
 /// A shared removable value. No extra allocation is necessary.
 pub mod removable;
