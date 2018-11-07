@@ -8,7 +8,6 @@ test_with_toolchain() {
 }
 
 test_with_toolchain +stable
-test_with_toolchain +nightly
 
 export RUSTFLAGS='-Z sanitizer=leak'
 export LSAN_OPTIONS='fast_unwind_on_malloc=0'

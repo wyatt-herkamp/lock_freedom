@@ -1,6 +1,7 @@
 # 0.4.0 (preview)
 * Added SPSC channel.
 * Added methods `get_mut` and `into_inner` for atomics.
+* Added `removable`
 
 # 0.3.2 (release)
 * Fixed a queue bug.

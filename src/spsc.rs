@@ -162,6 +162,7 @@ unsafe impl<T> Sync for Receiver<T> where T: Send {}
 #[repr(align(/* at least */ 2))]
 struct Node<T> {
     val: Option<T>,
+    // lower bit is 1 for "disconnected" and 0 for "connected"
     next: AtomicPtr<Node<T>>,
 }
 

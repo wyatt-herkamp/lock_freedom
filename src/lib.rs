@@ -62,5 +62,8 @@ pub mod darc;
 /// A lock-free Single-Producer-Single-Consumer (SPSC) FIFO channel.
 pub mod spsc;
 
+/// A shared removable value. No extra allocation is necessary.
+pub mod removable;
+
 #[allow(dead_code)]
 mod ptr;

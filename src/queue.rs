@@ -1,11 +1,11 @@
 use incin::Incinerator;
 use owned_alloc::OwnedAlloc;
+use removable::Removable;
 use std::{
     fmt,
     iter::FromIterator,
-    mem::{uninitialized, ManuallyDrop},
     ptr::{null_mut, NonNull},
-    sync::atomic::{AtomicBool, AtomicPtr, Ordering::*},
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
 
 /// A lock-free queue. FIFO semanthics are fully respected.
@@ -19,7 +19,8 @@ pub struct Queue<T> {
 impl<T> Queue<T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
-        let sentinel = OwnedAlloc::new(Node::empty()).into_raw().as_ptr();
+        let node = Node::new(Removable::empty());
+        let sentinel = OwnedAlloc::new(node).into_raw().as_ptr();
         Self {
             front: AtomicPtr::new(sentinel),
             back: AtomicPtr::new(sentinel),
@@ -30,7 +31,7 @@ impl<T> Queue<T> {
     /// Pushes a value into the back of the queue. This operation is also
     /// wait-free.
     pub fn push(&self, val: T) {
-        let node = Node::new(val);
+        let node = Node::new(Removable::new(val));
         let alloc = OwnedAlloc::new(node);
         let node_ptr = alloc.into_raw().as_ptr();
         let prev_back = self.back.swap(node_ptr, AcqRel);
@@ -44,25 +45,22 @@ impl<T> Queue<T> {
         loop {
             let res = self.incin.pause_with(|| {
                 let front_ptr = self.front.load(Acquire);
-                let mut front_nnptr = match NonNull::new(front_ptr) {
+                let front_nnptr = match NonNull::new(front_ptr) {
                     Some(nnptr) => nnptr,
                     None => return Some(None),
                 };
 
-                let prev_removed =
-                    unsafe { front_nnptr.as_ref() }.empty.swap(true, AcqRel);
-
-                if !prev_removed {
-                    unsafe {
-                        let ptr = &mut *front_nnptr.as_mut().val as *mut T;
-                        let val = ptr.read();
-                        self.try_clear_first(front_nnptr);
+                match unsafe { front_nnptr.as_ref() }.val.take(AcqRel) {
+                    Some(val) => {
+                        unsafe { self.try_clear_first(front_nnptr) };
                         Some(Some(val))
-                    }
-                } else if unsafe { self.try_clear_first(front_nnptr) } {
-                    None
-                } else {
-                    Some(None)
+                    },
+
+                    None if unsafe { self.try_clear_first(front_nnptr) } => {
+                        None
+                    },
+
+                    None => Some(None),
                 }
             });
 
@@ -172,33 +170,15 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
 #[repr(align(/* at least */ 2))]
 struct Node<T> {
-    val: ManuallyDrop<T>,
-    empty: AtomicBool,
+    val: Removable<T>,
     next: AtomicPtr<Node<T>>,
 }
 
 impl<T> Node<T> {
-    fn new(val: T) -> Self {
+    fn new(val: Removable<T>) -> Self {
         Self {
-            val: ManuallyDrop::new(val),
-            empty: AtomicBool::new(false),
+            val,
             next: AtomicPtr::new(null_mut()),
-        }
-    }
-
-    fn empty() -> Self {
-        Self {
-            val: ManuallyDrop::new(unsafe { uninitialized() }),
-            empty: AtomicBool::new(true),
-            next: AtomicPtr::new(null_mut()),
-        }
-    }
-}
-
-impl<T> Drop for Node<T> {
-    fn drop(&mut self) {
-        if !self.empty.load(Acquire) {
-            unsafe { ManuallyDrop::drop(&mut self.val) }
         }
     }
 }
