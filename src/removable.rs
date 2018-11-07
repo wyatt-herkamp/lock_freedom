@@ -1,4 +1,3 @@
-pub use std::sync::atomic::Ordering;
 use std::{
     fmt,
     mem::{uninitialized, ManuallyDrop},
@@ -34,14 +33,14 @@ impl<T> Removable<T> {
     /// Note that there are no guarantees that `take` will be successful if
     /// this method returns `true` because some other thread could take the
     /// value meanwhile.
-    pub fn is_present(&self, ordering: Ordering) -> bool {
-        self.present.load(ordering)
+    pub fn is_present(&self) -> bool {
+        self.present.load(Acquire)
     }
 
     /// Tries to take the value using the given memory ordering. If no value was
     /// present in first place, `None` is returned.
-    pub fn take(&self, ordering: Ordering) -> Option<T> {
-        let success = self.present.swap(false, ordering);
+    pub fn take(&self) -> Option<T> {
+        let success = self.present.swap(false, AcqRel);
         if success {
             Some(unsafe { (&*self.item as *const T).read() })
         } else {
@@ -56,7 +55,7 @@ impl<T> fmt::Debug for Removable<T> {
             fmtr,
             "Removable {} present: {:?} {}",
             '{',
-            self.is_present(SeqCst),
+            self.is_present(),
             '}'
         )
     }
@@ -70,7 +69,7 @@ impl<T> Default for Removable<T> {
 
 impl<T> Drop for Removable<T> {
     fn drop(&mut self) {
-        if self.is_present(Relaxed) {
+        if self.is_present() {
             unsafe { ManuallyDrop::drop(&mut self.item) }
         }
     }

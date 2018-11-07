@@ -50,7 +50,7 @@ impl<T> Queue<T> {
                     None => return Some(None),
                 };
 
-                match unsafe { front_nnptr.as_ref() }.val.take(AcqRel) {
+                match unsafe { front_nnptr.as_ref() }.val.take() {
                     Some(val) => {
                         unsafe { self.try_clear_first(front_nnptr) };
                         Some(Some(val))
