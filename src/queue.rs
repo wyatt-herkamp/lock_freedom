@@ -3,9 +3,9 @@ use owned_alloc::OwnedAlloc;
 use std::{
     fmt,
     iter::FromIterator,
-    mem::ManuallyDrop,
+    mem::{uninitialized, ManuallyDrop},
     ptr::{null_mut, NonNull},
-    sync::atomic::{AtomicPtr, Ordering::*},
+    sync::atomic::{AtomicBool, AtomicPtr, Ordering::*},
 };
 
 /// A lock-free queue. FIFO semanthics are fully respected.
@@ -19,9 +19,10 @@ pub struct Queue<T> {
 impl<T> Queue<T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
+        let sentinel = OwnedAlloc::new(Node::empty()).into_raw().as_ptr();
         Self {
-            front: AtomicPtr::new(null_mut()),
-            back: AtomicPtr::new(null_mut()),
+            front: AtomicPtr::new(sentinel),
+            back: AtomicPtr::new(sentinel),
             incin: Incinerator::new(),
         }
     }
@@ -32,18 +33,10 @@ impl<T> Queue<T> {
         let node = Node::new(val);
         let alloc = OwnedAlloc::new(node);
         let node_ptr = alloc.into_raw().as_ptr();
-        self.incin.pause_with(|| {
-            let ptr = self.back.swap(node_ptr, AcqRel);
-            if let Some(back) = unsafe { ptr.as_ref() } {
-                let res =
-                    back.next.compare_and_swap(null_mut(), node_ptr, Release);
-                if !res.is_null() {
-                    self.front.store(node_ptr, Release);
-                }
-            } else {
-                self.front.store(node_ptr, Release);
-            }
-        })
+        let prev_back = self.back.swap(node_ptr, AcqRel);
+        unsafe {
+            (*prev_back).next.store(node_ptr, Release);
+        }
     }
 
     /// Takes a value from the front of the queue, if it is avaible.
@@ -51,40 +44,30 @@ impl<T> Queue<T> {
         loop {
             let res = self.incin.pause_with(|| {
                 let front_ptr = self.front.load(Acquire);
-                let front_nnptr = match NonNull::new(front_ptr) {
+                let mut front_nnptr = match NonNull::new(front_ptr) {
                     Some(nnptr) => nnptr,
                     None => return Some(None),
                 };
 
-                let next_ptr =
-                    unsafe { front_nnptr.as_ref() }.next.load(Acquire) as usize;
+                let prev_removed =
+                    unsafe { front_nnptr.as_ref() }.empty.swap(true, AcqRel);
 
-                if next_ptr & 1 == 0 {
-                    let res =
-                        unsafe { front_nnptr.as_ref() }.next.compare_and_swap(
-                            next_ptr as *mut _,
-                            (next_ptr | 1) as *mut _,
-                            Release,
-                        );
-
-                    if res == next_ptr as *mut _ {
-                        self.clear_first(front_ptr, next_ptr as *mut _);
-                        Some(Some(front_nnptr))
-                    } else {
-                        None
+                if !prev_removed {
+                    unsafe {
+                        let ptr = &mut *front_nnptr.as_mut().val as *mut T;
+                        let val = ptr.read();
+                        self.try_clear_first(front_nnptr);
+                        Some(Some(val))
                     }
-                } else {
-                    self.clear_first(front_ptr, (next_ptr & !1) as *mut _);
+                } else if unsafe { self.try_clear_first(front_nnptr) } {
                     None
+                } else {
+                    Some(None)
                 }
             });
 
-            if let Some(maybe_nnptr) = res {
-                break maybe_nnptr.map(|mut nnptr| unsafe {
-                    let val = (&mut *nnptr.as_mut().val as *mut T).read();
-                    self.incin.add(OwnedAlloc::from_raw(nnptr));
-                    val
-                });
+            if let Some(ret) = res {
+                break ret;
             }
         }
     }
@@ -104,9 +87,19 @@ impl<T> Queue<T> {
         Iter { queue: self }
     }
 
-    fn clear_first(&self, expected: *mut Node<T>, desired: *mut Node<T>) {
-        self.front.compare_and_swap(expected, desired, Release);
-        self.back.compare_and_swap(expected, desired, Release);
+    unsafe fn try_clear_first(&self, expected: NonNull<Node<T>>) -> bool {
+        let next = expected.as_ref().next.load(Acquire);
+
+        if next.is_null() {
+            false
+        } else {
+            let ptr = expected.as_ptr();
+            let res = self.front.compare_and_swap(ptr, next, Release);
+            if res == expected.as_ptr() {
+                self.incin.add(OwnedAlloc::from_raw(expected));
+            }
+            true
+        }
     }
 }
 
@@ -180,6 +173,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 #[repr(align(/* at least */ 2))]
 struct Node<T> {
     val: ManuallyDrop<T>,
+    empty: AtomicBool,
     next: AtomicPtr<Node<T>>,
 }
 
@@ -187,6 +181,15 @@ impl<T> Node<T> {
     fn new(val: T) -> Self {
         Self {
             val: ManuallyDrop::new(val),
+            empty: AtomicBool::new(false),
+            next: AtomicPtr::new(null_mut()),
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            val: ManuallyDrop::new(unsafe { uninitialized() }),
+            empty: AtomicBool::new(true),
             next: AtomicPtr::new(null_mut()),
         }
     }
@@ -194,7 +197,7 @@ impl<T> Node<T> {
 
 impl<T> Drop for Node<T> {
     fn drop(&mut self) {
-        if self.next.load(Acquire) as usize & 1 == 0 {
+        if !self.empty.load(Acquire) {
             unsafe { ManuallyDrop::drop(&mut self.val) }
         }
     }

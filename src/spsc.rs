@@ -164,6 +164,7 @@ struct Node<T> {
     val: Option<T>,
     next: AtomicPtr<Node<T>>,
 }
+
 #[cfg(test)]
 mod test {
     use super::*;
