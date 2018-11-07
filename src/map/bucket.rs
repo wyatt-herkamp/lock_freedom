@@ -13,65 +13,6 @@ use std::{
     },
 };
 
-pub struct Entry<K, V> {
-    pair: NonNull<(K, V)>,
-    next: *mut List<K, V>,
-}
-
-impl<K, V> Entry<K, V> {
-    #[inline]
-    pub fn root(next: *mut List<K, V>) -> Self {
-        Self {
-            pair: ptr::non_zero_null(),
-            next,
-        }
-    }
-
-    #[inline]
-    pub fn is_root(&self) -> bool {
-        self.pair == ptr::non_zero_null()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.is_root() && self.next == null_mut()
-    }
-}
-
-impl<K, V> Clone for Entry<K, V> {
-    fn clone(&self) -> Self {
-        Self {
-            pair: self.pair,
-            next: self.next,
-        }
-    }
-}
-
-impl<K, V> Copy for Entry<K, V> {}
-
-impl<K, V> PartialEq for Entry<K, V> {
-    fn eq(&self, other: &Self) -> bool {
-        self.pair == other.pair && self.next == other.next
-    }
-}
-
-impl<K, V> Eq for Entry<K, V> {}
-
-#[repr(align(/* at least */ 2))]
-pub struct List<K, V> {
-    atomic: AtomicPtr<Entry<K, V>>,
-}
-
-impl<K, V> List<K, V> {
-    #[inline]
-    pub fn new(entry: Entry<K, V>) -> Self {
-        let ptr = OwnedAlloc::new(entry).into_raw().as_ptr();
-        Self {
-            atomic: AtomicPtr::new(ptr),
-        }
-    }
-}
-
 #[repr(align(/* at least */ 2))]
 pub struct Bucket<K, V> {
     hash: u64,
@@ -155,20 +96,13 @@ impl<K, V> Bucket<K, V> {
                         next: curr.as_ref().next,
                     };
                     let new_ptr = OwnedAlloc::new(new_entry).into_raw();
-                    let res = curr_list.atomic.compare_and_swap(
-                        curr.as_ptr(),
-                        new_ptr.as_ptr(),
-                        Release,
-                    );
-                    if res == curr.as_ptr() {
+
+                    if curr_list.try_update(curr, new_ptr, incin) {
                         inserter.take_pointer();
                         let pair = OwnedAlloc::from_raw(curr.as_ref().pair);
                         let removed = Removed::new(pair, incin);
-                        incin.add(Garbage::Entry(OwnedAlloc::from_raw(curr)));
                         break InsertRes::Updated(removed);
                     }
-
-                    OwnedAlloc::from_raw(new_ptr);
                 },
 
                 FindRes::After { prev_list, prev } => {
@@ -188,24 +122,14 @@ impl<K, V> Bucket<K, V> {
                         next: curr_nnptr.as_ptr(),
                     };
                     let new_ptr = OwnedAlloc::new(new_prev).into_raw();
-                    let res = prev_list.atomic.compare_and_swap(
-                        prev.as_ptr(),
-                        new_ptr.as_ptr(),
-                        Release,
-                    );
 
-                    if res == prev.as_ptr() {
+                    if prev_list.try_update(prev, new_ptr, incin) {
                         inserter.take_pointer();
-                        incin.add(Garbage::Entry(OwnedAlloc::from_raw(prev)));
                         break InsertRes::Created;
+                    } else {
+                        OwnedAlloc::from_raw(curr_nnptr.as_ref().load());
+                        OwnedAlloc::from_raw(curr_nnptr);
                     }
-
-                    let entry_nnptr = NonNull::new_unchecked(
-                        curr_nnptr.as_ref().atomic.load(Relaxed),
-                    );
-                    OwnedAlloc::from_raw(entry_nnptr);
-                    OwnedAlloc::from_raw(curr_nnptr);
-                    OwnedAlloc::from_raw(new_ptr);
                 },
             }
         }
@@ -244,22 +168,14 @@ impl<K, V> Bucket<K, V> {
                         next: (curr.as_ref().next as usize | 1) as *mut _,
                     };
                     let new_ptr = OwnedAlloc::new(new_entry).into_raw();
-                    let res = curr_list.atomic.compare_and_swap(
-                        curr.as_ptr(),
-                        new_ptr.as_ptr(),
-                        Release,
-                    );
 
-                    if res == curr.as_ptr() {
-                        incin.add(Garbage::Entry(OwnedAlloc::from_raw(curr)));
+                    if curr_list.try_update(curr, new_ptr, incin) {
                         let pair = OwnedAlloc::from_raw(curr.as_ref().pair);
                         break RemoveRes {
                             pair: Some(Removed::new(pair, incin)),
                             delete: self.try_clear_first(&*incin),
                         };
                     }
-
-                    OwnedAlloc::from_raw(new_ptr);
                 },
 
                 FindRes::After { .. } => {
@@ -285,47 +201,19 @@ impl<K, V> Bucket<K, V> {
         'retry: loop {
             out.truncate(trunc);
             let mut prev_list = &self.list;
-            let mut prev =
-                NonNull::new_unchecked(prev_list.atomic.load(Acquire));
+            let mut prev = prev_list.load();
 
             loop {
-                let maybe_nnptr = NonNull::new(prev.as_ref().next);
-                let (curr_list, curr_ptr) = match maybe_nnptr {
-                    Some(curr) => (&*curr.as_ptr(), curr),
-                    None => break 'retry,
-                };
-
-                let curr =
-                    NonNull::new_unchecked(curr_list.atomic.load(Acquire));
-
-                if curr.as_ref().next as usize & 1 == 1 {
-                    let new_entry = Entry {
-                        pair: prev.as_ref().pair,
-                        next: (curr.as_ref().next as usize & !1) as *mut _,
-                    };
-                    let new_ptr = OwnedAlloc::new(new_entry).into_raw();
-                    let res = prev_list.atomic.compare_and_swap(
-                        prev.as_ptr(),
-                        new_ptr.as_ptr(),
-                        Release,
-                    );
-                    if res != prev.as_ptr() {
-                        OwnedAlloc::from_raw(new_ptr);
-                        continue 'retry;
-                    }
-
-                    let curr_alloc = OwnedAlloc::from_raw(curr);
-                    incin.add(Garbage::Entry(curr_alloc));
-                    let prev_alloc = OwnedAlloc::from_raw(prev);
-                    incin.add(Garbage::Entry(prev_alloc));
-                    incin.add(Garbage::List(OwnedAlloc::from_raw(curr_ptr)));
-                    prev = new_ptr;
-                    continue;
+                match prev_list.load_next(prev, incin) {
+                    LoadNextRes::Failed => continue 'retry,
+                    LoadNextRes::End => break 'retry,
+                    LoadNextRes::Cleared { new_prev } => prev = new_prev,
+                    LoadNextRes::Ok { list, entry } => {
+                        out.push(map(&*entry.as_ref().pair.as_ptr()));
+                        prev_list = &*list.as_ptr();
+                        prev = entry;
+                    },
                 }
-
-                out.push(map(&*curr.as_ref().pair.as_ptr()));
-                prev_list = curr_list;
-                prev = curr;
             }
         }
     }
@@ -334,41 +222,14 @@ impl<K, V> Bucket<K, V> {
         &self,
         incin: &Incinerator<Garbage<K, V>>,
     ) -> bool {
-        let mut prev = NonNull::new_unchecked(self.list.atomic.load(Acquire));
+        let mut prev = self.list.load();
         loop {
-            let maybe_nnptr = NonNull::new(prev.as_ref().next);
-            let (curr_list, curr_ptr) = match maybe_nnptr {
-                Some(curr) => (&*curr.as_ptr(), curr),
-                None => break true,
-            };
-
-            let curr = NonNull::new_unchecked(curr_list.atomic.load(Acquire));
-
-            if curr.as_ref().next as usize & 1 == 0 {
-                break false;
+            match self.list.load_next(prev, incin) {
+                LoadNextRes::Failed => break false,
+                LoadNextRes::End => break true,
+                LoadNextRes::Cleared { new_prev } => prev = new_prev,
+                LoadNextRes::Ok { .. } => break false,
             }
-
-            let new_entry = Entry {
-                pair: prev.as_ref().pair,
-                next: (curr.as_ref().next as usize & !1) as *mut _,
-            };
-            let new_ptr = OwnedAlloc::new(new_entry).into_raw();
-            let res = self.list.atomic.compare_and_swap(
-                prev.as_ptr(),
-                new_ptr.as_ptr(),
-                Release,
-            );
-            if res != prev.as_ptr() {
-                OwnedAlloc::from_raw(new_ptr);
-                break false;
-            }
-
-            let curr_alloc = OwnedAlloc::from_raw(curr);
-            incin.add(Garbage::Entry(curr_alloc));
-            let prev_alloc = OwnedAlloc::from_raw(prev);
-            incin.add(Garbage::Entry(prev_alloc));
-            incin.add(Garbage::List(OwnedAlloc::from_raw(curr_ptr)));
-            prev = new_ptr;
         }
     }
 
@@ -383,67 +244,45 @@ impl<K, V> Bucket<K, V> {
     {
         'retry: loop {
             let mut prev_list = &self.list;
-            let mut prev =
-                NonNull::new_unchecked(prev_list.atomic.load(Acquire));
+            let mut prev = prev_list.load();
 
             loop {
-                let maybe_nnptr = NonNull::new(prev.as_ref().next);
-                let (curr_list, curr_ptr) = match maybe_nnptr {
-                    Some(curr) => (&*curr.as_ptr(), curr),
-                    None => {
+                match prev_list.load_next(prev, incin) {
+                    LoadNextRes::Failed => continue 'retry,
+
+                    LoadNextRes::End => {
                         break 'retry if prev.as_ref().is_root() {
                             FindRes::Delete
                         } else {
                             FindRes::After { prev_list, prev }
                         }
                     },
-                };
 
-                let curr =
-                    NonNull::new_unchecked(curr_list.atomic.load(Acquire));
+                    LoadNextRes::Cleared { new_prev } => prev = new_prev,
 
-                if curr.as_ref().next as usize & 1 == 1 {
-                    let new_entry = Entry {
-                        pair: prev.as_ref().pair,
-                        next: (curr.as_ref().next as usize & !1) as *mut _,
-                    };
-                    let new_ptr = OwnedAlloc::new(new_entry).into_raw();
-                    let res = prev_list.atomic.compare_and_swap(
-                        prev.as_ptr(),
-                        new_ptr.as_ptr(),
-                        Release,
-                    );
-                    if res != prev.as_ptr() {
-                        OwnedAlloc::from_raw(new_ptr);
-                        continue 'retry;
-                    }
+                    LoadNextRes::Ok { list, entry } => {
+                        let comparison = {
+                            let (stored_key, _) = entry.as_ref().pair.as_ref();
+                            key.cmp(stored_key.borrow())
+                        };
 
-                    let curr_alloc = OwnedAlloc::from_raw(curr);
-                    incin.add(Garbage::Entry(curr_alloc));
-                    let prev_alloc = OwnedAlloc::from_raw(prev);
-                    incin.add(Garbage::Entry(prev_alloc));
-                    incin.add(Garbage::List(OwnedAlloc::from_raw(curr_ptr)));
-                    prev = new_ptr;
-                    continue;
-                }
+                        match comparison {
+                            Ordering::Equal => {
+                                break 'retry FindRes::Exact {
+                                    curr_list: &*list.as_ptr(),
+                                    curr: entry,
+                                }
+                            },
 
-                let comparison = {
-                    let (stored_key, _) = curr.as_ref().pair.as_ref();
-                    key.cmp(stored_key.borrow())
-                };
+                            Ordering::Less => {
+                                break 'retry FindRes::After { prev_list, prev }
+                            },
 
-                match comparison {
-                    Ordering::Equal => {
-                        break 'retry FindRes::Exact { curr_list, curr }
-                    },
-
-                    Ordering::Less => {
-                        break 'retry FindRes::After { prev_list, prev }
-                    },
-
-                    Ordering::Greater => {
-                        prev_list = curr_list;
-                        prev = curr;
+                            Ordering::Greater => {
+                                prev_list = &*list.as_ptr();
+                                prev = entry;
+                            },
+                        }
                     },
                 }
             }
@@ -472,6 +311,123 @@ impl<K, V> Drop for Bucket<K, V> {
                 OwnedAlloc::from_raw(entry);
                 top = next;
             }
+        }
+    }
+}
+
+pub struct Entry<K, V> {
+    pair: NonNull<(K, V)>,
+    next: *mut List<K, V>,
+}
+
+impl<K, V> Entry<K, V> {
+    #[inline]
+    pub fn root(next: *mut List<K, V>) -> Self {
+        Self {
+            pair: ptr::non_zero_null(),
+            next,
+        }
+    }
+
+    #[inline]
+    pub fn is_root(&self) -> bool {
+        self.pair == ptr::non_zero_null()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.is_root() && self.next == null_mut()
+    }
+}
+
+impl<K, V> Clone for Entry<K, V> {
+    fn clone(&self) -> Self {
+        Self {
+            pair: self.pair,
+            next: self.next,
+        }
+    }
+}
+
+impl<K, V> Copy for Entry<K, V> {}
+
+impl<K, V> PartialEq for Entry<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.pair == other.pair && self.next == other.next
+    }
+}
+
+impl<K, V> Eq for Entry<K, V> {}
+
+#[repr(align(/* at least */ 2))]
+pub struct List<K, V> {
+    atomic: AtomicPtr<Entry<K, V>>,
+}
+
+impl<K, V> List<K, V> {
+    #[inline]
+    fn new(entry: Entry<K, V>) -> Self {
+        let ptr = OwnedAlloc::new(entry).into_raw().as_ptr();
+        Self {
+            atomic: AtomicPtr::new(ptr),
+        }
+    }
+
+    unsafe fn load(&self) -> NonNull<Entry<K, V>> {
+        NonNull::new_unchecked(self.atomic.load(Acquire))
+    }
+
+    unsafe fn load_next(
+        &self,
+        prev: NonNull<Entry<K, V>>,
+        incin: &Incinerator<Garbage<K, V>>,
+    ) -> LoadNextRes<K, V> {
+        let list = match NonNull::new(prev.as_ref().next) {
+            Some(nnptr) => nnptr,
+            None => return LoadNextRes::End,
+        };
+
+        let entry = list.as_ref().load();
+        let next = entry.as_ref().next as usize;
+
+        if next & 1 == 1 {
+            let new_entry = Entry {
+                pair: prev.as_ref().pair,
+                next: (next & !1) as *mut _,
+            };
+            let new_ptr = OwnedAlloc::new(new_entry).into_raw();
+
+            if self.try_update(prev, new_ptr, incin) {
+                incin.add(Garbage::List(OwnedAlloc::from_raw(list)));
+                incin.add(Garbage::Entry(OwnedAlloc::from_raw(entry)));
+                LoadNextRes::Cleared { new_prev: new_ptr }
+            } else {
+                LoadNextRes::Failed
+            }
+        } else {
+            LoadNextRes::Ok { list, entry }
+        }
+    }
+
+    unsafe fn try_update(
+        &self,
+        loaded: NonNull<Entry<K, V>>,
+        new: NonNull<Entry<K, V>>,
+        incin: &Incinerator<Garbage<K, V>>,
+    ) -> bool {
+        let res = self.atomic.compare_and_swap(
+            loaded.as_ptr(),
+            new.as_ptr(),
+            Release,
+        );
+
+        if res == loaded.as_ptr() {
+            let alloc = OwnedAlloc::from_raw(loaded);
+            incin.add(Garbage::Entry(alloc));
+            true
+        } else {
+            OwnedAlloc::from_raw(new);
+            false
         }
     }
 }
@@ -521,6 +477,8 @@ where
     K: 'origin,
     V: 'origin,
 {
+    Delete,
+
     Exact {
         curr_list: &'origin List<K, V>,
         curr: NonNull<Entry<K, V>>,
@@ -530,6 +488,16 @@ where
         prev_list: &'origin List<K, V>,
         prev: NonNull<Entry<K, V>>,
     },
+}
 
-    Delete,
+enum LoadNextRes<K, V> {
+    Failed,
+    End,
+    Cleared {
+        new_prev: NonNull<Entry<K, V>>,
+    },
+    Ok {
+        list: NonNull<List<K, V>>,
+        entry: NonNull<Entry<K, V>>,
+    },
 }
