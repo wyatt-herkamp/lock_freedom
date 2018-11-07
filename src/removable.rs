@@ -13,7 +13,7 @@ pub struct Removable<T> {
 }
 
 impl<T> Removable<T> {
-    /// Creates a removable value with the passed argument as a present value.
+    /// Creates a removable item with the passed argument as a present value.
     pub fn new(val: T) -> Self {
         Self {
             item: ManuallyDrop::new(val),
@@ -21,7 +21,7 @@ impl<T> Removable<T> {
         }
     }
 
-    /// Creates a removable value with no present value.
+    /// Creates a removable item with no present value.
     pub fn empty() -> Self {
         Self {
             item: ManuallyDrop::new(unsafe { uninitialized() }),
@@ -29,16 +29,15 @@ impl<T> Removable<T> {
         }
     }
 
-    /// Tests if the stored value is present using the given memory ordering.
-    /// Note that there are no guarantees that `take` will be successful if
-    /// this method returns `true` because some other thread could take the
-    /// value meanwhile.
+    /// Tests if the stored value is present. Note that there are no guarantees
+    /// that `take` will be successful if this method returns `true` because
+    /// some other thread could take the value meanwhile.
     pub fn is_present(&self) -> bool {
         self.present.load(Acquire)
     }
 
-    /// Tries to take the value using the given memory ordering. If no value was
-    /// present in first place, `None` is returned.
+    /// Tries to take the value. If no value was present in first place, `None`
+    /// is returned.
     pub fn take(&self) -> Option<T> {
         let success = self.present.swap(false, AcqRel);
         if success {

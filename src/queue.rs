@@ -30,8 +30,8 @@ impl<T> Queue<T> {
 
     /// Pushes a value into the back of the queue. This operation is also
     /// wait-free.
-    pub fn push(&self, val: T) {
-        let node = Node::new(Removable::new(val));
+    pub fn push(&self, item: T) {
+        let node = Node::new(Removable::new(item));
         let alloc = OwnedAlloc::new(node);
         let node_ptr = alloc.into_raw().as_ptr();
         let prev_back = self.back.swap(node_ptr, AcqRel);
@@ -50,7 +50,7 @@ impl<T> Queue<T> {
                     None => return Some(None),
                 };
 
-                match unsafe { front_nnptr.as_ref() }.val.take() {
+                match unsafe { front_nnptr.as_ref() }.item.take() {
                     Some(val) => {
                         unsafe { self.try_clear_first(front_nnptr) };
                         Some(Some(val))
@@ -170,14 +170,14 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
 #[repr(align(/* at least */ 2))]
 struct Node<T> {
-    val: Removable<T>,
+    item: Removable<T>,
     next: AtomicPtr<Node<T>>,
 }
 
 impl<T> Node<T> {
-    fn new(val: Removable<T>) -> Self {
+    fn new(item: Removable<T>) -> Self {
         Self {
-            val,
+            item,
             next: AtomicPtr::new(null_mut()),
         }
     }
