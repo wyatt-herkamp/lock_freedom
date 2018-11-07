@@ -492,10 +492,13 @@ where
 
 enum LoadNextRes<K, V> {
     Failed,
+
     End,
+
     Cleared {
         new_prev: NonNull<Entry<K, V>>,
     },
+
     Ok {
         list: NonNull<List<K, V>>,
         entry: NonNull<Entry<K, V>>,
