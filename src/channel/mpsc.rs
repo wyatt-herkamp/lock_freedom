@@ -331,8 +331,8 @@ mod test {
             thread.join().unwrap();
         }
 
-        for status in &done as &[_] {
-            assert!(status);
+        for status in &done as &[bool] {
+            assert!(*status);
         }
     }
 }

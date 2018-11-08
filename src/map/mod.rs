@@ -336,15 +336,11 @@ where
     }
 
     fn try_clear_incin(&mut self) {
-        // let's check for weak count so we don't make `Arc` spin with `get_mut`
-        if Arc::weak_count(&self.incin) == 0 {
-            debug_assert!(Arc::strong_count(&self.incin) == 1);
-            Arc::get_mut(&mut self.incin)
-                .expect("Inconsistent Arc")
-                .clear();
-        } else {
-            self.incin.try_clear();
+        if let Some(incin) = Arc::get_mut(&mut self.incin) {
+            incin.clear();
+            return;
         }
+        self.incin.try_clear();
     }
 }
 
