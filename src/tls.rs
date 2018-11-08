@@ -80,6 +80,14 @@ impl<T> ThreadLocal<T> {
         }
     }
 
+    /// Creates an iterator over mutable refereces of entries.
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        IterMut {
+            curr_table: Some((&mut self.top, 0)),
+            tables: Vec::new(),
+        }
+    }
+
     /// Accesses the entry for the current thread. No initialization is
     /// performed.
     pub fn with<F, A>(&self, reader: F) -> Option<A>
@@ -293,6 +301,110 @@ impl<T> Default for ThreadLocal<T> {
     }
 }
 
+impl<T> IntoIterator for ThreadLocal<T> {
+    type IntoIter = IntoIter<T>;
+    type Item = T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let raw = self.top.raw();
+        mem::forget(self);
+        let top = unsafe { OwnedAlloc::from_raw(raw) };
+
+        IntoIter {
+            curr_table: Some((top, 0)),
+            tables: Vec::new(),
+        }
+    }
+}
+
+impl<'tls, T> IntoIterator for &'tls mut ThreadLocal<T> {
+    type IntoIter = IterMut<'tls, T>;
+    type Item = &'tls mut T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+/// An iterator over mutable references to entries of TLS.
+pub struct IterMut<'origin, T>
+where
+    T: 'origin,
+{
+    tables: Vec<&'origin mut Table<T>>,
+    curr_table: Option<(&'origin mut Table<T>, usize)>,
+}
+
+impl<'origin, T> Iterator for IterMut<'origin, T> {
+    type Item = &'origin mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (table, index) = self.curr_table.take()?;
+            match table.nodes.get(index).map(|node| node.atomic.load(Relaxed)) {
+                Some(ptr) if ptr.is_null() => {
+                    self.curr_table = Some((table, index + 1))
+                },
+
+                Some(ptr) if ptr as usize & 1 == 0 => {
+                    let ptr = ptr as *mut Entry<T>;
+                    self.curr_table = Some((table, index + 1));
+                    break Some(unsafe { &mut (*ptr).val });
+                },
+
+                Some(ptr) => {
+                    let ptr = (ptr as usize & !1) as *mut Table<T>;
+                    self.tables.push(unsafe { &mut *ptr });
+                    self.curr_table = Some((table, index + 1));
+                },
+
+                None => self.curr_table = self.tables.pop().map(|tbl| (tbl, 0)),
+            };
+        }
+    }
+}
+
+/// An iterator over owned references to entries of TLS.
+pub struct IntoIter<T> {
+    tables: Vec<OwnedAlloc<Table<T>>>,
+    curr_table: Option<(OwnedAlloc<Table<T>>, usize)>,
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (table, index) = self.curr_table.take()?;
+            match table.nodes.get(index).map(|node| node.atomic.load(Relaxed)) {
+                Some(ptr) if ptr.is_null() => {
+                    self.curr_table = Some((table, index + 1))
+                },
+
+                Some(ptr) if ptr as usize & 1 == 0 => {
+                    let ptr = ptr as *mut Entry<T>;
+                    let alloc = unsafe {
+                        OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
+                    };
+                    let (entry, _) = alloc.move_inner();
+                    self.curr_table = Some((table, index + 1));
+                    break Some(entry.val);
+                },
+
+                Some(ptr) => {
+                    let ptr = (ptr as usize & !1) as *mut Table<T>;
+                    self.tables.push(unsafe {
+                        OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
+                    });
+                    self.curr_table = Some((table, index + 1));
+                },
+
+                None => self.curr_table = self.tables.pop().map(|tbl| (tbl, 0)),
+            };
+        }
+    }
+}
+
 struct Node<T> {
     // lower bit marked 0 for Entry, 1 for Table
     atomic: AtomicPtr<()>,
@@ -361,10 +473,10 @@ impl<T> Table<T> {
     }
 }
 
-#[repr(align(/* at least */ 64))]
+#[repr(align(64))]
 struct Entry<T> {
-    id: usize,
     val: T,
+    id: usize,
 }
 
 enum LazyInit<T, F> {
@@ -426,10 +538,12 @@ mod test {
 
     #[test]
     fn threads_with_their_id() {
-        let tls = Arc::new(ThreadLocal::new());
-        let mut threads = Vec::with_capacity(32);
+        const THREADS: usize = 32;
 
-        for i in 0 .. 32 {
+        let tls = Arc::new(ThreadLocal::new());
+        let mut threads = Vec::with_capacity(THREADS);
+
+        for i in 0 .. THREADS {
             let tls = tls.clone();
             threads.push(thread::spawn(move || {
                 tls.with_init(|| i, |&x| assert_eq!(x, i));
@@ -438,6 +552,41 @@ mod test {
 
         for thread in threads {
             thread.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn iter() {
+        const THREADS: usize = 32;
+
+        let tls = Arc::new(ThreadLocal::new());
+        let mut threads = Vec::with_capacity(THREADS);
+
+        for i in 0 .. THREADS {
+            let tls = tls.clone();
+            threads.push(thread::spawn(move || {
+                tls.with_init(|| i, |_| ());
+            }))
+        }
+
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        let mut done = [0; THREADS];
+        let mut tls = Arc::try_unwrap(tls).unwrap();
+
+        for entry in &mut tls {
+            done[*entry] += 1;
+            *entry = (*entry + 1) % THREADS;
+        }
+
+        for entry in tls {
+            done[entry] += 1;
+        }
+
+        for &status in &done as &[_] {
+            assert_eq!(status, 2);
         }
     }
 }
