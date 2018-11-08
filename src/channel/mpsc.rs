@@ -145,14 +145,13 @@ impl<T> Receiver<T> {
                 },
 
                 None => {
+                    let back = unsafe {
+                        self.back.as_ref().ptr.load(Acquire) as usize
+                    };
                     let next = node.next.load(Acquire);
 
                     match NonNull::new(next) {
                         None => {
-                            let back = unsafe {
-                                self.back.as_ref().ptr.load(Acquire) as usize
-                            };
-
                             break if back & 1 == 0 {
                                 Err(RecvErr::NoMessage)
                             } else {
@@ -344,7 +343,7 @@ mod test {
             thread.join().unwrap();
         }
 
-        for status in &done as &[bool] {
+        for (i, status) in done.iter().enumerate() {
             assert!(*status);
         }
     }
