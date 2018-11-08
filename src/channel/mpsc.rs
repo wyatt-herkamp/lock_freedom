@@ -1,4 +1,7 @@
-pub use super::{NoRecv, RecvErr};
+pub use super::{
+    NoRecv,
+    RecvErr::{self, *},
+};
 use owned_alloc::OwnedAlloc;
 use std::{
     fmt,

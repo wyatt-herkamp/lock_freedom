@@ -241,7 +241,7 @@ impl<T> IntoAtomic for *mut T {
 /// ```
 pub struct AtomicBox<T> {
     ptr: AtomicPtr<T>,
-    incin: AtomicBoxIncin<T>,
+    incin: BoxSharedIncin<T>,
 }
 
 impl<T> AtomicBox<T>
@@ -250,7 +250,7 @@ where
 {
     /// Creates the `AtomicBox` with an initial value and a given shared
     /// incinerator.
-    pub fn with_incin(init: T, incin: AtomicBoxIncin<T>) -> Self {
+    pub fn with_incin(init: T, incin: BoxSharedIncin<T>) -> Self {
         Self {
             ptr: OwnedAlloc::new(init).into_raw().as_ptr().into_atomic(),
             incin,
@@ -258,7 +258,7 @@ where
     }
 
     /// The shared incinerator used by this `AtomicBox`.
-    pub fn incinerator(&self) -> AtomicBoxIncin<T> {
+    pub fn incin(&self) -> BoxSharedIncin<T> {
         self.incin.clone()
     }
 
@@ -276,7 +276,7 @@ where
     type Inner = T;
 
     fn new(init: Self::Inner) -> Self {
-        Self::with_incin(init, AtomicBoxIncin::new())
+        Self::with_incin(init, BoxSharedIncin::new())
     }
 
     fn load(&self, ord: Ordering) -> Self::Inner {
@@ -505,7 +505,7 @@ where
 /// `AtomicOptionBox` can be null.
 pub struct AtomicOptionBox<T> {
     ptr: AtomicPtr<T>,
-    incin: AtomicBoxIncin<T>,
+    incin: BoxSharedIncin<T>,
 }
 
 impl<T> AtomicOptionBox<T>
@@ -514,7 +514,7 @@ where
 {
     /// Creates the `AtomicOptionBox` with an initial value and a given shared
     /// incinerator.
-    pub fn with_incin(init: Option<T>, incin: AtomicBoxIncin<T>) -> Self {
+    pub fn with_incin(init: Option<T>, incin: BoxSharedIncin<T>) -> Self {
         Self {
             ptr: Self::make_ptr(init).into_atomic(),
             incin,
@@ -522,7 +522,7 @@ where
     }
 
     /// The shared incinerator used by this `AtomicOptionBox`.
-    pub fn incinerator(&self) -> AtomicBoxIncin<T> {
+    pub fn incin(&self) -> BoxSharedIncin<T> {
         self.incin.clone()
     }
 
@@ -556,7 +556,7 @@ where
     type Inner = Option<T>;
 
     fn new(init: Self::Inner) -> Self {
-        Self::with_incin(init, AtomicBoxIncin::new())
+        Self::with_incin(init, BoxSharedIncin::new())
     }
 
     fn load(&self, ord: Ordering) -> Self::Inner {
@@ -786,14 +786,14 @@ where
 
 make_shared_incin! {
     { "`AtomicBox` and `AtomicOptionBox`" }
-    pub AtomicBoxIncin<T> of OwnedAlloc<T>
+    pub BoxSharedIncin<T> of OwnedAlloc<T>
 }
 
-impl<T> fmt::Debug for AtomicBoxIncin<T> {
+impl<T> fmt::Debug for BoxSharedIncin<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "AtomicBoxIncin {} inner: {:?} {}",
+            "BoxSharedIncin {} inner: {:?} {}",
             '{', self.inner, '}'
         )
     }

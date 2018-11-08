@@ -4,22 +4,35 @@ use std::{
     fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
-    sync::atomic::{AtomicPtr, Ordering::*},
+    sync::{
+        atomic::{AtomicPtr, Ordering::*},
+        Arc,
+    },
 };
 
 /// A lock-free stack. LIFO/FILO semanthics are fully respected.
 pub struct Stack<T> {
     top: AtomicPtr<Node<T>>,
-    incin: Incinerator<UninitAlloc<Node<T>>>,
+    incin: SharedIncin<T>,
 }
 
 impl<T> Stack<T> {
     /// Creates a new empty stack.
     pub fn new() -> Self {
+        Self::with_incin(SharedIncin::new())
+    }
+
+    /// Creates an empty queue using the passed shared incinerator.
+    pub fn with_incin(incin: SharedIncin<T>) -> Self {
         Self {
             top: AtomicPtr::new(null_mut()),
-            incin: Incinerator::new(),
+            incin,
         }
+    }
+
+    /// Returns the shared incinerator used by this `Stack`.
+    pub fn incin(&self) -> SharedIncin<T> {
+        self.incin.clone()
     }
 
     /// Pushes a new value onto the top of the stack.
@@ -41,7 +54,7 @@ impl<T> Stack<T> {
 
     /// Pops a single element from the top of the stack.
     pub fn pop(&self) -> Option<T> {
-        let result = self.incin.pause_with(|| loop {
+        let result = self.incin.inner.pause_with(|| loop {
             // First, let's load our top.
             let top = self.top.load(Acquire);
             match NonNull::new(top) {
@@ -73,7 +86,9 @@ impl<T> Stack<T> {
             // Let's first get the "val" to be returned.
             let val = unsafe { (&mut nnptr.as_mut().val as *mut T).read() };
             // Then, let's dealloc (now or later).
-            self.incin.add(unsafe { UninitAlloc::from_raw(nnptr) });
+            self.incin
+                .inner
+                .add(unsafe { UninitAlloc::from_raw(nnptr) });
             val
         })
     }
@@ -89,8 +104,8 @@ impl<T> Stack<T> {
     }
 
     /// Creates an iterator over `T`s, based on `pop` operation of the stack.
-    pub fn iter<'a>(&'a self) -> Iter<'a, T> {
-        Iter { stack: self }
+    pub fn iter<'a>(&'a self) -> PopIter<'a, T> {
+        PopIter { stack: self }
     }
 }
 
@@ -122,39 +137,43 @@ impl<T> FromIterator<T> for Stack<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a Stack<T> {
-    type Item = T;
-
-    type IntoIter = Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
 impl<T> fmt::Debug for Stack<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "Stack {} top: {:?} {}", '{', self.top, '}')
+        write!(
+            fmtr,
+            "Stack {} top: {:?}, incin: {:?} {}",
+            '{', self.top, self.incin, '}'
+        )
     }
 }
 
 unsafe impl<T> Send for Stack<T> where T: Send {}
-
 unsafe impl<T> Sync for Stack<T> where T: Send {}
 
 /// An iterator based on `pop` operation of the `Stack`.
-pub struct Iter<'a, T>
+pub struct PopIter<'a, T>
 where
     T: 'a,
 {
     stack: &'a Stack<T>,
 }
 
-impl<'a, T> Iterator for Iter<'a, T> {
+impl<'a, T> Iterator for PopIter<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.stack.pop()
+    }
+}
+
+make_shared_incin! {
+    { "`Stack`" }
+    pub SharedIncin<T> of UninitAlloc<Node<T>>
+}
+
+impl<T> fmt::Debug for SharedIncin<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "SharedIncin {} inner: {:?} {}", '{', self.inner, '}')
     }
 }
 

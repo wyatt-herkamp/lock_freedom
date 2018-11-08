@@ -237,7 +237,6 @@ where
             list.append(&mut tmp);
             self.list.replace(list);
         }
-
         Ok(())
     }
 }
@@ -256,7 +255,12 @@ macro_rules! make_shared_incin {
         $vis:vis $name:ident<$($params:ident),*> of $garbage:ty
     ) => {
         doc! {
-            concat!("The shared incinerator used by ", $target, ".");
+            concat!("The shared incinerator used by ", $target, ". You may \
+                     want to use this type in order to reduce memory \
+                     consumption of the minimal space required by the \
+                     incinerator. However, garbage items may be hold for \
+                     longer time than they would if no shared incinerator \
+                     were used.");
             $(#[$meta])*
             $vis struct $name<$($params),*> {
                 inner: Arc<Incinerator<$garbage>>,
@@ -273,6 +277,7 @@ macro_rules! make_shared_incin {
                 }
             }
 
+            #[allow(dead_code)]
             fn clear(&mut self) {
                 if let Some(incin) = Arc::get_mut(&mut self.inner) {
                     incin.clear();

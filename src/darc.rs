@@ -11,18 +11,18 @@ use std::{
 /// stores `Arc`s.
 pub struct Darc<T> {
     ptr: AtomicPtr<T>,
-    incin: DarcIncin<T>,
+    incin: SharedIncin<T>,
 }
 
 impl<T> Darc<T> {
     /// Creates a new `Darc` from the given `Arc`.
     pub fn new(arc: Arc<T>) -> Self {
-        Self::with_incin(arc, DarcIncin::new())
+        Self::with_incin(arc, SharedIncin::new())
     }
 
     /// Creates a new `Darc` from the given `Arc` and a given shared
     /// incinerator.
-    pub fn with_incin(arc: Arc<T>, incin: DarcIncin<T>) -> Self {
+    pub fn with_incin(arc: Arc<T>, incin: SharedIncin<T>) -> Self {
         Self {
             ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _),
             incin,
@@ -30,8 +30,8 @@ impl<T> Darc<T> {
     }
 
     /// The shared incinerator used by this `Darc`.
-    pub fn incinerator(&self) -> DarcIncin<T> {
-        DarcIncin {
+    pub fn incin(&self) -> SharedIncin<T> {
+        SharedIncin {
             inner: self.incin.inner.clone(),
         }
     }
@@ -248,7 +248,7 @@ unsafe impl<T> Sync for Darc<T> where T: Send + Sync {}
 make_shared_incin! {
     { "`Darc`" }
     #[derive(Debug)]
-    pub DarcIncin<T> of Arc<T>
+    pub SharedIncin<T> of Arc<T>
 }
 
 // Testing the safety of `unsafe` in this module is done with random operations

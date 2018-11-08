@@ -5,7 +5,10 @@ use std::{
     fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
-    sync::atomic::{AtomicPtr, Ordering::*},
+    sync::{
+        atomic::{AtomicPtr, Ordering::*},
+        Arc,
+    },
 };
 
 /// A lock-free queue. FIFO semanthics are fully respected.
@@ -13,19 +16,29 @@ use std::{
 pub struct Queue<T> {
     front: AtomicPtr<Node<T>>,
     back: AtomicPtr<Node<T>>,
-    incin: Incinerator<OwnedAlloc<Node<T>>>,
+    incin: SharedIncin<T>,
 }
 
 impl<T> Queue<T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
+        Self::with_incin(SharedIncin::new())
+    }
+
+    /// Creates an empty queue using the passed shared incinerator.
+    pub fn with_incin(incin: SharedIncin<T>) -> Self {
         let node = Node::new(Removable::empty());
         let sentinel = OwnedAlloc::new(node).into_raw().as_ptr();
         Self {
             front: AtomicPtr::new(sentinel),
             back: AtomicPtr::new(sentinel),
-            incin: Incinerator::new(),
+            incin,
         }
+    }
+
+    /// Returns the shared incinerator used by this `Queue`.
+    pub fn incin(&self) -> SharedIncin<T> {
+        self.incin.clone()
     }
 
     /// Pushes a value into the back of the queue. This operation is also
@@ -43,7 +56,7 @@ impl<T> Queue<T> {
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let res = self.incin.pause_with(|| {
+            let res = self.incin.inner.pause_with(|| {
                 let front_ptr = self.front.load(Acquire);
                 let front_nnptr = match NonNull::new(front_ptr) {
                     Some(nnptr) => nnptr,
@@ -81,8 +94,8 @@ impl<T> Queue<T> {
     }
 
     /// Creates an iterator over `T`s, based on `pop` operation of the queue.
-    pub fn iter<'a>(&'a self) -> Iter<'a, T> {
-        Iter { queue: self }
+    pub fn pop_iter<'a>(&'a self) -> PopIter<'a, T> {
+        PopIter { queue: self }
     }
 
     unsafe fn try_clear_first(&self, expected: NonNull<Node<T>>) -> bool {
@@ -94,7 +107,7 @@ impl<T> Queue<T> {
             let ptr = expected.as_ptr();
             let res = self.front.compare_and_swap(ptr, next, Release);
             if res == expected.as_ptr() {
-                self.incin.add(OwnedAlloc::from_raw(expected));
+                self.incin.inner.add(OwnedAlloc::from_raw(expected));
             }
             true
         }
@@ -128,43 +141,43 @@ impl<T> FromIterator<T> for Queue<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a Queue<T> {
-    type Item = T;
-
-    type IntoIter = Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
 impl<T> fmt::Debug for Queue<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "Queue {} front: {:?}, back: {:?} {}",
-            '{', self.front, self.back, '}'
+            "Queue {} front: {:?}, back: {:?}, incin: {:?} {}",
+            '{', self.front, self.back, self.incin, '}'
         )
     }
 }
 
 unsafe impl<T> Send for Queue<T> where T: Send {}
-
 unsafe impl<T> Sync for Queue<T> where T: Send {}
 
 /// An iterator based on `pop` operation of the `Queue`.
-pub struct Iter<'a, T>
+pub struct PopIter<'a, T>
 where
     T: 'a,
 {
     queue: &'a Queue<T>,
 }
 
-impl<'a, T> Iterator for Iter<'a, T> {
+impl<'a, T> Iterator for PopIter<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.queue.pop()
+    }
+}
+
+make_shared_incin! {
+    { "`Queue`" }
+    pub SharedIncin<T> of OwnedAlloc<Node<T>>
+}
+
+impl<T> fmt::Debug for SharedIncin<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "SharedIncin {} inner: {:?} {}", '{', self.inner, '}')
     }
 }
 
