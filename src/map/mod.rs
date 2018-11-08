@@ -61,7 +61,7 @@ use std::{
 /// references to the entries and wrappers over removed entries.
 pub struct Map<K, V, H = RandomState> {
     top: OwnedAlloc<Table<K, V>>,
-    incin: Arc<Incinerator<Garbage<K, V>>>,
+    incin: SharedIncin<K, V>,
     builder: H,
 }
 
@@ -69,6 +69,11 @@ impl<K, V> Map<K, V> {
     /// Creates a new `Map` with the default hasher builder.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates the `Map` using the given shared incinerator.
+    pub fn with_incin(incin: SharedIncin<K, V>) -> Self {
+        Self::with_hasher_and_incin(RandomState::default(), incin)
     }
 }
 
@@ -78,11 +83,21 @@ where
 {
     /// Creates the `Map` using the given hasher builder.
     pub fn with_hasher(builder: H) -> Self {
+        Self::with_hasher_and_incin(builder, SharedIncin::new())
+    }
+
+    /// Creates the `Map` using the given hasher builder and shared incinerator.
+    pub fn with_hasher_and_incin(builder: H, incin: SharedIncin<K, V>) -> Self {
         Self {
             top: Table::new_alloc(),
-            incin: Arc::new(Incinerator::new()),
+            incin,
             builder,
         }
+    }
+
+    /// The shared incinerator used by this `Map`.
+    pub fn incin(&self) -> SharedIncin<K, V> {
+        self.incin.clone()
     }
 
     /// The hasher buider used by this `Map`.
@@ -94,14 +109,14 @@ where
     /// any entry*. This method might also clear delayed resource destruction.
     /// This method cannot be performed in a shared context.
     pub fn optimize_space(&mut self) {
-        self.try_clear_incin();
+        self.incin.clear();
         self.top.optimize_space();
     }
 
     /// Removes all entries. This method might also clear delayed resource
     /// destruction. This method cannot be performed in a shared context.
     pub fn clear(&mut self) {
-        self.try_clear_incin();
+        self.incin.clear();
         let mut tables = Vec::new();
         self.top.clear(&mut tables);
 
@@ -131,9 +146,9 @@ where
         Q: ?Sized + Hash + Ord,
         K: Borrow<Q>,
     {
-        let pause = self.incin.pause();
+        let pause = self.incin.inner.pause();
         let hash = self.hash_of(key);
-        let result = unsafe { self.top.get(key, hash, &self.incin) };
+        let result = unsafe { self.top.get(key, hash, &self.incin.inner) };
         result.map(|pair| ReadGuard::new(pair, pause))
     }
 
@@ -143,13 +158,13 @@ where
     where
         K: Hash + Ord,
     {
-        let insertion = self.incin.pause_with(|| {
+        let insertion = self.incin.inner.pause_with(|| {
             let hash = self.hash_of(&key);
             unsafe {
                 self.top.insert(
                     InsertNew::with_pair(|_, _, _| Preview::Keep, (key, val)),
                     hash,
-                    &self.incin,
+                    &self.incin.inner,
                 )
             }
         });
@@ -182,13 +197,13 @@ where
         K: Hash + Ord,
         F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
     {
-        let insertion = self.incin.pause_with(|| {
+        let insertion = self.incin.inner.pause_with(|| {
             let hash = self.hash_of(&key);
             unsafe {
                 self.top.insert(
                     InsertNew::with_key(interactive, key),
                     hash,
-                    &self.incin,
+                    &self.incin.inner,
                 )
             }
         });
@@ -217,17 +232,17 @@ where
     where
         K: Hash + Ord,
     {
-        if !Removed::is_usable_by(&mut removed, &self.incin) {
+        if !Removed::is_usable_by(&mut removed, &self.incin.inner) {
             return Insertion::Failed(removed);
         }
 
-        let insertion = self.incin.pause_with(|| {
+        let insertion = self.incin.inner.pause_with(|| {
             let hash = self.hash_of(removed.key());
             unsafe {
                 self.top.insert(
                     Reinsert::new(|_, _| true, removed),
                     hash,
-                    &self.incin,
+                    &self.incin.inner,
                 )
             }
         });
@@ -266,17 +281,17 @@ where
         K: Hash + Ord,
         F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
     {
-        if !Removed::is_usable_by(&mut removed, &self.incin) {
+        if !Removed::is_usable_by(&mut removed, &self.incin.inner) {
             return Insertion::Failed(removed);
         }
 
-        let insertion = self.incin.pause_with(|| {
+        let insertion = self.incin.inner.pause_with(|| {
             let hash = self.hash_of(removed.key());
             unsafe {
                 self.top.insert(
                     Reinsert::new(interactive, removed),
                     hash,
-                    &self.incin,
+                    &self.incin.inner,
                 )
             }
         });
@@ -320,9 +335,11 @@ where
         K: Borrow<Q>,
         F: FnMut(&(K, V)) -> bool,
     {
-        self.incin.pause_with(|| {
+        self.incin.inner.pause_with(|| {
             let hash = self.hash_of(key);
-            unsafe { self.top.remove(key, interactive, hash, &self.incin) }
+            unsafe {
+                self.top.remove(key, interactive, hash, &self.incin.inner)
+            }
         })
     }
 
@@ -333,14 +350,6 @@ where
         let mut hasher = self.builder.build_hasher();
         key.hash(&mut hasher);
         hasher.finish()
-    }
-
-    fn try_clear_incin(&mut self) {
-        if let Some(incin) = Arc::get_mut(&mut self.incin) {
-            incin.clear();
-            return;
-        }
-        self.incin.try_clear();
     }
 }
 
@@ -361,7 +370,7 @@ where
         write!(
             fmtr,
             "Map {} top_table: {:?}, incin: {:?}, build_hasher: {:?}  {}",
-            '{', self.top, self.incin, self.builder, '}'
+            '{', self.top, self.incin.inner, self.builder, '}'
         )
     }
 }
@@ -384,7 +393,7 @@ impl<'origin, K, V, H> IntoIterator for &'origin Map<K, V, H> {
     type IntoIter = Iter<'origin, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter::new(self.incin.pause(), &self.top)
+        Iter::new(self.incin.inner.pause(), &self.top)
     }
 }
 
@@ -402,6 +411,17 @@ where
     V: Sync,
     H: Sync,
 {
+}
+
+make_shared_incin! {
+    { "`Map`" }
+    pub SharedIncin<K, V> of Garbage<K, V>
+}
+
+impl<K, V> fmt::Debug for SharedIncin<K, V> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "SharedIncin {} inner: {:?} {}", '{', self.inner, '}')
+    }
 }
 
 #[cfg(test)]

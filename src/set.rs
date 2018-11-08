@@ -6,6 +6,7 @@ use map::{
     Preview,
     ReadGuard as MapGuard,
     Removed as MapRemoved,
+    SharedIncin as MapIncin,
 };
 use std::{
     borrow::Borrow,
@@ -26,6 +27,13 @@ impl<T> Set<T> {
     pub fn new() -> Self {
         Self { inner: Map::new() }
     }
+
+    /// Creates the `Set` using the given shared incinerator.
+    pub fn with_incin(incin: SharedIncin<T>) -> Self {
+        Self {
+            inner: Map::with_incin(incin.inner),
+        }
+    }
 }
 
 impl<T, H> Set<T, H>
@@ -36,6 +44,20 @@ where
     pub fn with_hasher(builder: H) -> Self {
         Self {
             inner: Map::with_hasher(builder),
+        }
+    }
+
+    /// Creates the `Set` using the given hasher builder and shared incinerator.
+    pub fn with_hasher_and_incin(builder: H, incin: SharedIncin<T>) -> Self {
+        Self {
+            inner: Map::with_hasher_and_incin(builder, incin.inner),
+        }
+    }
+
+    /// The shared incinerator used by this `Map`.
+    pub fn incin(&self) -> SharedIncin<T> {
+        SharedIncin {
+            inner: self.inner.incin(),
         }
     }
 
@@ -492,6 +514,43 @@ impl<'origin, T> Iterator for Iter<'origin, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(ReadGuard::new)
+    }
+}
+
+/// The shared incinerator used by ", $target, ". You may want to use this type
+/// in order to reduce memory consumption of the minimal space required by the
+/// incinerator. However, garbage items may be hold for longer time than they
+/// would if no shared incinerator were used.
+pub struct SharedIncin<T> {
+    inner: MapIncin<T, ()>,
+}
+
+impl<T> SharedIncin<T> {
+    /// Creates a new shared incinerator for `Set`.
+    pub fn new() -> Self {
+        Self {
+            inner: MapIncin::new(),
+        }
+    }
+}
+
+impl<T> fmt::Debug for SharedIncin<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "{:?}", self.inner)
+    }
+}
+
+impl<T> Default for SharedIncin<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Clone for SharedIncin<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 

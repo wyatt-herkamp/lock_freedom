@@ -35,6 +35,11 @@ impl<T> Stack<T> {
         self.incin.clone()
     }
 
+    /// Creates an iterator over `T`s, based on `pop` operation of the stack.
+    pub fn pop_iter<'a>(&'a self) -> PopIter<'a, T> {
+        PopIter { stack: self }
+    }
+
     /// Pushes a new value onto the top of the stack.
     pub fn push(&self, val: T) {
         let mut target = OwnedAlloc::new(Node::new(val, null_mut())).into_raw();
@@ -101,11 +106,6 @@ impl<T> Stack<T> {
         for elem in iterable {
             self.push(elem);
         }
-    }
-
-    /// Creates an iterator over `T`s, based on `pop` operation of the stack.
-    pub fn iter<'a>(&'a self) -> PopIter<'a, T> {
-        PopIter { stack: self }
     }
 }
 

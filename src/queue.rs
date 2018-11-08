@@ -41,6 +41,11 @@ impl<T> Queue<T> {
         self.incin.clone()
     }
 
+    /// Creates an iterator over `T`s, based on `pop` operation of the queue.
+    pub fn pop_iter<'a>(&'a self) -> PopIter<'a, T> {
+        PopIter { queue: self }
+    }
+
     /// Pushes a value into the back of the queue. This operation is also
     /// wait-free.
     pub fn push(&self, item: T) {
@@ -91,11 +96,6 @@ impl<T> Queue<T> {
         for elem in iterable {
             self.push(elem);
         }
-    }
-
-    /// Creates an iterator over `T`s, based on `pop` operation of the queue.
-    pub fn pop_iter<'a>(&'a self) -> PopIter<'a, T> {
-        PopIter { queue: self }
     }
 
     unsafe fn try_clear_first(&self, expected: NonNull<Node<T>>) -> bool {
