@@ -79,7 +79,7 @@ impl MapMachine {
     }
 }
 
-impl Machine for MapMachine {
+impl Spawn for MapMachine {
     fn spawn() -> Self {
         Self::default()
     }
@@ -87,7 +87,9 @@ impl Machine for MapMachine {
     fn fork(&self) -> Self {
         self.clone()
     }
+}
 
+impl Machine for MapMachine {
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode) {
         match byte % 13 {
             0 => {

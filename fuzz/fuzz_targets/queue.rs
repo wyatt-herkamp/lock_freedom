@@ -13,7 +13,7 @@ struct QueueMachine {
     queue: Arc<Queue<Box<u8>>>,
 }
 
-impl Machine for QueueMachine {
+impl Spawn for QueueMachine {
     fn spawn() -> Self {
         Self::default()
     }
@@ -21,7 +21,9 @@ impl Machine for QueueMachine {
     fn fork(&self) -> Self {
         self.clone()
     }
+}
 
+impl Machine for QueueMachine {
     fn interpret(&mut self, mut byte: u8, bytecode: &mut Bytecode) {
         loop {
             match byte % 4 {

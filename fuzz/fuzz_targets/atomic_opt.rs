@@ -47,7 +47,7 @@ fn get_rw_ord(byte: u8) -> Ordering {
     }
 }
 
-impl Machine for BoxMachine {
+impl Spawn for BoxMachine {
     fn spawn() -> Self {
         Self::default()
     }
@@ -55,7 +55,9 @@ impl Machine for BoxMachine {
     fn fork(&self) -> Self {
         self.clone()
     }
+}
 
+impl Machine for BoxMachine {
     #[allow(unused_must_use)]
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode) {
         match byte % 11 {
@@ -123,7 +125,8 @@ impl Machine for BoxMachine {
                 let load_ord = get_read_ord(bytecode.next().unwrap_or(0));
                 let init = self.ptr.load(load_ord);
                 let succ_ord = get_rw_ord(bytecode.next().unwrap_or(0));
-                self.ptr.compare_exchange(init, self.cache, succ_ord, Relaxed);
+                self.ptr
+                    .compare_exchange(init, self.cache, succ_ord, Relaxed);
             },
 
             9 => {

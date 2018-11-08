@@ -13,7 +13,7 @@ struct StackMachine {
     stack: Arc<Stack<Box<u8>>>,
 }
 
-impl Machine for StackMachine {
+impl Spawn for StackMachine {
     fn spawn() -> Self {
         Self::default()
     }
@@ -21,7 +21,9 @@ impl Machine for StackMachine {
     fn fork(&self) -> Self {
         self.clone()
     }
+}
 
+impl Machine for StackMachine {
     fn interpret(&mut self, mut byte: u8, bytecode: &mut Bytecode) {
         loop {
             match byte % 4 {

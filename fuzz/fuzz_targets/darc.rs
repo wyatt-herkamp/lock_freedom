@@ -22,7 +22,9 @@ impl Machine for DarcMachine {
     fn fork(&self) -> Self {
         self.clone()
     }
+}
 
+impl Machine for DarcMachine {
     #[allow(unused_must_use)]
     fn interpret(&mut self, byte: u8, _bytecode: &mut Bytecode) {
         match byte % 5 {

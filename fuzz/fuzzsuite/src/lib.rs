@@ -1,10 +1,12 @@
 use std::{sync::Arc, thread};
 
-pub trait Machine: Sized + Send + Sync + 'static {
+pub trait Spawn: Machine {
     fn spawn() -> Self;
 
     fn fork(&self) -> Self;
+}
 
+pub trait Machine: Sized + Send + Sync + 'static {
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode);
 
     fn run(&mut self, bytecode: &mut Bytecode) {
@@ -16,7 +18,7 @@ pub trait Machine: Sized + Send + Sync + 'static {
 
 pub fn test<T>(mut bytecode: Bytecode)
 where
-    T: Machine,
+    T: Spawn,
 {
     MainThread::<T>::spawn().run(&mut bytecode);
 }
@@ -38,14 +40,26 @@ impl Bytecode {
                 buf.push(i as u8);
                 i += 1;
             }
-            Self { data: buf.into(), ip: 0, sym_size: 1 }
+            Self {
+                data: buf.into(),
+                ip: 0,
+                sym_size: 1,
+            }
         } else {
-            Self { data: fuzz.into(), ip: 0, sym_size: fuzz.len() / 512 }
+            Self {
+                data: fuzz.into(),
+                ip: 0,
+                sym_size: fuzz.len() / 512,
+            }
         }
     }
 
     pub fn no_symbols(fuzz: &[u8]) -> Self {
-        Self { data: fuzz.into(), ip: 0, sym_size: 0 }
+        Self {
+            data: fuzz.into(),
+            ip: 0,
+            sym_size: 0,
+        }
     }
 
     pub fn code_seg(&self) -> &[u8] {
@@ -70,7 +84,7 @@ impl Bytecode {
 #[derive(Debug)]
 pub struct MainThread<T>
 where
-    T: Machine,
+    T: Spawn,
 {
     threads: Vec<thread::JoinHandle<()>>,
     machine: T,
@@ -78,16 +92,19 @@ where
 
 impl<T> MainThread<T>
 where
-    T: Machine,
+    T: Spawn,
 {
     pub fn new(machine: T) -> Self {
-        Self { machine, threads: Vec::new() }
+        Self {
+            machine,
+            threads: Vec::new(),
+        }
     }
 }
 
-impl<T> Machine for MainThread<T>
+impl<T> Spawn for MainThread<T>
 where
-    T: Machine,
+    T: Spawn,
 {
     fn spawn() -> Self {
         Self::new(T::spawn())
@@ -96,10 +113,16 @@ where
     fn fork(&self) -> Self {
         Self::new(self.machine.fork())
     }
+}
 
+impl<T> Machine for MainThread<T>
+where
+    T: Spawn,
+{
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode) {
         match byte {
-            128 if self.threads.len() < 1000 => {
+            // let's not blow up the thread limit
+            128 if self.threads.len() < 256 => {
                 let mut new = self.machine.fork();
                 let mut bytecode = bytecode.clone();
                 self.threads.push(thread::spawn(move || {
@@ -124,7 +147,7 @@ where
 
 impl<T> Drop for MainThread<T>
 where
-    T: Machine,
+    T: Spawn,
 {
     fn drop(&mut self) {
         while let Some(thread) = self.threads.pop() {
