@@ -246,7 +246,7 @@ pub struct AtomicBox<T> {
 
 impl<T> AtomicBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + PartialEq + Send,
 {
     /// Creates the `AtomicBox` with an initial value and a given shared
     /// incinerator.
@@ -273,7 +273,7 @@ where
 
 impl<T> Atomic for AtomicBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + PartialEq + Send,
 {
     type Inner = T;
 
@@ -487,7 +487,7 @@ impl<T> fmt::Debug for AtomicBox<T> {
 
 impl<T> Default for AtomicBox<T>
 where
-    T: Copy + PartialEq + Default,
+    T: Copy + PartialEq + Default + Send,
 {
     fn default() -> Self {
         Self::new(T::default())
@@ -496,7 +496,7 @@ where
 
 impl<T> From<T> for AtomicBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + PartialEq + Send,
 {
     fn from(val: T) -> Self {
         Self::new(val)
@@ -512,7 +512,7 @@ pub struct AtomicOptionBox<T> {
 
 impl<T> AtomicOptionBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + PartialEq + Send,
 {
     /// Creates the `AtomicOptionBox` with an initial value and a given shared
     /// incinerator.
@@ -555,7 +555,7 @@ where
 
 impl<T> Atomic for AtomicOptionBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + PartialEq + Send,
 {
     type Inner = Option<T>;
 
@@ -765,7 +765,7 @@ impl<T> fmt::Debug for AtomicOptionBox<T> {
 
 impl<T> Default for AtomicOptionBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + PartialEq + Send,
 {
     fn default() -> Self {
         Self::new(None)
@@ -774,7 +774,7 @@ where
 
 impl<T> From<T> for AtomicOptionBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + PartialEq + Send,
 {
     fn from(val: T) -> Self {
         Self::new(Some(val))
@@ -783,7 +783,7 @@ where
 
 impl<T> From<Option<T>> for AtomicOptionBox<T>
 where
-    T: Copy + PartialEq,
+    T: Copy + PartialEq + Send,
 {
     fn from(val: Option<T>) -> Self {
         Self::new(val)

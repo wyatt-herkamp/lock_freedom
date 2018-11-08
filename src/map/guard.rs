@@ -126,6 +126,20 @@ impl<'origin, K, V> Borrow<(K, V)> for ReadGuard<'origin, K, V> {
     }
 }
 
+unsafe impl<'origin, K, V> Send for ReadGuard<'origin, K, V>
+where
+    K: Send,
+    V: Send,
+{
+}
+
+unsafe impl<'origin, K, V> Sync for ReadGuard<'origin, K, V>
+where
+    K: Sync,
+    V: Sync,
+{
+}
+
 /// A removed entry. It can be reinserted at the same `Map` it was removed. It
 /// can also be inserted on another `Map`, but only if either the `Map` is
 /// dropped or there are no sensitive reads running on that `Map`.
@@ -325,4 +339,18 @@ impl<K, V> Borrow<(K, V)> for Removed<K, V> {
     fn borrow(&self) -> &(K, V) {
         &**self
     }
+}
+
+unsafe impl<K, V> Send for Removed<K, V>
+where
+    K: Send,
+    V: Send,
+{
+}
+
+unsafe impl<K, V> Sync for Removed<K, V>
+where
+    K: Sync,
+    V: Sync,
+{
 }

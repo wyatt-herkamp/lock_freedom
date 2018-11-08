@@ -70,3 +70,17 @@ impl<'origin, K, V> Iterator for Iter<'origin, K, V> {
         }
     }
 }
+
+unsafe impl<'origin, K, V> Send for Iter<'origin, K, V>
+where
+    K: Sync,
+    V: Sync,
+{
+}
+
+unsafe impl<'origin, K, V> Sync for Iter<'origin, K, V>
+where
+    K: Sync,
+    V: Sync,
+{
+}

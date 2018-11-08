@@ -392,6 +392,22 @@ impl<'origin, K, V, H> IntoIterator for &'origin Map<K, V, H> {
     }
 }
 
+unsafe impl<K, V, H> Send for Map<K, V, H>
+where
+    K: Send,
+    V: Send,
+    H: Send,
+{
+}
+
+unsafe impl<K, V, H> Sync for Map<K, V, H>
+where
+    K: Sync,
+    V: Sync,
+    H: Sync,
+{
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

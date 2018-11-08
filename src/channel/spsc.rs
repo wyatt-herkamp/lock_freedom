@@ -1,14 +1,13 @@
 use super::{NoRecv, RecvErr};
 use owned_alloc::OwnedAlloc;
 use std::{
+    fmt,
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
 
 /// Creates an asynchronous lock-free Single-Producer-Single-Consumer (SPSC)
-/// channel. The receiver does not provide any sort of `wait-for-message`
-/// operation. It would not be lock-free otherwise. If you need such a
-/// mechanism, consider using this channel with a `CondVar` (not lock-free).
+/// channel.
 pub fn create<T>() -> (Sender<T>, Receiver<T>) {
     let alloc = OwnedAlloc::new(Node {
         message: None,
@@ -43,11 +42,18 @@ impl<T> Sender<T> {
             self.back = nnptr;
             Ok(())
         } else {
-            let (node, _) = unsafe { OwnedAlloc::from_raw(nnptr).move_inner() };
-            Err(NoRecv {
-                message: node.message.unwrap(),
-            })
+            let mut alloc = unsafe { OwnedAlloc::from_raw(nnptr) };
+            let message = alloc.message.take().unwrap();
+            Err(NoRecv { message })
         }
+    }
+
+    /// Tests if the `Receiver` is still connected. There are no guarantees that
+    /// `send` will succeed if this method returns `true` because the `Receiver`
+    /// may disconnect meanwhile.
+    pub fn is_connected(&self) -> bool {
+        let back = unsafe { self.back.as_ref() };
+        back.next.load(Acquire).is_null()
     }
 }
 
@@ -68,6 +74,12 @@ impl<T> Drop for Sender<T> {
 unsafe impl<T> Send for Sender<T> where T: Send {}
 unsafe impl<T> Sync for Sender<T> where T: Send {}
 
+impl<T> fmt::Debug for Sender<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("spsc::Senderr")
+    }
+}
+
 /// The `Receiver` handle of a SPSC channel. Created by `channel` function.
 pub struct Receiver<T> {
     front: NonNull<Node<T>>,
@@ -82,7 +94,7 @@ impl<T> Receiver<T> {
             let node = unsafe { &mut *self.front.as_ptr() };
 
             match node.message.take() {
-                Some(val) => {
+                Some(message) => {
                     let next = node.next.load(Acquire) as usize;
 
                     if let Some(nnptr) = NonNull::new((next & !1) as *mut _) {
@@ -90,7 +102,7 @@ impl<T> Receiver<T> {
                         self.front = nnptr;
                     }
 
-                    break Ok(val);
+                    break Ok(message);
                 },
 
                 None => {
@@ -111,6 +123,15 @@ impl<T> Receiver<T> {
                 },
             }
         }
+    }
+
+    /// Tests if the `Sender` is still connected. There are no guarantees that
+    /// `recv` will succeed if this method returns `true` because the `Receiver`
+    /// may disconnect meanwhile. This method may also return `true` if the
+    /// `Sender` disconnected but there are messages pending in the buffer.
+    pub fn is_connected(&self) -> bool {
+        let front = unsafe { self.front.as_ref() };
+        front.message.is_some() || front.next.load(Acquire) as usize & 1 == 0
     }
 }
 
@@ -142,6 +163,12 @@ impl<T> Drop for Receiver<T> {
 unsafe impl<T> Send for Receiver<T> where T: Send {}
 unsafe impl<T> Sync for Receiver<T> where T: Send {}
 
+impl<T> fmt::Debug for Receiver<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("spsc::Receiver")
+    }
+}
+
 #[repr(align(/* at least */ 2))]
 struct Node<T> {
     message: Option<T>,
@@ -151,14 +178,16 @@ struct Node<T> {
 
 #[cfg(test)]
 mod test {
-    use super as spsc;
+    use channel::{spsc, RecvErr};
     use std::thread;
 
     #[test]
     fn correct_sequence() {
+        const MSGS: usize = 512;
+
         let (mut sender, mut receiver) = spsc::create::<usize>();
         let thread = thread::spawn(move || {
-            for i in 0 .. 512 {
+            for i in 0 .. MSGS {
                 loop {
                     match receiver.recv() {
                         Ok(j) => {
@@ -174,7 +203,7 @@ mod test {
             }
         });
 
-        for i in 0 .. 512 {
+        for i in 0 .. MSGS {
             sender.send(i).unwrap();
         }
 

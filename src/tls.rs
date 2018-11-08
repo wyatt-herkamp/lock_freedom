@@ -272,8 +272,8 @@ impl<T> Drop for ThreadLocal<T> {
     }
 }
 
-unsafe impl<T> Send for ThreadLocal<T> {}
-unsafe impl<T> Sync for ThreadLocal<T> {}
+unsafe impl<T> Send for ThreadLocal<T> where T: Send {}
+unsafe impl<T> Sync for ThreadLocal<T> where T: Send {}
 
 impl<T> fmt::Debug for ThreadLocal<T>
 where

@@ -56,7 +56,10 @@ pub mod map;
 /// A lock-free set.
 pub mod set;
 
-/// Collection of lock-free FIFO channels.
+/// Collection of lock-free FIFO channels. These channels are fully asynchronous
+/// and their receivers do not provide any sort of `wait-for-message` operation.
+/// It would be blocking otherwise, thus not lock-free. If you need such a
+/// mechanism, consider using this channel with a `CondVar` (not lock-free).
 pub mod channel;
 
 /// A shared removable value. No extra allocation is necessary.

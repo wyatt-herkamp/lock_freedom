@@ -2,6 +2,7 @@
 * Added SPSC and MPSC channels.
 * Added methods `get_mut` and `into_inner` for atomics.
 * Added `removable`
+* Fixed bad `Send` and `Sync` implementations.
 
 # 0.3.2 (release)
 * Fixed a queue bug.
