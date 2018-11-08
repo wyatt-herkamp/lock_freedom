@@ -79,6 +79,14 @@ impl Machine for SubVm {
     }
 }
 
+impl Drop for SubVm {
+    fn drop(&mut self) {
+        while let Some(thread) = self.children.pop() {
+            thread.join().unwrap();
+        }
+    }
+}
+
 #[derive(Debug)]
 struct SenderVm {
     sender: mpsc::Sender<Box<u8>>,

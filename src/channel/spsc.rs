@@ -32,11 +32,13 @@ impl<T> Sender<T> {
         });
         let nnptr = alloc.into_raw();
 
-        let res = unsafe { self.back.as_ref() }.next.compare_and_swap(
-            null_mut(),
-            nnptr.as_ptr(),
-            Release,
-        );
+        let res = unsafe {
+            self.back.as_ref().next.compare_and_swap(
+                null_mut(),
+                nnptr.as_ptr(),
+                Release,
+            )
+        };
 
         if res.is_null() {
             self.back = nnptr;
@@ -59,11 +61,13 @@ impl<T> Sender<T> {
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        let res = unsafe { self.back.as_ref() }.next.compare_and_swap(
-            null_mut(),
-            (null_mut::<Node<T>>() as usize | 1) as *mut _,
-            Release,
-        );
+        let res = unsafe {
+            self.back.as_ref().next.compare_and_swap(
+                null_mut(),
+                (null_mut::<Node<T>>() as usize | 1) as *mut _,
+                Release,
+            )
+        };
 
         if !res.is_null() {
             unsafe { OwnedAlloc::from_raw(self.back) };
@@ -138,11 +142,13 @@ impl<T> Receiver<T> {
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         loop {
-            let next = unsafe { self.front.as_ref() }.next.compare_and_swap(
-                null_mut(),
-                (null_mut::<Node<T>>() as usize | 1) as *mut _,
-                AcqRel,
-            );
+            let next = unsafe {
+                self.front.as_ref().next.compare_and_swap(
+                    null_mut(),
+                    (null_mut::<Node<T>>() as usize | 1) as *mut _,
+                    AcqRel,
+                )
+            };
 
             let next_nnptr = match NonNull::new(next) {
                 Some(nnptr) => nnptr,
