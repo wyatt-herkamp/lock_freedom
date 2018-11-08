@@ -11,7 +11,7 @@ We currently have:
 * Atomic Box
 * Atomic Optional Box
 
-# Documentation
+# Documentation for Latest Commit
 <https://bzim.gitlab.io/lockfree/lockfree/>
 
 # Changelog
