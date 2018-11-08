@@ -82,7 +82,7 @@ impl<T> Sender<T> {
                 if !res.is_null() {
                     unsafe {
                         OwnedAlloc::from_raw(prev);
-                        delete_before_last(node);
+                        delete_before_last(node, None);
                     }
                 }
 
@@ -217,7 +217,8 @@ impl<T> Drop for Receiver<T> {
 
             if res == ptr {
                 debug_assert!(!ptr.is_null());
-                unsafe { delete_before_last(self.front) }
+                unsafe { delete_before_last(self.front, NonNull::new(ptr)) }
+                break;
             }
         }
     }
@@ -280,8 +281,11 @@ struct Node<T> {
     next: AtomicPtr<Node<T>>,
 }
 
-unsafe fn delete_before_last<T>(mut curr: NonNull<Node<T>>) {
-    loop {
+unsafe fn delete_before_last<T>(
+    mut curr: NonNull<Node<T>>,
+    last: Option<NonNull<Node<T>>>,
+) {
+    while last != Some(curr) {
         let next = curr.as_ref().next.compare_and_swap(
             null_mut(),
             (null_mut::<Node<T>>() as usize | 1) as *mut _,
@@ -343,7 +347,7 @@ mod test {
             thread.join().unwrap();
         }
 
-        for (i, status) in done.iter().enumerate() {
+        for status in done.iter() {
             assert!(*status);
         }
     }
