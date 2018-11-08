@@ -45,3 +45,7 @@ path = "fuzz_targets/atomic_opt.rs"
 [[bin]]
 name = "mpsc"
 path = "fuzz_targets/mpsc.rs"
+
+[[bin]]
+name = "spsc"
+path = "fuzz_targets/spsc.rs"
