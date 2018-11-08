@@ -3,6 +3,7 @@ pages:
   image: rustlang/rust:nightly
   script:
   - rustup install stable
+  - rustup component add rustfmt-preview
   - cargo +stable check
   - cargo +nightly check
   - cargo fmt -- --check

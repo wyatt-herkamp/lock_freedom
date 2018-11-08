@@ -71,7 +71,10 @@ impl Executor {
         if threads == usize::max_value() {
             panic!("too much threads")
         }
-        Self { stats: Vec::new(), threads }
+        Self {
+            stats: Vec::new(),
+            threads,
+        }
     }
 
     pub fn threads(&self) -> usize {
@@ -112,7 +115,10 @@ impl Executor {
         }
         let total = start.elapsed();
 
-        self.stats.push(Stat { duration: total, rounds: count.load(Relaxed) });
+        self.stats.push(Stat {
+            duration: total,
+            rounds: count.load(Relaxed),
+        });
     }
 }
 
