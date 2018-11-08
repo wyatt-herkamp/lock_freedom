@@ -36,6 +36,7 @@ pub mod prelude;
 /// Incinerator API. The purpouse of this module is to solve the "ABA problem"
 /// related to pointers while still being lock-free. See documentation of the
 /// inner type for more details.
+#[macro_use]
 pub mod incin;
 
 /// A wait-free per-object Thread Local Storage (TLS).

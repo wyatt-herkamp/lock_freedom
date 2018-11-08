@@ -248,33 +248,10 @@ unsafe impl<T> Send for Darc<T> where T: Send + Sync {}
 
 unsafe impl<T> Sync for Darc<T> where T: Send + Sync {}
 
-/// The shared incinerator used by `Darc`.
-#[derive(Debug)]
-pub struct DarcIncin<T> {
-    inner: Arc<Incinerator<Arc<T>>>,
-}
-
-impl<T> DarcIncin<T> {
-    /// Creates a new incinerator for darcs.
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Incinerator::new()),
-        }
-    }
-}
-
-impl<T> Default for DarcIncin<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T> Clone for DarcIncin<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
+make_shared_incin! {
+    { "`Darc`" }
+    #[derive(Debug)]
+    pub DarcIncin<T> of Arc<T>
 }
 
 // Testing the safety of `unsafe` in this module is done with random operations

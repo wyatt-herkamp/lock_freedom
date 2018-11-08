@@ -14,7 +14,7 @@ struct DarcMachine {
     cache: Arc<u8>,
 }
 
-impl Machine for DarcMachine {
+impl Spawn for DarcMachine {
     fn spawn() -> Self {
         Self::default()
     }

@@ -5,6 +5,12 @@ pages:
   - rustup install stable
   - cargo +stable check
   - cargo +nightly check
+  - cargo fmt -- --check
+  - cd fuzz
+  - cargo check
+  - cd ../benchmark
+  - cargo check
+  - cd ..
   - ./test.sh
   - cargo doc
   - cp -r target/doc public

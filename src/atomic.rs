@@ -790,18 +790,9 @@ where
     }
 }
 
-/// The shared incinerator used by `AtomicBox` and `AtomicOptionBox`.
-pub struct AtomicBoxIncin<T> {
-    inner: Arc<Incinerator<OwnedAlloc<T>>>,
-}
-
-impl<T> AtomicBoxIncin<T> {
-    /// Creates a new incinerator for atomic boxes.
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Incinerator::new()),
-        }
-    }
+make_shared_incin! {
+    { "`AtomicBox` and `AtomicOptionBox`" }
+    pub AtomicBoxIncin<T> of OwnedAlloc<T>
 }
 
 impl<T> fmt::Debug for AtomicBoxIncin<T> {
@@ -811,20 +802,6 @@ impl<T> fmt::Debug for AtomicBoxIncin<T> {
             "AtomicBoxIncin {} inner: {:?} {}",
             '{', self.inner, '}'
         )
-    }
-}
-
-impl<T> Default for AtomicBoxIncin<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T> Clone for AtomicBoxIncin<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
     }
 }
 

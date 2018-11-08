@@ -241,3 +241,51 @@ where
         Ok(())
     }
 }
+
+macro_rules! doc {
+    ($doc:expr ; $($target:tt)*) => {
+        #[doc = $doc]
+        $($target)*
+    };
+}
+
+macro_rules! make_shared_incin {
+    (
+        { $target:expr }
+        $(#[$meta:meta])*
+        $vis:vis $name:ident<$($params:ident),*> of $garbage:ty
+    ) => {
+        doc! {
+            concat!("The shared incinerator used by ", $target, ".");
+            $(#[$meta])*
+            $vis struct $name<$($params),*> {
+                inner: Arc<Incinerator<$garbage>>,
+            }
+        }
+
+        impl<$($params),*> $name<$($params),*> {
+            doc! {
+                concat!("Creates a new shared incinerator for ", $target, ".");
+                $vis fn new() -> Self {
+                    Self {
+                        inner: Arc::new(Incinerator::new()),
+                    }
+                }
+            }
+        }
+
+        impl<$($params),*> Default for $name<$($params),*> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl<$($params),*> Clone for $name<$($params),*> {
+            fn clone(&self) -> Self {
+                Self {
+                    inner: self.inner.clone(),
+                }
+            }
+        }
+    };
+}
