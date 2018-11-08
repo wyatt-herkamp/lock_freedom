@@ -14,6 +14,6 @@ export LSAN_OPTIONS="$ASAN_OPTIONS"
 
 test_with_toolchain +nightly --lib
 
-export RUSTFLAGS=''
+export RUSTFLAGS='-C debuginfo=2'
 
 test_with_toolchain +stable

@@ -51,9 +51,8 @@ impl<T> Sender<T> {
         });
         let node = alloc.into_raw();
 
-        let back = unsafe { &self.inner.back.as_ref().ptr };
         loop {
-            let loaded = back.load(Acquire);
+            let loaded = unsafe { self.inner.back.as_ref().ptr.load(Acquire) };
 
             if loaded as usize & 1 == 1 {
                 let mut alloc = unsafe { OwnedAlloc::from_raw(node) };
@@ -61,16 +60,24 @@ impl<T> Sender<T> {
                 break Err(NoRecv { message });
             }
 
-            let res = back.compare_and_swap(loaded, node.as_ptr(), Release);
+            let res = unsafe {
+                self.inner.back.as_ref().ptr.compare_and_swap(
+                    loaded,
+                    node.as_ptr(),
+                    Release,
+                )
+            };
 
             if res == loaded {
                 debug_assert!(!loaded.is_null());
                 let prev = unsafe { NonNull::new_unchecked(loaded) };
-                let res = unsafe { prev.as_ref() }.next.compare_and_swap(
-                    null_mut(),
-                    node.as_ptr(),
-                    Release,
-                );
+                let res = unsafe {
+                    prev.as_ref().next.compare_and_swap(
+                        null_mut(),
+                        node.as_ptr(),
+                        Release,
+                    )
+                };
 
                 if !res.is_null() {
                     unsafe {
@@ -121,15 +128,16 @@ impl<T> Receiver<T> {
     /// `Err(RecvErr::NoMessage)` is returned. If the sender disconnected,
     /// `Err(RecvErr::NoSender)` is returned.
     pub fn recv(&mut self) -> Result<T, RecvErr> {
+        let mut node = unsafe { &mut *self.front.as_ptr() };
         loop {
-            let node = unsafe { &mut *self.front.as_ptr() };
-
             match node.message.take() {
                 Some(message) => {
-                    let next = node.next.load(Acquire) as usize;
+                    let next = node.next.load(Acquire);
 
-                    if let Some(nnptr) = NonNull::new((next & !1) as *mut _) {
-                        unsafe { OwnedAlloc::from_raw(self.front) };
+                    if let Some(nnptr) = NonNull::new(next) {
+                        unsafe {
+                            OwnedAlloc::from_raw(self.front);
+                        };
                         self.front = nnptr;
                     }
 
@@ -153,7 +161,10 @@ impl<T> Receiver<T> {
                         },
 
                         Some(nnptr) => {
-                            unsafe { OwnedAlloc::from_raw(self.front) };
+                            unsafe {
+                                node = &mut *nnptr.as_ptr();
+                                OwnedAlloc::from_raw(self.front);
+                            };
                             self.front = nnptr;
                         },
                     }
@@ -186,9 +197,8 @@ impl<T> Receiver<T> {
 
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
-        let back = unsafe { &self.back.as_ref().ptr };
         loop {
-            let ptr = back.load(Acquire);
+            let ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };
 
             if ptr as usize & 1 == 1 {
                 unsafe {
@@ -198,11 +208,13 @@ impl<T> Drop for Receiver<T> {
                 break;
             }
 
-            let res = back.compare_and_swap(
-                ptr,
-                (ptr as usize | 1) as *mut _,
-                Release,
-            );
+            let res = unsafe {
+                self.back.as_ref().ptr.compare_and_swap(
+                    ptr,
+                    (ptr as usize | 1) as *mut _,
+                    Release,
+                )
+            };
 
             if res == ptr {
                 debug_assert!(!ptr.is_null());
@@ -227,9 +239,8 @@ struct SenderInner<T> {
 
 impl<T> Drop for SenderInner<T> {
     fn drop(&mut self) {
-        let back = unsafe { &self.back.as_ref().ptr };
         loop {
-            let ptr = back.load(Acquire);
+            let ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };
 
             if ptr as usize & 1 == 1 {
                 let ptr = (ptr as usize & !1) as *mut Node<T>;
@@ -241,11 +252,13 @@ impl<T> Drop for SenderInner<T> {
                 break;
             }
 
-            let res = back.compare_and_swap(
-                ptr,
-                (ptr as usize | 1) as *mut _,
-                Release,
-            );
+            let res = unsafe {
+                self.back.as_ref().ptr.compare_and_swap(
+                    ptr,
+                    (ptr as usize | 1) as *mut _,
+                    Release,
+                )
+            };
 
             if res == ptr {
                 break;
