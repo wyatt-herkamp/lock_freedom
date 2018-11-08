@@ -201,7 +201,10 @@ impl<T> Node<T> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::{sync::Arc, thread};
+    use std::{
+        sync::{atomic::AtomicUsize, Arc},
+        thread,
+    };
 
     #[test]
     fn on_empty_first_pop_is_none() {
@@ -238,8 +241,10 @@ mod test {
 
         let queue = Arc::new(Queue::new());
         let mut handles = Vec::with_capacity(NTHREAD);
+        let removed = Arc::new(AtomicUsize::new(0));
 
         for i in 0 .. NTHREAD {
+            let removed = removed.clone();
             let queue = queue.clone();
             handles.push(thread::spawn(move || {
                 for j in 0 .. NITER {
@@ -247,6 +252,7 @@ mod test {
                     queue.push(val);
                     if (val + 1) % NMOD == 0 {
                         if let Some(val) = queue.pop() {
+                            removed.fetch_add(1, Relaxed);
                             assert!(val < NITER * NTHREAD);
                         }
                     }
@@ -258,7 +264,7 @@ mod test {
             handle.join().expect("thread failed");
         }
 
-        let expected = NITER * NTHREAD - NITER * NTHREAD / NMOD;
+        let expected = NITER * NTHREAD - removed.load(Relaxed);
         let mut res = 0;
         while let Some(val) = queue.pop() {
             assert!(val < NITER * NTHREAD);
