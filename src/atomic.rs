@@ -241,7 +241,7 @@ impl<T> IntoAtomic for *mut T {
 /// ```
 pub struct AtomicBox<T> {
     ptr: AtomicPtr<T>,
-    incin: Arc<Incinerator<OwnedAlloc<T>>>,
+    incin: AtomicBoxIncin<T>,
 }
 
 impl<T> AtomicBox<T>
@@ -250,18 +250,16 @@ where
 {
     /// Creates the `AtomicBox` with an initial value and a given shared
     /// incinerator.
-    pub fn with_incinerator(init: T, incin: AtomicBoxIncin<T>) -> Self {
+    pub fn with_incin(init: T, incin: AtomicBoxIncin<T>) -> Self {
         Self {
             ptr: OwnedAlloc::new(init).into_raw().as_ptr().into_atomic(),
-            incin: incin.inner,
+            incin,
         }
     }
 
     /// The shared incinerator used by this `AtomicBox`.
     pub fn incinerator(&self) -> AtomicBoxIncin<T> {
-        AtomicBoxIncin {
-            inner: self.incin.clone(),
-        }
+        self.incin.clone()
     }
 
     /// Returns a mutable reference to the stored data.
@@ -278,14 +276,13 @@ where
     type Inner = T;
 
     fn new(init: Self::Inner) -> Self {
-        Self {
-            ptr: OwnedAlloc::new(init).into_raw().as_ptr().into_atomic(),
-            incin: Arc::new(Incinerator::new()),
-        }
+        Self::with_incin(init, AtomicBoxIncin::new())
     }
 
     fn load(&self, ord: Ordering) -> Self::Inner {
-        self.incin.pause_with(|| unsafe { *self.ptr.load(ord) })
+        self.incin
+            .inner
+            .pause_with(|| unsafe { *self.ptr.load(ord) })
     }
 
     fn store(&self, val: Self::Inner, ord: Ordering) {
@@ -296,6 +293,7 @@ where
         let ptr = self.ptr.swap(OwnedAlloc::new(val).into_raw().as_ptr(), ord);
         let res = unsafe { *ptr };
         self.incin
+            .inner
             .add(unsafe { OwnedAlloc::from_raw(NonNull::new_unchecked(ptr)) });
         res
     }
@@ -335,7 +333,7 @@ where
             _ => succ,
         };
 
-        let (result, ptr) = self.incin.pause_with(|| {
+        let (result, ptr) = self.incin.inner.pause_with(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
             loop {
                 let loaded = unsafe { *loaded_ptr };
@@ -365,7 +363,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
+            self.incin.inner.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -385,7 +383,7 @@ where
             _ => succ,
         };
 
-        let (result, ptr) = self.incin.pause_with(|| {
+        let (result, ptr) = self.incin.inner.pause_with(|| {
             let loaded_ptr = self.ptr.load(load_ord);
 
             let loaded = unsafe { *loaded_ptr };
@@ -413,7 +411,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
+            self.incin.inner.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -430,7 +428,7 @@ where
     {
         let mut new_cache = Cache::new();
 
-        let (result, ptr) = self.incin.pause_with(|| {
+        let (result, ptr) = self.incin.inner.pause_with(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
 
             loop {
@@ -462,7 +460,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
+            self.incin.inner.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -507,7 +505,7 @@ where
 /// `AtomicOptionBox` can be null.
 pub struct AtomicOptionBox<T> {
     ptr: AtomicPtr<T>,
-    incin: Arc<Incinerator<OwnedAlloc<T>>>,
+    incin: AtomicBoxIncin<T>,
 }
 
 impl<T> AtomicOptionBox<T>
@@ -516,18 +514,16 @@ where
 {
     /// Creates the `AtomicOptionBox` with an initial value and a given shared
     /// incinerator.
-    pub fn with_incinerator(init: Option<T>, incin: AtomicBoxIncin<T>) -> Self {
+    pub fn with_incin(init: Option<T>, incin: AtomicBoxIncin<T>) -> Self {
         Self {
             ptr: Self::make_ptr(init).into_atomic(),
-            incin: incin.inner,
+            incin,
         }
     }
 
     /// The shared incinerator used by this `AtomicOptionBox`.
     pub fn incinerator(&self) -> AtomicBoxIncin<T> {
-        AtomicBoxIncin {
-            inner: self.incin.clone(),
-        }
+        self.incin.clone()
     }
 
     /// Returns a mutable reference to the stored data, if any.
@@ -547,7 +543,7 @@ where
     unsafe fn make_val_and_dealloc(&self, ptr: *mut T) -> Option<T> {
         NonNull::new(ptr).map(|nnptr| {
             let val = *nnptr.as_ref();
-            self.incin.add(OwnedAlloc::from_raw(nnptr));
+            self.incin.inner.add(OwnedAlloc::from_raw(nnptr));
             val
         })
     }
@@ -560,14 +556,12 @@ where
     type Inner = Option<T>;
 
     fn new(init: Self::Inner) -> Self {
-        Self {
-            ptr: Self::make_ptr(init).into_atomic(),
-            incin: Arc::new(Incinerator::new()),
-        }
+        Self::with_incin(init, AtomicBoxIncin::new())
     }
 
     fn load(&self, ord: Ordering) -> Self::Inner {
         self.incin
+            .inner
             .pause_with(|| unsafe { Self::make_val(self.ptr.load(ord)) })
     }
 
@@ -614,7 +608,7 @@ where
             _ => succ,
         };
 
-        let (result, ptr) = self.incin.pause_with(|| {
+        let (result, ptr) = self.incin.inner.pause_with(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
 
             loop {
@@ -641,7 +635,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
+            self.incin.inner.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -661,7 +655,7 @@ where
             _ => succ,
         };
 
-        let (result, ptr) = self.incin.pause_with(|| {
+        let (result, ptr) = self.incin.inner.pause_with(|| {
             let loaded_ptr = self.ptr.load(load_ord);
 
             let loaded = unsafe { Self::make_val(loaded_ptr) };
@@ -689,7 +683,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
+            self.incin.inner.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result
@@ -706,7 +700,7 @@ where
     {
         let mut new_cache = Cache::new();
 
-        let (result, ptr) = self.incin.pause_with(|| {
+        let (result, ptr) = self.incin.inner.pause_with(|| {
             let mut loaded_ptr = self.ptr.load(load_ord);
 
             loop {
@@ -742,7 +736,7 @@ where
         });
 
         if let Some(nnptr) = ptr {
-            self.incin.add(unsafe { OwnedAlloc::from_raw(nnptr) });
+            self.incin.inner.add(unsafe { OwnedAlloc::from_raw(nnptr) });
         }
 
         result

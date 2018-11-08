@@ -11,37 +11,34 @@ use std::{
 /// stores `Arc`s.
 pub struct Darc<T> {
     ptr: AtomicPtr<T>,
-    incin: Arc<Incinerator<Arc<T>>>,
+    incin: DarcIncin<T>,
 }
 
 impl<T> Darc<T> {
     /// Creates a new `Darc` from the given `Arc`.
     pub fn new(arc: Arc<T>) -> Self {
-        Self {
-            ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _),
-            incin: Arc::new(Incinerator::new()),
-        }
+        Self::with_incin(arc, DarcIncin::new())
     }
 
     /// Creates a new `Darc` from the given `Arc` and a given shared
     /// incinerator.
-    pub fn with_incinerator(arc: Arc<T>, incin: DarcIncin<T>) -> Self {
+    pub fn with_incin(arc: Arc<T>, incin: DarcIncin<T>) -> Self {
         Self {
             ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _),
-            incin: incin.inner,
+            incin,
         }
     }
 
     /// The shared incinerator used by this `Darc`.
     pub fn incinerator(&self) -> DarcIncin<T> {
         DarcIncin {
-            inner: self.incin.clone(),
+            inner: self.incin.inner.clone(),
         }
     }
 
     /// Loads the `Darc` into an `Arc`.
     pub fn load(&self) -> Arc<T> {
-        self.incin.pause_with(|| {
+        self.incin.inner.pause_with(|| {
             let ptr = self.ptr.load(Relaxed);
             let arc = unsafe { Arc::from_raw(ptr) };
             // We are cloning the stored arc pointer. Therefore,
@@ -67,7 +64,7 @@ impl<T> Darc<T> {
         // after the return of the method, so, we need clone and the
         // later_drop above to ensure no use-after free.
         let arc = unsafe { Arc::from_raw(ptr) };
-        self.incin.add(arc.clone());
+        self.incin.inner.add(arc.clone());
         arc
     }
 
@@ -78,7 +75,7 @@ impl<T> Darc<T> {
         let curr = Arc::into_raw(curr) as *mut _;
         let new = Arc::into_raw(new) as *mut _;
 
-        let res = self.incin.pause_with(|| {
+        let res = self.incin.inner.pause_with(|| {
             let ptr = self.ptr.compare_and_swap(curr, new, Relaxed);
             if ptr == curr {
                 // Behaves as a swap.
@@ -108,7 +105,7 @@ impl<T> Darc<T> {
 
         match res {
             Ok((ret, drop)) => {
-                self.incin.add(drop);
+                self.incin.inner.add(drop);
                 ret
             },
 
@@ -125,7 +122,7 @@ impl<T> Darc<T> {
         let curr = Arc::into_raw(curr) as *mut _;
         let new = Arc::into_raw(new) as *mut _;
 
-        let res = self.incin.pause_with(|| {
+        let res = self.incin.inner.pause_with(|| {
             let res = self.ptr.compare_exchange(curr, new, Relaxed, Relaxed);
             match res {
                 Ok(ptr) => {
@@ -155,7 +152,7 @@ impl<T> Darc<T> {
         });
 
         res.map(|(ret, drop)| {
-            self.incin.add(drop);
+            self.incin.inner.add(drop);
             ret
         })
     }
@@ -168,7 +165,7 @@ impl<T> Darc<T> {
     ) -> Result<Arc<T>, Arc<T>> {
         let curr = Arc::into_raw(curr) as *mut _;
         let new = Arc::into_raw(new) as *mut _;
-        let res = self.incin.pause_with(|| {
+        let res = self.incin.inner.pause_with(|| {
             let res =
                 self.ptr.compare_exchange_weak(curr, new, Relaxed, Relaxed);
             match res {
@@ -199,7 +196,7 @@ impl<T> Darc<T> {
         });
 
         res.map(|(ret, drop)| {
-            self.incin.add(drop);
+            self.incin.inner.add(drop);
             ret
         })
     }
@@ -238,7 +235,7 @@ where
             "Darc {} ptr: {:?}, incin: {:?} {}",
             '{',
             self.load(),
-            self.incin,
+            self.incin.inner,
             '}'
         )
     }

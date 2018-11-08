@@ -272,6 +272,14 @@ macro_rules! make_shared_incin {
                     }
                 }
             }
+
+            fn clear(&mut self) {
+                if let Some(incin) = Arc::get_mut(&mut self.inner) {
+                    incin.clear();
+                    return;
+                }
+                self.inner.try_clear();
+            }
         }
 
         impl<$($params),*> Default for $name<$($params),*> {
