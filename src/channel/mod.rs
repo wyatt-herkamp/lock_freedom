@@ -1,7 +1,7 @@
 /// A lock-free Single-Producer-Single-Consumer (SPSC) FIFO channel.
 pub mod spsc;
 
-/// A lock-free Multi-Producer-Single-Consumer (SPSC) FIFO channel.
+/// A lock-free Multi-Producer-Single-Consumer (MPSC) FIFO channel.
 pub mod mpsc;
 
 /// The error of `Sender::send` operation. Occurs if all receivers were
