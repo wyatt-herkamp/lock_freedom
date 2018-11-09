@@ -1,6 +1,7 @@
 pub use map::RandomState;
 use map::{
     Insertion as MapInsertion,
+    IntoIter as MapIntoIter,
     Iter as MapIter,
     Map,
     Preview,
@@ -33,6 +34,13 @@ impl<T> Set<T> {
         Self {
             inner: Map::with_incin(incin.inner),
         }
+    }
+}
+
+impl<T, H> Set<T, H> {
+    /// Creates an iterator over guarded references to the elements.
+    pub fn iter(&self) -> Iter<T> {
+        self.into_iter()
     }
 }
 
@@ -76,12 +84,6 @@ where
     /// context.
     pub fn clear(&mut self) {
         self.inner.clear();
-    }
-
-    /// Creates an iterator over the elements. `IntoIterator` is implemented
-    /// with this iterator.
-    pub fn iter(&self) -> Iter<T> {
-        self.into_iter()
     }
 
     /// Tests if the given element is present on the `Set`. The method accepts a
@@ -270,6 +272,18 @@ where
     }
 }
 
+impl<T, H> IntoIterator for Set<T, H> {
+    type Item = T;
+
+    type IntoIter = IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter {
+            inner: self.inner.into_iter(),
+        }
+    }
+}
+
 impl<'origin, T, H> IntoIterator for &'origin Set<T, H> {
     type Item = ReadGuard<'origin, T>;
 
@@ -277,7 +291,7 @@ impl<'origin, T, H> IntoIterator for &'origin Set<T, H> {
 
     fn into_iter(self) -> Self::IntoIter {
         Iter {
-            inner: self.inner.into_iter(),
+            inner: self.inner.iter(),
         }
     }
 }
@@ -514,6 +528,25 @@ impl<'origin, T> Iterator for Iter<'origin, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(ReadGuard::new)
+    }
+}
+
+/// An iterator over owned elements of a `Set`.
+pub struct IntoIter<T> {
+    inner: MapIntoIter<T, ()>,
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(elem, _)| elem)
+    }
+}
+
+impl<T> fmt::Debug for IntoIter<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "IntoIter {} inner: {:?} {}", '{', self.inner, '}')
     }
 }
 

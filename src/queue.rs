@@ -42,7 +42,7 @@ impl<T> Queue<T> {
     }
 
     /// Creates an iterator over `T`s, based on `pop` operation of the queue.
-    pub fn pop_iter<'a>(&'a self) -> PopIter<'a, T> {
+    pub fn pop_iter<'origin>(&'origin self) -> PopIter<'origin, T> {
         PopIter { queue: self }
     }
 
@@ -155,18 +155,24 @@ unsafe impl<T> Send for Queue<T> where T: Send {}
 unsafe impl<T> Sync for Queue<T> where T: Send {}
 
 /// An iterator based on `pop` operation of the `Queue`.
-pub struct PopIter<'a, T>
+pub struct PopIter<'origin, T>
 where
-    T: 'a,
+    T: 'origin,
 {
-    queue: &'a Queue<T>,
+    queue: &'origin Queue<T>,
 }
 
-impl<'a, T> Iterator for PopIter<'a, T> {
+impl<'origin, T> Iterator for PopIter<'origin, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.queue.pop()
+    }
+}
+
+impl<'origin, T> fmt::Debug for PopIter<'origin, T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "PopIter {} queue: {:?} {}", '{', self.queue, '}')
     }
 }
 

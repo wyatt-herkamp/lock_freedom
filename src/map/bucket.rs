@@ -6,6 +6,7 @@ use std::{
     borrow::Borrow,
     cmp::Ordering,
     fmt,
+    mem,
     ptr::{null_mut, NonNull},
     sync::{
         atomic::{AtomicPtr, Ordering::*},
@@ -290,6 +291,36 @@ impl<K, V> Bucket<K, V> {
     }
 }
 
+impl<K, V> IntoIterator for Bucket<K, V> {
+    type Item = OwnedAlloc<(K, V)>;
+
+    type IntoIter = IntoIter<K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let nnptr =
+            unsafe { NonNull::new_unchecked(self.list.atomic.load(Relaxed)) };
+        let head = unsafe { OwnedAlloc::from_raw(nnptr) };
+        mem::forget(self);
+        IntoIter {
+            curr: NonNull::new(head.next)
+                .map(|nnptr| unsafe { OwnedAlloc::from_raw(nnptr) }),
+        }
+    }
+}
+
+impl<'origin, K, V> IntoIterator for &'origin mut Bucket<K, V> {
+    type Item = (&'origin K, &'origin mut V);
+
+    type IntoIter = IterMut<'origin, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let head = unsafe { &mut *self.list.atomic.load(Relaxed) };
+        IterMut {
+            curr: unsafe { head.next.as_mut() },
+        }
+    }
+}
+
 impl<K, V> Drop for Bucket<K, V> {
     fn drop(&mut self) {
         unsafe {
@@ -503,4 +534,90 @@ enum LoadNextRes<K, V> {
         list: NonNull<List<K, V>>,
         entry: NonNull<Entry<K, V>>,
     },
+}
+
+pub struct IntoIter<K, V> {
+    curr: Option<OwnedAlloc<List<K, V>>>,
+}
+
+impl<K, V> IntoIter<K, V> {
+    pub fn empty() -> Self {
+        Self { curr: None }
+    }
+}
+
+impl<K, V> Iterator for IntoIter<K, V> {
+    type Item = OwnedAlloc<(K, V)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let list = self.curr.take()?;
+            let entry_ptr =
+                unsafe { NonNull::new_unchecked(list.atomic.load(Relaxed)) };
+            let entry = unsafe { OwnedAlloc::from_raw(entry_ptr) };
+            self.curr = NonNull::new((entry.next as usize & !1) as *mut _)
+                .map(|nnptr| unsafe { OwnedAlloc::from_raw(nnptr) });
+
+            if entry.next as usize & 1 == 0 {
+                break Some(unsafe { OwnedAlloc::from_raw(entry.pair) });
+            }
+        }
+    }
+}
+
+impl<K, V> Drop for IntoIter<K, V> {
+    fn drop(&mut self) {
+        while let Some(_) = self.next() {}
+    }
+}
+
+impl<K, V> fmt::Debug for IntoIter<K, V> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "{:?}", self.curr)
+    }
+}
+
+pub struct IterMut<'origin, K, V>
+where
+    K: 'origin,
+    V: 'origin,
+{
+    curr: Option<&'origin mut List<K, V>>,
+}
+
+impl<'origin, K, V> IterMut<'origin, K, V> {
+    pub fn empty() -> Self {
+        Self { curr: None }
+    }
+}
+
+impl<'origin, K, V> Iterator for IterMut<'origin, K, V> {
+    type Item = (&'origin K, &'origin mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let list = self.curr.take()?;
+            let ptr = list.atomic.load(Relaxed);
+            let entry = unsafe { &mut *ptr };
+
+            self.curr = unsafe {
+                let cleared = entry.next as usize & !1;
+                (cleared as *mut List<K, V>).as_mut()
+            };
+
+            if entry.next as usize & 1 == 0 {
+                let (key, val) = unsafe { &mut *entry.pair.as_ptr() };
+                break Some((&*key, val));
+            }
+        }
+    }
+}
+
+impl<'origin, K, V> fmt::Debug for IterMut<'origin, K, V> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        match self.curr {
+            Some(_) => fmtr.write_str("Some(_)"),
+            None => fmtr.write_str("None"),
+        }
+    }
 }

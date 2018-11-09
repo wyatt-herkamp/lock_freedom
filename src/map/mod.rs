@@ -7,7 +7,7 @@ mod iter;
 pub use self::{
     guard::{ReadGuard, Removed},
     insertion::{Insertion, Preview},
-    iter::Iter,
+    iter::{IntoIter, Iter, IterMut},
 };
 pub use std::collections::hash_map::RandomState;
 
@@ -22,6 +22,7 @@ use std::{
     borrow::Borrow,
     fmt,
     hash::{BuildHasher, Hash, Hasher},
+    mem,
     sync::Arc,
 };
 
@@ -77,6 +78,19 @@ impl<K, V> Map<K, V> {
     }
 }
 
+impl<K, V, H> Map<K, V, H> {
+    /// Creates an iterator over guarded references to the key-value entries.
+    pub fn iter(&self) -> Iter<K, V> {
+        self.into_iter()
+    }
+
+    /// Creates an iterator over the key-value entries, with a mutable reference
+    /// to the value.
+    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+        self.into_iter()
+    }
+}
+
 impl<K, V, H> Map<K, V, H>
 where
     H: BuildHasher,
@@ -123,12 +137,6 @@ where
         while let Some(mut table) = tables.pop() {
             table.free_nodes(&mut tables);
         }
-    }
-
-    /// Creates an iterator over the key-value-pair entries. `IntoIterator` is
-    /// implemented with this iterator.
-    pub fn iter(&self) -> Iter<K, V> {
-        self.into_iter()
     }
 
     /// Searches for the entry identified by the given key. The returned value
@@ -394,6 +402,32 @@ impl<'origin, K, V, H> IntoIterator for &'origin Map<K, V, H> {
 
     fn into_iter(self) -> Self::IntoIter {
         Iter::new(self.incin.inner.pause(), &self.top)
+    }
+}
+
+impl<'origin, K, V, H> IntoIterator for &'origin mut Map<K, V, H> {
+    type Item = (&'origin K, &'origin mut V);
+
+    type IntoIter = IterMut<'origin, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IterMut::new(&mut self.top)
+    }
+}
+
+impl<K, V, H> IntoIterator for Map<K, V, H> {
+    type Item = (K, V);
+
+    type IntoIter = IntoIter<K, V>;
+
+    fn into_iter(mut self) -> Self::IntoIter {
+        let raw = self.top.raw();
+        unsafe {
+            (&mut self.builder as *mut H).drop_in_place();
+            (&mut self.incin as *mut SharedIncin<K, V>).drop_in_place();
+            mem::forget(self);
+            IntoIter::new(OwnedAlloc::from_raw(raw))
+        }
     }
 }
 
@@ -663,6 +697,44 @@ mod test {
         for i in 0 .. 200 {
             for j in 16 .. 128 {
                 let pair = ((i, j), i << j);
+                assert_eq!(*result.get(&pair).unwrap(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn iter_mut_and_into_iter() {
+        let mut map = Map::new();
+        for i in 0 .. 10u128 {
+            for j in 0 .. 32 {
+                map.insert((i, j), i << j);
+            }
+        }
+
+        let mut result = HashMap::new();
+        for (k, v) in &mut map {
+            let in_place = result.get(&(*k, *v)).map_or(0, |&x| x);
+            result.insert((*k, *v), in_place + 1);
+            *v += 1;
+        }
+
+        for i in 0 .. 10 {
+            for j in 0 .. 32 {
+                let pair = ((i, j), i << j);
+                assert_eq!(*result.get(&pair).unwrap(), 1);
+            }
+        }
+
+        result.clear();
+
+        for (k, v) in map {
+            let in_place = result.get(&(k, v)).map_or(0, |&x| x);
+            result.insert((k, v), in_place + 1);
+        }
+
+        for i in 0 .. 10 {
+            for j in 0 .. 32 {
+                let pair = ((i, j), (i << j) + 1);
                 assert_eq!(*result.get(&pair).unwrap(), 1);
             }
         }
