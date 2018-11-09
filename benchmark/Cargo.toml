@@ -39,3 +39,7 @@ path = "src/reverb.rs"
 [[bin]]
 name = "mining"
 path = "src/mining.rs"
+
+[[bin]]
+name = "mpsc"
+path = "src/mpsc.rs"
