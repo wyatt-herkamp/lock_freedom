@@ -309,7 +309,7 @@ unsafe fn delete_before_last<T>(
 
 #[cfg(test)]
 mod test {
-    use channel::{mpsc, RecvErr};
+    use channel::mpsc;
     use std::thread;
 
     #[test]
@@ -341,9 +341,9 @@ mod test {
                     done[i] = true;
                 },
 
-                Err(RecvErr::NoMessage) => (),
+                Err(mpsc::NoMessage) => (),
 
-                Err(RecvErr::NoSender) => break,
+                Err(mpsc::NoSender) => break,
             }
         }
 

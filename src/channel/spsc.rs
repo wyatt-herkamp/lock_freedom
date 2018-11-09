@@ -188,7 +188,7 @@ struct Node<T> {
 
 #[cfg(test)]
 mod test {
-    use channel::{spsc, RecvErr};
+    use channel::spsc;
     use std::thread;
 
     #[test]
@@ -205,7 +205,7 @@ mod test {
                             break;
                         },
 
-                        Err(RecvErr::NoMessage) => (),
+                        Err(spsc::NoMessage) => (),
 
                         _ => unreachable!(),
                     }

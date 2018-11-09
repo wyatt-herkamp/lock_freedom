@@ -6,6 +6,7 @@ use incin::{Incinerator, Pause};
 use owned_alloc::OwnedAlloc;
 use removable::Removable;
 use std::{
+    fmt,
     ptr::{null_mut, NonNull},
     sync::{
         atomic::{AtomicPtr, Ordering::*},
@@ -98,6 +99,12 @@ impl<T> Drop for Sender<T> {
     }
 }
 
+impl<T> fmt::Debug for Sender<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("spmc::Sender")
+    }
+}
+
 /// The `Receiver` handle of a SPMC channel. Created by `channel` function. It
 /// is clonable and does not require mutability.
 pub struct Receiver<T> {
@@ -169,6 +176,20 @@ impl<T> Receiver<T> {
     }
 }
 
+impl<T> Clone for Receiver<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<T> fmt::Debug for Receiver<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        fmtr.write_str("spmc::Receiver")
+    }
+}
+
 struct ReceiverInner<T> {
     // never null
     front: AtomicPtr<Node<T>>,
@@ -213,4 +234,57 @@ struct Node<T> {
 make_shared_incin! {
     { "`spmc::Receiver`" }
     pub SharedIncin<T> of OwnedAlloc<Node<T>>
+}
+
+#[cfg(test)]
+mod test {
+    use channel::spmc;
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering::*},
+            Arc,
+        },
+        thread,
+    };
+
+    #[test]
+    fn correct_numbers() {
+        const THREADS: usize = 8;
+        const MESSAGES: usize = 512;
+
+        let mut done = Vec::with_capacity(MESSAGES);
+        for _ in 0 .. MESSAGES {
+            done.push(AtomicBool::new(false));
+        }
+        let done = Arc::<[AtomicBool]>::from(done);
+
+        let (mut sender, receiver) = spmc::create::<usize>();
+        let mut threads = Vec::with_capacity(THREADS);
+
+        for _ in 0 .. THREADS {
+            let done = done.clone();
+            let receiver = receiver.clone();
+            threads.push(thread::spawn(move || loop {
+                match receiver.recv() {
+                    Ok(i) => assert!(!done[i].swap(true, AcqRel)),
+                    Err(spmc::NoSender) => break,
+                    Err(spmc::NoMessage) => (),
+                }
+            }))
+        }
+
+        for i in 0 .. MESSAGES {
+            sender.send(i).unwrap();
+        }
+
+        drop(sender);
+
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        for status in done.iter() {
+            assert!(status.load(Relaxed));
+        }
+    }
 }
