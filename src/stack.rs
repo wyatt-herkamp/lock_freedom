@@ -36,7 +36,7 @@ impl<T> Stack<T> {
     }
 
     /// Creates an iterator over `T`s, based on `pop` operation of the stack.
-    pub fn pop_iter<'origin>(&'origin self) -> PopIter<'origin, T> {
+    pub fn pop_iter<'stack>(&'stack self) -> PopIter<'stack, T> {
         PopIter { stack: self }
     }
 
@@ -151,14 +151,14 @@ unsafe impl<T> Send for Stack<T> where T: Send {}
 unsafe impl<T> Sync for Stack<T> where T: Send {}
 
 /// An iterator based on `pop` operation of the `Stack`.
-pub struct PopIter<'origin, T>
+pub struct PopIter<'stack, T>
 where
-    T: 'origin,
+    T: 'stack,
 {
-    stack: &'origin Stack<T>,
+    stack: &'stack Stack<T>,
 }
 
-impl<'origin, T> Iterator for PopIter<'origin, T> {
+impl<'stack, T> Iterator for PopIter<'stack, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -166,7 +166,7 @@ impl<'origin, T> Iterator for PopIter<'origin, T> {
     }
 }
 
-impl<'origin, T> fmt::Debug for PopIter<'origin, T> {
+impl<'stack, T> fmt::Debug for PopIter<'stack, T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(fmtr, "PopIter {} stack: {:?} {}", '{', self.stack, '}')
     }

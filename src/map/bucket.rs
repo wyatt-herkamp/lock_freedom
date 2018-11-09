@@ -53,11 +53,11 @@ impl<K, V> Bucket<K, V> {
         })
     }
 
-    pub unsafe fn get<'origin, Q>(
-        &'origin self,
+    pub unsafe fn get<'map, Q>(
+        &'map self,
         key: &Q,
         incin: &Incinerator<Garbage<K, V>>,
-    ) -> GetRes<'origin, K, V>
+    ) -> GetRes<'map, K, V>
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
@@ -189,13 +189,13 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
-    pub unsafe fn collect<'origin, F, T>(
-        &'origin self,
+    pub unsafe fn collect<'map, F, T>(
+        &'map self,
         incin: &Incinerator<Garbage<K, V>>,
         out: &mut Vec<T>,
         mut map: F,
     ) where
-        F: FnMut(&'origin (K, V)) -> T,
+        F: FnMut(&'map (K, V)) -> T,
     {
         let trunc = out.len();
 
@@ -234,11 +234,11 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
-    unsafe fn find<'origin, Q>(
-        &'origin self,
+    unsafe fn find<'map, Q>(
+        &'map self,
         key: &Q,
         incin: &Incinerator<Garbage<K, V>>,
-    ) -> FindRes<'origin, K, V>
+    ) -> FindRes<'map, K, V>
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
@@ -308,10 +308,10 @@ impl<K, V> IntoIterator for Bucket<K, V> {
     }
 }
 
-impl<'origin, K, V> IntoIterator for &'origin mut Bucket<K, V> {
-    type Item = (&'origin K, &'origin mut V);
+impl<'map, K, V> IntoIterator for &'map mut Bucket<K, V> {
+    type Item = (&'map K, &'map mut V);
 
-    type IntoIter = IterMut<'origin, K, V>;
+    type IntoIter = IterMut<'map, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         let head = unsafe { &mut *self.list.atomic.load(Relaxed) };
@@ -481,12 +481,12 @@ impl<K, V> fmt::Debug for Garbage<K, V> {
     }
 }
 
-pub enum GetRes<'origin, K, V>
+pub enum GetRes<'map, K, V>
 where
-    K: 'origin,
-    V: 'origin,
+    K: 'map,
+    V: 'map,
 {
-    Found(&'origin (K, V)),
+    Found(&'map (K, V)),
     NotFound,
     Delete,
 }
@@ -503,20 +503,20 @@ pub struct RemoveRes<K, V> {
     pub delete: bool,
 }
 
-enum FindRes<'origin, K, V>
+enum FindRes<'map, K, V>
 where
-    K: 'origin,
-    V: 'origin,
+    K: 'map,
+    V: 'map,
 {
     Delete,
 
     Exact {
-        curr_list: &'origin List<K, V>,
+        curr_list: &'map List<K, V>,
         curr: NonNull<Entry<K, V>>,
     },
 
     After {
-        prev_list: &'origin List<K, V>,
+        prev_list: &'map List<K, V>,
         prev: NonNull<Entry<K, V>>,
     },
 }
@@ -577,22 +577,22 @@ impl<K, V> fmt::Debug for IntoIter<K, V> {
     }
 }
 
-pub struct IterMut<'origin, K, V>
+pub struct IterMut<'map, K, V>
 where
-    K: 'origin,
-    V: 'origin,
+    K: 'map,
+    V: 'map,
 {
-    curr: Option<&'origin mut List<K, V>>,
+    curr: Option<&'map mut List<K, V>>,
 }
 
-impl<'origin, K, V> IterMut<'origin, K, V> {
+impl<'map, K, V> IterMut<'map, K, V> {
     pub fn empty() -> Self {
         Self { curr: None }
     }
 }
 
-impl<'origin, K, V> Iterator for IterMut<'origin, K, V> {
-    type Item = (&'origin K, &'origin mut V);
+impl<'map, K, V> Iterator for IterMut<'map, K, V> {
+    type Item = (&'map K, &'map mut V);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -613,7 +613,7 @@ impl<'origin, K, V> Iterator for IterMut<'origin, K, V> {
     }
 }
 
-impl<'origin, K, V> fmt::Debug for IterMut<'origin, K, V> {
+impl<'map, K, V> fmt::Debug for IterMut<'map, K, V> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         match self.curr {
             Some(_) => fmtr.write_str("Some(_)"),

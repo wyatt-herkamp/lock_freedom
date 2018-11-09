@@ -15,19 +15,19 @@ use std::{
 /// A read-operation guard. This ensures no entry allocation is
 /// mutated or freed while potential reads are performed.
 #[derive(Debug)]
-pub struct ReadGuard<'origin, K, V>
+pub struct ReadGuard<'map, K, V>
 where
-    K: 'origin,
-    V: 'origin,
+    K: 'map,
+    V: 'map,
 {
-    pair: &'origin (K, V),
-    pause: Pause<'origin, Garbage<K, V>>,
+    pair: &'map (K, V),
+    pause: Pause<'map, Garbage<K, V>>,
 }
 
-impl<'origin, K, V> ReadGuard<'origin, K, V> {
+impl<'map, K, V> ReadGuard<'map, K, V> {
     pub(super) fn new(
-        pair: &'origin (K, V),
-        pause: Pause<'origin, Garbage<K, V>>,
+        pair: &'map (K, V),
+        pause: Pause<'map, Garbage<K, V>>,
     ) -> Self {
         Self { pair, pause }
     }
@@ -47,7 +47,7 @@ impl<'origin, K, V> ReadGuard<'origin, K, V> {
     }
 }
 
-impl<'origin, K, V> Deref for ReadGuard<'origin, K, V> {
+impl<'map, K, V> Deref for ReadGuard<'map, K, V> {
     type Target = (K, V);
 
     fn deref(&self) -> &Self::Target {
@@ -55,7 +55,7 @@ impl<'origin, K, V> Deref for ReadGuard<'origin, K, V> {
     }
 }
 
-impl<'origin, K, V> PartialEq for ReadGuard<'origin, K, V>
+impl<'map, K, V> PartialEq for ReadGuard<'map, K, V>
 where
     (K, V): PartialEq,
 {
@@ -64,7 +64,7 @@ where
     }
 }
 
-impl<'origin, K, V> PartialEq<(K, V)> for ReadGuard<'origin, K, V>
+impl<'map, K, V> PartialEq<(K, V)> for ReadGuard<'map, K, V>
 where
     (K, V): PartialEq,
 {
@@ -73,9 +73,9 @@ where
     }
 }
 
-impl<'origin, K, V> Eq for ReadGuard<'origin, K, V> where (K, V): Eq {}
+impl<'map, K, V> Eq for ReadGuard<'map, K, V> where (K, V): Eq {}
 
-impl<'origin, K, V> PartialOrd for ReadGuard<'origin, K, V>
+impl<'map, K, V> PartialOrd for ReadGuard<'map, K, V>
 where
     (K, V): PartialOrd,
 {
@@ -84,7 +84,7 @@ where
     }
 }
 
-impl<'origin, K, V> PartialOrd<(K, V)> for ReadGuard<'origin, K, V>
+impl<'map, K, V> PartialOrd<(K, V)> for ReadGuard<'map, K, V>
 where
     (K, V): PartialOrd,
 {
@@ -93,7 +93,7 @@ where
     }
 }
 
-impl<'origin, K, V> Ord for ReadGuard<'origin, K, V>
+impl<'map, K, V> Ord for ReadGuard<'map, K, V>
 where
     (K, V): Ord,
 {
@@ -102,7 +102,7 @@ where
     }
 }
 
-impl<'origin, K, V> Hash for ReadGuard<'origin, K, V>
+impl<'map, K, V> Hash for ReadGuard<'map, K, V>
 where
     (K, V): Hash,
 {
@@ -114,26 +114,26 @@ where
     }
 }
 
-impl<'origin, K, V> AsRef<(K, V)> for ReadGuard<'origin, K, V> {
+impl<'map, K, V> AsRef<(K, V)> for ReadGuard<'map, K, V> {
     fn as_ref(&self) -> &(K, V) {
         &**self
     }
 }
 
-impl<'origin, K, V> Borrow<(K, V)> for ReadGuard<'origin, K, V> {
+impl<'map, K, V> Borrow<(K, V)> for ReadGuard<'map, K, V> {
     fn borrow(&self) -> &(K, V) {
         &**self
     }
 }
 
-unsafe impl<'origin, K, V> Send for ReadGuard<'origin, K, V>
+unsafe impl<'map, K, V> Send for ReadGuard<'map, K, V>
 where
     K: Send,
     V: Send,
 {
 }
 
-unsafe impl<'origin, K, V> Sync for ReadGuard<'origin, K, V>
+unsafe impl<'map, K, V> Sync for ReadGuard<'map, K, V>
 where
     K: Sync,
     V: Sync,

@@ -104,10 +104,7 @@ where
     /// correctly if `Hash` and `Ord` are implemented in the same way for the
     /// borrowed type and the stored type. If the element is not found, `None`
     /// is obviously returned.
-    pub fn get<'origin, U>(
-        &'origin self,
-        elem: &U,
-    ) -> Option<ReadGuard<'origin, T>>
+    pub fn get<'set, U>(&'set self, elem: &U) -> Option<ReadGuard<'set, T>>
     where
         U: Hash + Ord,
         T: Borrow<U>,
@@ -284,10 +281,10 @@ impl<T, H> IntoIterator for Set<T, H> {
     }
 }
 
-impl<'origin, T, H> IntoIterator for &'origin Set<T, H> {
-    type Item = ReadGuard<'origin, T>;
+impl<'set, T, H> IntoIterator for &'set Set<T, H> {
+    type Item = ReadGuard<'set, T>;
 
-    type IntoIter = Iter<'origin, T>;
+    type IntoIter = Iter<'set, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         Iter {
@@ -357,20 +354,20 @@ impl<T, E> Insertion<T, E> {
 /// A read-operation guard. This ensures no element allocation is
 /// mutated or freed while potential reads are performed.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ReadGuard<'origin, T>
+pub struct ReadGuard<'set, T>
 where
-    T: 'origin,
+    T: 'set,
 {
-    inner: MapGuard<'origin, T, ()>,
+    inner: MapGuard<'set, T, ()>,
 }
 
-impl<'origin, T> ReadGuard<'origin, T> {
-    fn new(inner: MapGuard<'origin, T, ()>) -> Self {
+impl<'set, T> ReadGuard<'set, T> {
+    fn new(inner: MapGuard<'set, T, ()>) -> Self {
         Self { inner }
     }
 }
 
-impl<'origin, T> Deref for ReadGuard<'origin, T> {
+impl<'set, T> Deref for ReadGuard<'set, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -378,7 +375,7 @@ impl<'origin, T> Deref for ReadGuard<'origin, T> {
     }
 }
 
-impl<'origin, T> fmt::Debug for ReadGuard<'origin, T>
+impl<'set, T> fmt::Debug for ReadGuard<'set, T>
 where
     T: fmt::Debug,
 {
@@ -387,7 +384,7 @@ where
     }
 }
 
-impl<'origin, T> fmt::Display for ReadGuard<'origin, T>
+impl<'set, T> fmt::Display for ReadGuard<'set, T>
 where
     T: fmt::Display,
 {
@@ -396,7 +393,7 @@ where
     }
 }
 
-impl<'origin, T> PartialEq<T> for ReadGuard<'origin, T>
+impl<'set, T> PartialEq<T> for ReadGuard<'set, T>
 where
     T: PartialEq,
 {
@@ -405,7 +402,7 @@ where
     }
 }
 
-impl<'origin, T> PartialOrd<T> for ReadGuard<'origin, T>
+impl<'set, T> PartialOrd<T> for ReadGuard<'set, T>
 where
     T: PartialOrd,
 {
@@ -414,13 +411,13 @@ where
     }
 }
 
-impl<'origin, T> Borrow<T> for ReadGuard<'origin, T> {
+impl<'set, T> Borrow<T> for ReadGuard<'set, T> {
     fn borrow(&self) -> &T {
         self.deref()
     }
 }
 
-impl<'origin, T> AsRef<T> for ReadGuard<'origin, T> {
+impl<'set, T> AsRef<T> for ReadGuard<'set, T> {
     fn as_ref(&self) -> &T {
         self.deref()
     }
@@ -516,15 +513,15 @@ impl<T> AsRef<T> for Removed<T> {
 /// An iterator over elements of a `Set`. The `Item` of this
 /// iterator is a `ReadGuard`.
 #[derive(Debug)]
-pub struct Iter<'origin, T>
+pub struct Iter<'set, T>
 where
-    T: 'origin,
+    T: 'set,
 {
-    inner: MapIter<'origin, T, ()>,
+    inner: MapIter<'set, T, ()>,
 }
 
-impl<'origin, T> Iterator for Iter<'origin, T> {
-    type Item = ReadGuard<'origin, T>;
+impl<'set, T> Iterator for Iter<'set, T> {
+    type Item = ReadGuard<'set, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(ReadGuard::new)

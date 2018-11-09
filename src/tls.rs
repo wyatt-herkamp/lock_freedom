@@ -327,16 +327,16 @@ impl<'tls, T> IntoIterator for &'tls mut ThreadLocal<T> {
 }
 
 /// An iterator over mutable references to entries of TLS.
-pub struct IterMut<'origin, T>
+pub struct IterMut<'tls, T>
 where
-    T: 'origin,
+    T: 'tls,
 {
-    tables: Vec<&'origin mut Table<T>>,
-    curr_table: Option<(&'origin mut Table<T>, usize)>,
+    tables: Vec<&'tls mut Table<T>>,
+    curr_table: Option<(&'tls mut Table<T>, usize)>,
 }
 
-impl<'origin, T> Iterator for IterMut<'origin, T> {
-    type Item = &'origin mut T;
+impl<'tls, T> Iterator for IterMut<'tls, T> {
+    type Item = &'tls mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -361,6 +361,16 @@ impl<'origin, T> Iterator for IterMut<'origin, T> {
                 None => self.curr_table = self.tables.pop().map(|tbl| (tbl, 0)),
             };
         }
+    }
+}
+
+impl<'tls, T> fmt::Debug for IterMut<'tls, T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmtr,
+            "IterMut {} tables: {:?}, curr_table: {:?} {}",
+            '{', self.tables, self.curr_table, '}'
+        )
     }
 }
 
@@ -405,6 +415,16 @@ impl<T> Iterator for IntoIter<T> {
     }
 }
 
+impl<T> fmt::Debug for IntoIter<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmtr,
+            "IterMut {} tables: {:?}, curr_table: {:?} {}",
+            '{', self.tables, self.curr_table, '}'
+        )
+    }
+}
+
 struct Node<T> {
     // lower bit marked 0 for Entry, 1 for Table
     atomic: AtomicPtr<()>,
@@ -429,6 +449,12 @@ impl<T> Node<T> {
             tbl_stack
                 .push(OwnedAlloc::from_raw(NonNull::new_unchecked(table_ptr)));
         }
+    }
+}
+
+impl<T> fmt::Debug for Node<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "Node {} pointer: {:?} {}", '{', self.atomic, '}')
     }
 }
 
@@ -470,6 +496,16 @@ impl<T> Table<T> {
                 );
             }
         }
+    }
+}
+
+impl<T> fmt::Debug for Table<T> {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            fmtr,
+            "Table {} nodes: {:?} {}",
+            '{', &self.nodes as &[Node<T>], '}'
+        )
     }
 }
 

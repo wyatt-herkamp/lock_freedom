@@ -37,12 +37,12 @@ impl<K, V> Table<K, V> {
         }
     }
 
-    pub unsafe fn get<'origin, Q>(
-        &'origin self,
+    pub unsafe fn get<'map, Q>(
+        &'map self,
         key: &Q,
         hash: u64,
         incin: &Incinerator<Garbage<K, V>>,
-    ) -> Option<&'origin (K, V)>
+    ) -> Option<&'map (K, V)>
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,

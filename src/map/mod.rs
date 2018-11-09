@@ -146,10 +146,7 @@ where
     /// work correctly if `Hash` and `Ord` are implemented in the same way
     /// for the borrowed type and the stored type. If the entry was not
     /// found, `None` is returned.
-    pub fn get<'origin, Q>(
-        &'origin self,
-        key: &Q,
-    ) -> Option<ReadGuard<'origin, K, V>>
+    pub fn get<'map, Q>(&'map self, key: &Q) -> Option<ReadGuard<'map, K, V>>
     where
         Q: ?Sized + Hash + Ord,
         K: Borrow<Q>,
@@ -395,20 +392,20 @@ impl<K, V, H> Drop for Map<K, V, H> {
     }
 }
 
-impl<'origin, K, V, H> IntoIterator for &'origin Map<K, V, H> {
-    type Item = ReadGuard<'origin, K, V>;
+impl<'map, K, V, H> IntoIterator for &'map Map<K, V, H> {
+    type Item = ReadGuard<'map, K, V>;
 
-    type IntoIter = Iter<'origin, K, V>;
+    type IntoIter = Iter<'map, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         Iter::new(self.incin.inner.pause(), &self.top)
     }
 }
 
-impl<'origin, K, V, H> IntoIterator for &'origin mut Map<K, V, H> {
-    type Item = (&'origin K, &'origin mut V);
+impl<'map, K, V, H> IntoIterator for &'map mut Map<K, V, H> {
+    type Item = (&'map K, &'map mut V);
 
-    type IntoIter = IterMut<'origin, K, V>;
+    type IntoIter = IterMut<'map, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         IterMut::new(&mut self.top)

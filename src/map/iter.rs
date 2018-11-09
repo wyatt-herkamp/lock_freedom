@@ -10,21 +10,21 @@ use std::{fmt, mem::replace, ptr::NonNull};
 /// An iterator over key-vaue entries of a `Map`. The `Item` of this iterator is
 /// a `ReadGuard`.
 #[derive(Debug)]
-pub struct Iter<'origin, K, V>
+pub struct Iter<'map, K, V>
 where
-    K: 'origin,
-    V: 'origin,
+    K: 'map,
+    V: 'map,
 {
-    pause: Pause<'origin, Garbage<K, V>>,
-    tables: Vec<&'origin Table<K, V>>,
-    curr_table: Option<(&'origin Table<K, V>, usize)>,
-    cache: Vec<ReadGuard<'origin, K, V>>,
+    pause: Pause<'map, Garbage<K, V>>,
+    tables: Vec<&'map Table<K, V>>,
+    curr_table: Option<(&'map Table<K, V>, usize)>,
+    cache: Vec<ReadGuard<'map, K, V>>,
 }
 
-impl<'origin, K, V> Iter<'origin, K, V> {
+impl<'map, K, V> Iter<'map, K, V> {
     pub(super) fn new(
-        pause: Pause<'origin, Garbage<K, V>>,
-        top: &'origin Table<K, V>,
+        pause: Pause<'map, Garbage<K, V>>,
+        top: &'map Table<K, V>,
     ) -> Self {
         Self {
             pause,
@@ -35,8 +35,8 @@ impl<'origin, K, V> Iter<'origin, K, V> {
     }
 }
 
-impl<'origin, K, V> Iterator for Iter<'origin, K, V> {
-    type Item = ReadGuard<'origin, K, V>;
+impl<'map, K, V> Iterator for Iter<'map, K, V> {
+    type Item = ReadGuard<'map, K, V>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -72,14 +72,14 @@ impl<'origin, K, V> Iterator for Iter<'origin, K, V> {
     }
 }
 
-unsafe impl<'origin, K, V> Send for Iter<'origin, K, V>
+unsafe impl<'map, K, V> Send for Iter<'map, K, V>
 where
-    K: Sync,
-    V: Sync,
+    K: Send,
+    V: Send,
 {
 }
 
-unsafe impl<'origin, K, V> Sync for Iter<'origin, K, V>
+unsafe impl<'map, K, V> Sync for Iter<'map, K, V>
 where
     K: Sync,
     V: Sync,
@@ -174,18 +174,18 @@ where
 
 /// An owned iterator over references to key-vaue entries of a `Map`. The
 /// reference to the value is mutable (but not the one to the key).
-pub struct IterMut<'origin, K, V>
+pub struct IterMut<'map, K, V>
 where
-    K: 'origin,
-    V: 'origin,
+    K: 'map,
+    V: 'map,
 {
-    tables: Vec<&'origin mut Table<K, V>>,
-    curr_table: Option<(&'origin mut Table<K, V>, usize)>,
-    entries: bucket::IterMut<'origin, K, V>,
+    tables: Vec<&'map mut Table<K, V>>,
+    curr_table: Option<(&'map mut Table<K, V>, usize)>,
+    entries: bucket::IterMut<'map, K, V>,
 }
 
-impl<'origin, K, V> IterMut<'origin, K, V> {
-    pub(super) fn new(top: &'origin mut Table<K, V>) -> Self {
+impl<'map, K, V> IterMut<'map, K, V> {
+    pub(super) fn new(top: &'map mut Table<K, V>) -> Self {
         Self {
             tables: Vec::new(),
             curr_table: Some((top, 0)),
@@ -194,8 +194,8 @@ impl<'origin, K, V> IterMut<'origin, K, V> {
     }
 }
 
-impl<'origin, K, V> Iterator for IterMut<'origin, K, V> {
-    type Item = (&'origin K, &'origin mut V);
+impl<'map, K, V> Iterator for IterMut<'map, K, V> {
+    type Item = (&'map K, &'map mut V);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -226,21 +226,21 @@ impl<'origin, K, V> Iterator for IterMut<'origin, K, V> {
     }
 }
 
-unsafe impl<'origin, K, V> Send for IterMut<'origin, K, V>
+unsafe impl<'map, K, V> Send for IterMut<'map, K, V>
+where
+    K: Send,
+    V: Send,
+{
+}
+
+unsafe impl<'map, K, V> Sync for IterMut<'map, K, V>
 where
     K: Sync,
     V: Sync,
 {
 }
 
-unsafe impl<'origin, K, V> Sync for IterMut<'origin, K, V>
-where
-    K: Sync,
-    V: Sync,
-{
-}
-
-impl<'origin, K, V> fmt::Debug for IterMut<'origin, K, V> {
+impl<'map, K, V> fmt::Debug for IterMut<'map, K, V> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
