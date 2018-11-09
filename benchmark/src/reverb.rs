@@ -12,12 +12,12 @@ fn measure<Q>(nthread: usize, niter: u128) -> Duration
 where
     Q: Queue + Send + Sync + 'static,
 {
-    let channel = Arc::new(Q::default());
+    let queue = Arc::new(Q::default());
     let then = Instant::now();
     let mut threads = Vec::with_capacity(nthread);
 
     for i in 0 .. nthread {
-        let channel = channel.clone();
+        let queue = queue.clone();
         threads.push(thread::spawn(move || {
             let start = i as u128 * niter / nthread as u128;
             let end = if i + 1 == nthread {
@@ -27,15 +27,15 @@ where
             };
 
             for j in start .. end {
-                let popped = channel.pop();
-                channel.push(j);
-                channel.push(i as u128 + j);
+                let popped = queue.pop();
+                queue.push(j);
+                queue.push(i as u128 + j);
                 if let Some(num) = popped {
-                    channel.push(num + j);
+                    queue.push(num + j);
                 }
             }
 
-            while let Some(_) = channel.pop() {}
+            while let Some(_) = queue.pop() {}
         }))
     }
 
@@ -82,7 +82,9 @@ impl Queue for Mutex<LinkedList<u128>> {
 }
 
 fn main() {
-    println!("A program which reverberates messages");
+    println!(
+        "A program which reverberates messages through a plain queue channel"
+    );
 
     const SAMPLES: usize = 5;
     const NITER: u128 = 0x10000;

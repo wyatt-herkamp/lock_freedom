@@ -132,10 +132,11 @@ impl<T> Receiver<T> {
         }
     }
 
-    /// Tests if the `Sender` is still connected. There are no guarantees that
-    /// `recv` will succeed if this method returns `true` because the `Receiver`
-    /// may disconnect meanwhile. This method may also return `true` if the
-    /// `Sender` disconnected but there are messages pending in the buffer.
+    /// Tests if the `Sender` is still connected. There are no guarantees
+    /// that `recv` will succeed if this method returns `true` because the
+    /// `Receiver` may disconnect meanwhile. This method may also return
+    /// `true` if the `Sender` disconnected but there are messages pending
+    /// in the buffer.
     pub fn is_connected(&self) -> bool {
         let front = unsafe { self.front.as_ref() };
         front.message.is_some() || front.next.load(Acquire) as usize & 1 == 0

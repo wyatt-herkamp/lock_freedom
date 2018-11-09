@@ -148,7 +148,7 @@ impl Drop for MutexedReceiver {
 
 fn main() {
     const SAMPLES: usize = 5;
-    const NITER: u128 = 0x20000;
+    const NITER: u128 = 0x80000;
 
     let mut deque = Duration::default();
     let mut lockfree = Duration::default();

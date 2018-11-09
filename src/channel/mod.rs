@@ -4,6 +4,9 @@ pub mod spsc;
 /// A lock-free Multi-Producer-Single-Consumer (MPSC) FIFO channel.
 pub mod mpsc;
 
+/// A lock-free Single-Producer-Multi-Consumer (SPMC) FIFO channel.
+pub mod spmc;
+
 /// The error of `Sender::send` operation. Occurs if all receivers were
 /// disconnected.
 #[derive(Debug, Clone, Copy)]

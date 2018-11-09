@@ -1,4 +1,4 @@
-use incin::Incinerator;
+use incin::{Incinerator, Pause};
 use owned_alloc::OwnedAlloc;
 use removable::Removable;
 use std::{
@@ -11,7 +11,7 @@ use std::{
     },
 };
 
-/// A lock-free queue. FIFO semanthics are fully respected.
+/// A lock-free general-purpouse queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.
 pub struct Queue<T> {
     front: AtomicPtr<Node<T>>,
@@ -61,29 +61,24 @@ impl<T> Queue<T> {
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
         loop {
-            let res = self.incin.inner.pause_with(|| {
-                let front_ptr = self.front.load(Acquire);
-                let front_nnptr = match NonNull::new(front_ptr) {
-                    Some(nnptr) => nnptr,
-                    None => return Some(None),
-                };
+            let pause = self.incin.inner.pause();
+            let front_nnptr = unsafe {
+                let ptr = self.front.load(Acquire);
+                debug_assert!(!ptr.is_null());
+                NonNull::new_unchecked(ptr)
+            };
 
-                match unsafe { front_nnptr.as_ref() }.item.take() {
-                    Some(val) => {
-                        unsafe { self.try_clear_first(front_nnptr) };
-                        Some(Some(val))
-                    },
+            match unsafe { front_nnptr.as_ref() }.item.take() {
+                Some(val) => {
+                    unsafe { self.try_clear_first(front_nnptr, pause) };
+                    break Some(val);
+                },
 
-                    None if unsafe { self.try_clear_first(front_nnptr) } => {
-                        None
-                    },
-
-                    None => Some(None),
-                }
-            });
-
-            if let Some(ret) = res {
-                break ret;
+                None => {
+                    if unsafe { !self.try_clear_first(front_nnptr, pause) } {
+                        break None;
+                    }
+                },
             }
         }
     }
@@ -98,7 +93,11 @@ impl<T> Queue<T> {
         }
     }
 
-    unsafe fn try_clear_first(&self, expected: NonNull<Node<T>>) -> bool {
+    unsafe fn try_clear_first(
+        &self,
+        expected: NonNull<Node<T>>,
+        pause: Pause<OwnedAlloc<Node<T>>>,
+    ) -> bool {
         let next = expected.as_ref().next.load(Acquire);
 
         if next.is_null() {
@@ -106,6 +105,7 @@ impl<T> Queue<T> {
         } else {
             let ptr = expected.as_ptr();
             let res = self.front.compare_and_swap(ptr, next, Release);
+            pause.resume();
             if res == expected.as_ptr() {
                 self.incin.inner.add(OwnedAlloc::from_raw(expected));
             }
