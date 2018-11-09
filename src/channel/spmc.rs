@@ -120,8 +120,8 @@ impl<T> Receiver<T> {
     /// `Err(RecvErr::NoSender)` is returned.
     #[allow(unused_must_use)]
     pub fn recv(&self) -> Result<T, RecvErr> {
+        let pause = self.inner.incin.inner.pause();
         loop {
-            let pause = self.inner.incin.inner.pause();
             let front_nnptr = unsafe {
                 let ptr = self.inner.front.load(Acquire);
                 debug_assert!(!ptr.is_null());
@@ -130,11 +130,11 @@ impl<T> Receiver<T> {
 
             match unsafe { front_nnptr.as_ref() }.message.take() {
                 Some(val) => {
-                    unsafe { self.try_clear_first(front_nnptr, pause) };
+                    unsafe { self.try_clear_first(front_nnptr, &pause) };
                     break Ok(val);
                 },
 
-                None => unsafe { self.try_clear_first(front_nnptr, pause)? },
+                None => unsafe { self.try_clear_first(front_nnptr, &pause)? },
             }
         }
     }
@@ -159,7 +159,7 @@ impl<T> Receiver<T> {
     unsafe fn try_clear_first(
         &self,
         expected: NonNull<Node<T>>,
-        pause: Pause<OwnedAlloc<Node<T>>>,
+        pause: &Pause<OwnedAlloc<Node<T>>>,
     ) -> Result<(), RecvErr> {
         let next = expected.as_ref().next.load(Acquire);
 
@@ -170,9 +170,8 @@ impl<T> Receiver<T> {
         } else {
             let ptr = expected.as_ptr();
             let res = self.inner.front.compare_and_swap(ptr, next, Release);
-            pause.resume();
             if res == expected.as_ptr() {
-                self.inner.incin.inner.add(OwnedAlloc::from_raw(expected));
+                pause.add_to_incin(OwnedAlloc::from_raw(expected));
             }
             Ok(())
         }

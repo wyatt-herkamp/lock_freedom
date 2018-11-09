@@ -89,6 +89,26 @@ impl<K, V, H> Map<K, V, H> {
     pub fn iter_mut(&mut self) -> IterMut<K, V> {
         self.into_iter()
     }
+
+    /// Tries to optimize space by removing unnecessary tables *without removing
+    /// any entry*. This method might also clear delayed resource destruction.
+    /// This method cannot be performed in a shared context.
+    pub fn optimize_space(&mut self) {
+        self.incin.clear();
+        self.top.optimize_space();
+    }
+
+    /// Removes all entries. This method might also clear delayed resource
+    /// destruction. This method cannot be performed in a shared context.
+    pub fn clear(&mut self) {
+        self.incin.clear();
+        let mut tables = Vec::new();
+        self.top.clear(&mut tables);
+
+        while let Some(mut table) = tables.pop() {
+            table.free_nodes(&mut tables);
+        }
+    }
 }
 
 impl<K, V, H> Map<K, V, H>
@@ -119,26 +139,6 @@ where
         &self.builder
     }
 
-    /// Tries to optimize space by removing unnecessary tables *without removing
-    /// any entry*. This method might also clear delayed resource destruction.
-    /// This method cannot be performed in a shared context.
-    pub fn optimize_space(&mut self) {
-        self.incin.clear();
-        self.top.optimize_space();
-    }
-
-    /// Removes all entries. This method might also clear delayed resource
-    /// destruction. This method cannot be performed in a shared context.
-    pub fn clear(&mut self) {
-        self.incin.clear();
-        let mut tables = Vec::new();
-        self.top.clear(&mut tables);
-
-        while let Some(mut table) = tables.pop() {
-            table.free_nodes(&mut tables);
-        }
-    }
-
     /// Searches for the entry identified by the given key. The returned value
     /// is a guarded reference. Guarded to ensure no thread deallocates the
     /// allocation for the entry while it is being used. The method accepts
@@ -151,10 +151,9 @@ where
         Q: ?Sized + Hash + Ord,
         K: Borrow<Q>,
     {
-        let pause = self.incin.inner.pause();
         let hash = self.hash_of(key);
-        let result = unsafe { self.top.get(key, hash, &self.incin.inner) };
-        result.map(|pair| ReadGuard::new(pair, pause))
+        let pause = self.incin.inner.pause();
+        unsafe { self.top.get(key, hash, pause) }
     }
 
     /// Inserts unconditionally the given key and value. If there was a
@@ -163,16 +162,16 @@ where
     where
         K: Hash + Ord,
     {
-        let insertion = self.incin.inner.pause_with(|| {
-            let hash = self.hash_of(&key);
-            unsafe {
-                self.top.insert(
-                    InsertNew::with_pair(|_, _, _| Preview::Keep, (key, val)),
-                    hash,
-                    &self.incin.inner,
-                )
-            }
-        });
+        let pause = self.incin.inner.pause();
+        let hash = self.hash_of(&key);
+        let insertion = unsafe {
+            self.top.insert(
+                InsertNew::with_pair(|_, _, _| Preview::Keep, (key, val)),
+                hash,
+                &pause,
+                &self.incin.inner,
+            )
+        };
 
         match insertion {
             Insertion::Created => None,
@@ -202,16 +201,16 @@ where
         K: Hash + Ord,
         F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
     {
-        let insertion = self.incin.inner.pause_with(|| {
-            let hash = self.hash_of(&key);
-            unsafe {
-                self.top.insert(
-                    InsertNew::with_key(interactive, key),
-                    hash,
-                    &self.incin.inner,
-                )
-            }
-        });
+        let hash = self.hash_of(&key);
+        let pause = self.incin.inner.pause();
+        let insertion = unsafe {
+            self.top.insert(
+                InsertNew::with_key(interactive, key),
+                hash,
+                &pause,
+                &self.incin.inner,
+            )
+        };
 
         match insertion {
             Insertion::Created => Insertion::Created,
@@ -224,9 +223,10 @@ where
 
     /// Reinserts a previously removed entry. The entry must have been either:
     ///
-    /// 1. Removed from this very `Map`.
-    /// 2. Removed from an already dead `Map`.
-    /// 3. Removed from a `Map` which has no sensitive reads active.
+    /// 1. Removed from any `Map` using the same `SharedIncin` as this `Map`.
+    /// 2. Removed from an already dead `Map` with dead `SharedIncin`.
+    /// 3. Removed from a `Map` whose `SharedIncin` has no sensitive reads
+    /// active.
     ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.
@@ -241,16 +241,17 @@ where
             return Insertion::Failed(removed);
         }
 
-        let insertion = self.incin.inner.pause_with(|| {
-            let hash = self.hash_of(removed.key());
-            unsafe {
-                self.top.insert(
-                    Reinsert::new(|_, _| true, removed),
-                    hash,
-                    &self.incin.inner,
-                )
-            }
-        });
+        let hash = self.hash_of(removed.key());
+
+        let pause = self.incin.inner.pause();
+        let insertion = unsafe {
+            self.top.insert(
+                Reinsert::new(|_, _| true, removed),
+                hash,
+                &pause,
+                &self.incin.inner,
+            )
+        };
 
         match insertion {
             Insertion::Created => Insertion::Created,
@@ -271,9 +272,10 @@ where
     ///
     /// The entry must have been either:
     ///
-    /// 1. Removed from this very `Map`.
-    /// 2. Removed from an already dead `Map`.
-    /// 3. Removed from a `Map` which has no sensitive reads active.
+    /// 1. Removed from any `Map` using the same `SharedIncin` as this `Map`.
+    /// 2. Removed from an already dead `Map` with dead `SharedIncin`.
+    /// 3. Removed from a `Map` whose `SharedIncin` has no sensitive reads
+    /// active.
     ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.
@@ -290,16 +292,17 @@ where
             return Insertion::Failed(removed);
         }
 
-        let insertion = self.incin.inner.pause_with(|| {
-            let hash = self.hash_of(removed.key());
-            unsafe {
-                self.top.insert(
-                    Reinsert::new(interactive, removed),
-                    hash,
-                    &self.incin.inner,
-                )
-            }
-        });
+        let hash = self.hash_of(removed.key());
+
+        let pause = self.incin.inner.pause();
+        let insertion = unsafe {
+            self.top.insert(
+                Reinsert::new(interactive, removed),
+                hash,
+                &pause,
+                &self.incin.inner,
+            )
+        };
 
         match insertion {
             Insertion::Created => Insertion::Created,
@@ -340,12 +343,12 @@ where
         K: Borrow<Q>,
         F: FnMut(&(K, V)) -> bool,
     {
-        self.incin.inner.pause_with(|| {
-            let hash = self.hash_of(key);
-            unsafe {
-                self.top.remove(key, interactive, hash, &self.incin.inner)
-            }
-        })
+        let hash = self.hash_of(key);
+        let pause = self.incin.inner.pause();
+        unsafe {
+            self.top
+                .remove(key, interactive, hash, &pause, &self.incin.inner)
+        }
     }
 
     fn hash_of<Q>(&self, key: &Q) -> u64

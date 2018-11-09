@@ -59,7 +59,8 @@ impl<T> Stack<T> {
 
     /// Pops a single element from the top of the stack.
     pub fn pop(&self) -> Option<T> {
-        let result = self.incin.inner.pause_with(|| loop {
+        let pause = self.incin.inner.pause();
+        loop {
             // First, let's load our top.
             let top = self.top.load(Acquire);
             match NonNull::new(top) {
@@ -67,7 +68,7 @@ impl<T> Stack<T> {
                 // elements.
                 None => break None,
 
-                Some(nnptr) => {
+                Some(mut nnptr) => {
                     // The replacement for top is its "next".
                     // This is only possible because of hazard pointers.
                     // Otherwise, we would face the "ABA problem".
@@ -80,22 +81,20 @@ impl<T> Stack<T> {
                     // We succeed if top still was the loaded pointer.
                     if res == top {
                         // Done with an element.
-                        break Some(nnptr);
+
+                        // Let's first get the "val" to be returned.
+                        let val = unsafe {
+                            (&mut nnptr.as_mut().val as *mut T).read()
+                        };
+                        // Then, let's dealloc (now or later).
+                        pause.add_to_incin(unsafe {
+                            UninitAlloc::from_raw(nnptr)
+                        });
+                        break Some(val);
                     }
-                    // Not done.
                 },
             }
-        });
-
-        result.map(|mut nnptr| {
-            // Let's first get the "val" to be returned.
-            let val = unsafe { (&mut nnptr.as_mut().val as *mut T).read() };
-            // Then, let's dealloc (now or later).
-            self.incin
-                .inner
-                .add(unsafe { UninitAlloc::from_raw(nnptr) });
-            val
-        })
+        }
     }
 
     /// Extends the stack from a given iterable. All values are pushed.

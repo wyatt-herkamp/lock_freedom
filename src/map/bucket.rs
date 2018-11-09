@@ -1,5 +1,8 @@
-use super::{guard::Removed, insertion::Inserter};
-use incin::Incinerator;
+use super::{
+    guard::{ReadGuard, Removed},
+    insertion::Inserter,
+};
+use incin::{Incinerator, Pause};
 use owned_alloc::OwnedAlloc;
 use ptr;
 use std::{
@@ -54,20 +57,21 @@ impl<K, V> Bucket<K, V> {
     }
 
     pub unsafe fn get<'map, Q>(
-        &'map self,
+        &self,
         key: &Q,
-        incin: &Incinerator<Garbage<K, V>>,
+        pause: Pause<'map, Garbage<K, V>>,
     ) -> GetRes<'map, K, V>
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
     {
-        match self.find(key, incin) {
-            FindRes::Delete => GetRes::Delete,
+        match self.find(key, &pause) {
+            FindRes::Delete => GetRes::Delete(pause),
 
-            FindRes::Exact { curr, .. } => {
-                GetRes::Found(&*curr.as_ref().pair.as_ptr())
-            },
+            FindRes::Exact { curr, .. } => GetRes::Found(ReadGuard::new(
+                &*curr.as_ref().pair.as_ptr(),
+                pause,
+            )),
 
             FindRes::After { .. } => GetRes::NotFound,
         }
@@ -76,6 +80,7 @@ impl<K, V> Bucket<K, V> {
     pub unsafe fn insert<I>(
         &self,
         mut inserter: I,
+        pause: &Pause<Garbage<K, V>>,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> InsertRes<I, K, V>
     where
@@ -83,7 +88,7 @@ impl<K, V> Bucket<K, V> {
         K: Ord,
     {
         loop {
-            match self.find(inserter.key(), &**incin) {
+            match self.find(inserter.key(), pause) {
                 FindRes::Delete => break InsertRes::Delete(inserter),
 
                 FindRes::Exact { curr_list, curr } => {
@@ -98,9 +103,10 @@ impl<K, V> Bucket<K, V> {
                     };
                     let new_ptr = OwnedAlloc::new(new_entry).into_raw();
 
-                    if curr_list.try_update(curr, new_ptr, incin) {
+                    let pair_ptr = curr.as_ref().pair;
+                    if curr_list.try_update(curr, new_ptr, pause) {
                         inserter.take_pointer();
-                        let pair = OwnedAlloc::from_raw(curr.as_ref().pair);
+                        let pair = OwnedAlloc::from_raw(pair_ptr);
                         let removed = Removed::new(pair, incin);
                         break InsertRes::Updated(removed);
                     }
@@ -124,7 +130,7 @@ impl<K, V> Bucket<K, V> {
                     };
                     let new_ptr = OwnedAlloc::new(new_prev).into_raw();
 
-                    if prev_list.try_update(prev, new_ptr, incin) {
+                    if prev_list.try_update(prev, new_ptr, pause) {
                         inserter.take_pointer();
                         break InsertRes::Created;
                     } else {
@@ -140,6 +146,7 @@ impl<K, V> Bucket<K, V> {
         &self,
         key: &Q,
         mut interactive: F,
+        pause: &Pause<Garbage<K, V>>,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> RemoveRes<K, V>
     where
@@ -148,7 +155,7 @@ impl<K, V> Bucket<K, V> {
         F: FnMut(&(K, V)) -> bool,
     {
         loop {
-            match self.find(key, &*incin) {
+            match self.find(key, pause) {
                 FindRes::Delete => {
                     break RemoveRes {
                         pair: None,
@@ -164,17 +171,18 @@ impl<K, V> Bucket<K, V> {
                         };
                     }
 
+                    let pair_ptr = curr.as_ref().pair;
                     let new_entry = Entry {
-                        pair: curr.as_ref().pair,
+                        pair: pair_ptr,
                         next: (curr.as_ref().next as usize | 1) as *mut _,
                     };
                     let new_ptr = OwnedAlloc::new(new_entry).into_raw();
 
-                    if curr_list.try_update(curr, new_ptr, incin) {
-                        let pair = OwnedAlloc::from_raw(curr.as_ref().pair);
+                    if curr_list.try_update(curr, new_ptr, pause) {
+                        let pair = OwnedAlloc::from_raw(pair_ptr);
                         break RemoveRes {
                             pair: Some(Removed::new(pair, incin)),
-                            delete: self.try_clear_first(&*incin),
+                            delete: self.try_clear_first(pause),
                         };
                     }
                 },
@@ -191,7 +199,7 @@ impl<K, V> Bucket<K, V> {
 
     pub unsafe fn collect<'map, F, T>(
         &'map self,
-        incin: &Incinerator<Garbage<K, V>>,
+        pause: &Pause<Garbage<K, V>>,
         out: &mut Vec<T>,
         mut map: F,
     ) where
@@ -205,7 +213,7 @@ impl<K, V> Bucket<K, V> {
             let mut prev = prev_list.load();
 
             loop {
-                match prev_list.load_next(prev, incin) {
+                match prev_list.load_next(prev, pause) {
                     LoadNextRes::Failed => continue 'retry,
                     LoadNextRes::End => break 'retry,
                     LoadNextRes::Cleared { new_prev } => prev = new_prev,
@@ -219,13 +227,10 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
-    unsafe fn try_clear_first(
-        &self,
-        incin: &Incinerator<Garbage<K, V>>,
-    ) -> bool {
+    unsafe fn try_clear_first(&self, pause: &Pause<Garbage<K, V>>) -> bool {
         let mut prev = self.list.load();
         loop {
-            match self.list.load_next(prev, incin) {
+            match self.list.load_next(prev, pause) {
                 LoadNextRes::Failed => break false,
                 LoadNextRes::End => break true,
                 LoadNextRes::Cleared { new_prev } => prev = new_prev,
@@ -237,7 +242,7 @@ impl<K, V> Bucket<K, V> {
     unsafe fn find<'map, Q>(
         &'map self,
         key: &Q,
-        incin: &Incinerator<Garbage<K, V>>,
+        pause: &Pause<Garbage<K, V>>,
     ) -> FindRes<'map, K, V>
     where
         Q: ?Sized + Ord,
@@ -248,7 +253,7 @@ impl<K, V> Bucket<K, V> {
             let mut prev = prev_list.load();
 
             loop {
-                match prev_list.load_next(prev, incin) {
+                match prev_list.load_next(prev, pause) {
                     LoadNextRes::Failed => continue 'retry,
 
                     LoadNextRes::End => {
@@ -411,7 +416,7 @@ impl<K, V> List<K, V> {
     unsafe fn load_next(
         &self,
         prev: NonNull<Entry<K, V>>,
-        incin: &Incinerator<Garbage<K, V>>,
+        pause: &Pause<Garbage<K, V>>,
     ) -> LoadNextRes<K, V> {
         let list = match NonNull::new(prev.as_ref().next) {
             Some(nnptr) => nnptr,
@@ -428,9 +433,9 @@ impl<K, V> List<K, V> {
             };
             let new_ptr = OwnedAlloc::new(new_entry).into_raw();
 
-            if self.try_update(prev, new_ptr, incin) {
-                incin.add(Garbage::List(OwnedAlloc::from_raw(list)));
-                incin.add(Garbage::Entry(OwnedAlloc::from_raw(entry)));
+            if self.try_update(prev, new_ptr, pause) {
+                pause.add_to_incin(Garbage::List(OwnedAlloc::from_raw(list)));
+                pause.add_to_incin(Garbage::Entry(OwnedAlloc::from_raw(entry)));
                 LoadNextRes::Cleared { new_prev: new_ptr }
             } else {
                 LoadNextRes::Failed
@@ -444,7 +449,7 @@ impl<K, V> List<K, V> {
         &self,
         loaded: NonNull<Entry<K, V>>,
         new: NonNull<Entry<K, V>>,
-        incin: &Incinerator<Garbage<K, V>>,
+        pause: &Pause<Garbage<K, V>>,
     ) -> bool {
         let res = self.atomic.compare_and_swap(
             loaded.as_ptr(),
@@ -454,7 +459,7 @@ impl<K, V> List<K, V> {
 
         if res == loaded.as_ptr() {
             let alloc = OwnedAlloc::from_raw(loaded);
-            incin.add(Garbage::Entry(alloc));
+            pause.add_to_incin(Garbage::Entry(alloc));
             true
         } else {
             OwnedAlloc::from_raw(new);
@@ -486,9 +491,9 @@ where
     K: 'map,
     V: 'map,
 {
-    Found(&'map (K, V)),
+    Found(ReadGuard<'map, K, V>),
     NotFound,
-    Delete,
+    Delete(Pause<'map, Garbage<K, V>>),
 }
 
 pub enum InsertRes<I, K, V> {

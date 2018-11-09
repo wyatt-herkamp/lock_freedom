@@ -52,7 +52,7 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
                     let ptr = ptr as *mut Bucket<K, V>;
                     let mut cache = replace(&mut self.cache, Vec::new());
 
-                    (*ptr).collect(self.pause.incin(), &mut cache, |pair| {
+                    (*ptr).collect(&self.pause, &mut cache, |pair| {
                         ReadGuard::new(pair, self.pause.clone())
                     });
 

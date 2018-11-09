@@ -1,9 +1,9 @@
 use super::{
     bucket::{Bucket, Garbage, GetRes, InsertRes},
-    guard::Removed,
+    guard::{ReadGuard, Removed},
     insertion::{Inserter, Insertion},
 };
-use incin::Incinerator;
+use incin::{Incinerator, Pause};
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
     borrow::Borrow,
@@ -38,11 +38,11 @@ impl<K, V> Table<K, V> {
     }
 
     pub unsafe fn get<'map, Q>(
-        &'map self,
+        &self,
         key: &Q,
         hash: u64,
-        incin: &Incinerator<Garbage<K, V>>,
-    ) -> Option<&'map (K, V)>
+        pause: Pause<'map, Garbage<K, V>>,
+    ) -> Option<ReadGuard<'map, K, V>>
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
@@ -65,12 +65,12 @@ impl<K, V> Table<K, V> {
                     break None;
                 }
 
-                break match bucket.get(key, incin) {
+                break match bucket.get(key, pause) {
                     GetRes::Found(pair) => Some(pair),
 
                     GetRes::NotFound => None,
 
-                    GetRes::Delete => {
+                    GetRes::Delete(pause) => {
                         let res = self.nodes[index].atomic.compare_and_swap(
                             loaded,
                             null_mut(),
@@ -81,7 +81,7 @@ impl<K, V> Table<K, V> {
                             let alloc = OwnedAlloc::from_raw(
                                 NonNull::new_unchecked(loaded as *mut _),
                             );
-                            incin.add(Garbage::Bucket(alloc));
+                            pause.add_to_incin(Garbage::Bucket(alloc));
                         }
 
                         None
@@ -99,6 +99,7 @@ impl<K, V> Table<K, V> {
         &self,
         mut inserter: I,
         hash: u64,
+        pause: &Pause<Garbage<K, V>>,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> Insertion<K, V, I>
     where
@@ -142,7 +143,7 @@ impl<K, V> Table<K, V> {
                 let bucket = &*(loaded as *mut Bucket<K, V>);
 
                 if bucket.hash() == hash {
-                    match bucket.insert(inserter, incin) {
+                    match bucket.insert(inserter, pause, incin) {
                         InsertRes::Created => break Insertion::Created,
 
                         InsertRes::Updated(old) => {
@@ -207,6 +208,7 @@ impl<K, V> Table<K, V> {
         key: &Q,
         interactive: F,
         hash: u64,
+        pause: &Pause<Garbage<K, V>>,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> Option<Removed<K, V>>
     where
@@ -232,7 +234,7 @@ impl<K, V> Table<K, V> {
                     break None;
                 }
 
-                let res = bucket.remove(key, interactive, incin);
+                let res = bucket.remove(key, interactive, pause, incin);
 
                 if res.delete {
                     let res = self.nodes[index].atomic.compare_and_swap(

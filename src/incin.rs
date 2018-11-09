@@ -176,6 +176,27 @@ impl<'incin, T> Pause<'incin, T> {
         self.incin
     }
 
+    /// Adds the given value to the garbage list of the incinerator but if the
+    /// counter is `1` (i.e. this is the only active pause) data is immediately
+    /// dropped. See documention for [`Incinerator::add`] for more.
+    pub fn add_to_incin(&self, val: T) {
+        if self.incin.counter.load(Acquire) == 1 {
+            // We are the only pause active in this case.
+            //
+            // Safe to drop it all. Note that we check the counter after the
+            // resource was removed from shared context. Since we use Thread
+            // Local Storage, nobody can add something to the list meanwhile
+            // besides us.
+            self.incin.tls_list.with(GarbageList::clear);
+            drop(val);
+        } else {
+            // Not safe to drop. We have to save the value in the garbage list.
+            self.incin
+                .tls_list
+                .with_init(GarbageList::new, |list| list.add(val));
+        }
+    }
+
     /// Forces drop and decrements the incinerator counter. If the counter
     /// becomes 0, the list associated with this thread is cleared. This method
     /// does not need to be called because the incinerator counter is

@@ -60,8 +60,8 @@ impl<T> Queue<T> {
 
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
+        let pause = self.incin.inner.pause();
         loop {
-            let pause = self.incin.inner.pause();
             let front_nnptr = unsafe {
                 let ptr = self.front.load(Acquire);
                 debug_assert!(!ptr.is_null());
@@ -70,15 +70,11 @@ impl<T> Queue<T> {
 
             match unsafe { front_nnptr.as_ref() }.item.take() {
                 Some(val) => {
-                    unsafe { self.try_clear_first(front_nnptr, pause) };
+                    unsafe { self.try_clear_first(front_nnptr, &pause) };
                     break Some(val);
                 },
 
-                None => {
-                    if unsafe { !self.try_clear_first(front_nnptr, pause) } {
-                        break None;
-                    }
-                },
+                None => unsafe { self.try_clear_first(front_nnptr, &pause)? },
             }
         }
     }
@@ -96,20 +92,19 @@ impl<T> Queue<T> {
     unsafe fn try_clear_first(
         &self,
         expected: NonNull<Node<T>>,
-        pause: Pause<OwnedAlloc<Node<T>>>,
-    ) -> bool {
+        pause: &Pause<OwnedAlloc<Node<T>>>,
+    ) -> Option<()> {
         let next = expected.as_ref().next.load(Acquire);
 
         if next.is_null() {
-            false
+            None
         } else {
             let ptr = expected.as_ptr();
             let res = self.front.compare_and_swap(ptr, next, Release);
-            pause.resume();
             if res == expected.as_ptr() {
-                self.incin.inner.add(OwnedAlloc::from_raw(expected));
+                pause.add_to_incin(OwnedAlloc::from_raw(expected));
             }
-            true
+            Some(())
         }
     }
 }
