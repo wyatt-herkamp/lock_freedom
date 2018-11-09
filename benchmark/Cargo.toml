@@ -43,3 +43,7 @@ path = "src/mining.rs"
 [[bin]]
 name = "mpsc"
 path = "src/mpsc.rs"
+
+[[bin]]
+name = "spsc"
+path = "src/spsc.rs"

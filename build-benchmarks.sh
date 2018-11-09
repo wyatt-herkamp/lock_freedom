@@ -51,6 +51,12 @@ cargo run --bin mpsc --release >> $FILE || exit 1
 echo '```' >> $FILE
 echo '' >> $FILE
 
+echo '## SPSC CHANNEL' >> $FILE
+echo '```' >> $FILE
+cargo run --bin spsc --release >> $FILE || exit 1
+echo '```' >> $FILE
+echo '' >> $FILE
+
 echo '## REQUEST PROGRAM' >> $FILE
 echo '```' >> $FILE
 cargo run --bin request --release >> $FILE || exit 1
