@@ -220,7 +220,7 @@ fn main() {
             std
         );
         println!(
-            "Lockfree MPSC with {} threads total time: {:?}",
+            "Lockfree SPMC with {} threads total time: {:?}",
             nthread + 1,
             lockfree
         );
