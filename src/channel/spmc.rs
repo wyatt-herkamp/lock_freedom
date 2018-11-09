@@ -105,6 +105,9 @@ impl<T> fmt::Debug for Sender<T> {
     }
 }
 
+unsafe impl<T> Send for Sender<T> where T: Send {}
+unsafe impl<T> Sync for Sender<T> where T: Send {}
+
 /// The `Receiver` handle of a SPMC channel. Created by `channel` function. It
 /// is clonable and does not require mutability.
 pub struct Receiver<T> {
@@ -189,6 +192,9 @@ impl<T> fmt::Debug for Receiver<T> {
         fmtr.write_str("spmc::Receiver")
     }
 }
+
+unsafe impl<T> Send for Receiver<T> where T: Send {}
+unsafe impl<T> Sync for Receiver<T> where T: Send {}
 
 struct ReceiverInner<T> {
     // never null

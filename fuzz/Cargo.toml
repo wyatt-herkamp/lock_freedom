@@ -49,3 +49,7 @@ path = "fuzz_targets/mpsc.rs"
 [[bin]]
 name = "spsc"
 path = "fuzz_targets/spsc.rs"
+
+[[bin]]
+name = "spmc"
+path = "fuzz_targets/spmc.rs"
