@@ -44,6 +44,7 @@ pub mod incin;
 pub mod tls;
 
 /// Atomic abstractions, such an atomic trait and atomic boxes.
+#[deprecated(note = "Bad performance and little benefits for structures.")]
 pub mod atomic;
 
 /// A lock-free queue.
@@ -69,6 +70,7 @@ pub mod channel;
 pub mod removable;
 
 /// Provides a doubly atomic reference counter.
+#[deprecated(note = "Bad performance and little benefits for structures.")]
 pub mod darc;
 
 #[allow(dead_code)]

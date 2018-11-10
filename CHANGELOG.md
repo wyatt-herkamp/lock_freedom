@@ -4,6 +4,7 @@
 * Added `removable`
 * Fixed bad `Send` and `Sync` implementations.
 * Added some iterators.
+* Deprecated `AtomicOptionBox`, `AtomicBox`, and `Darc`.
 
 # 0.3.2 (release)
 * Fixed a queue bug.
