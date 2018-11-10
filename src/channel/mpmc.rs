@@ -16,12 +16,12 @@ use std::{
 
 /// Creates an asynchronous lock-free Multi-Producer-Multi-Consumer (MPMC)
 /// channel. In order to allow multiple producers and multiple receivers,
-/// `Sender` and `Receiver` are clonable and do not require mutability.
+/// [`Sender`] and [`Receiver`] are clonable and do not require mutability.
 pub fn create<T>() -> (Sender<T>, Receiver<T>) {
     with_incin(SharedIncin::new())
 }
 
-/// Same as `create`, but use a passed incinerator instead of creating a new
+/// Same as [`create`], but use a passed incinerator instead of creating a new
 /// one.
 pub fn with_incin<T>(incin: SharedIncin<T>) -> (Sender<T>, Receiver<T>) {
     let alloc = OwnedAlloc::new(Node {
@@ -50,8 +50,8 @@ pub fn with_incin<T>(incin: SharedIncin<T>) -> (Sender<T>, Receiver<T>) {
     (sender, receiver)
 }
 
-/// The `Sender` handle of a MPMC channel. Created by `channel` function. It is
-/// clonable and does not require mutability.
+/// The [`Sender`] handle of a MPMC channel. Created by [`create`] or
+/// [`with_incin`] function. It is clonable and does not require mutability.
 pub struct Sender<T> {
     inner: Arc<SenderInner<T>>,
 }
@@ -105,9 +105,9 @@ impl<T> Sender<T> {
         }
     }
 
-    /// Tests if there are any `Receiver`s still connected. There are no
-    /// guarantees that `send` will succeed if this method returns `true`
-    /// because the `Receiver` may disconnect meanwhile.
+    /// Tests if there are any [`Receiver`]s still connected. There are no
+    /// guarantees that [`send`](Sender::send) will succeed if this method
+    /// returns `true` because the [`Receiver`] may disconnect meanwhile.
     pub fn is_connected(&self) -> bool {
         let back = unsafe { self.inner.back.as_ref() };
         back.ptr.load(Acquire) as usize & 1 == 0
@@ -131,16 +131,16 @@ impl<T> fmt::Debug for Sender<T> {
     }
 }
 
-/// The `Receiver` handle of a MPMC channel. Created by `channel` function. It
-/// is clonable and does not require mutability.
+/// The [`Receiver`] handle of a MPMC channel. Created by [`create`] or
+/// [`with_incin`] function. It is clonable and does not require mutability.
 pub struct Receiver<T> {
     inner: Arc<ReceiverInner<T>>,
 }
 
 impl<T> Receiver<T> {
     /// Tries to receive a message. If no message is available,
-    /// `Err(RecvErr::NoMessage)` is returned. If the sender disconnected,
-    /// `Err(RecvErr::NoSender)` is returned.
+    /// [`Err`]`(`[`RecvErr::NoMessage`]`)` is returned. If the sender
+    /// disconnected, [`Err`]`(`[`RecvErr::NoSender`]`)` is returned.
     #[allow(unused_must_use)]
     pub fn recv(&self) -> Result<T, RecvErr> {
         let pause = self.inner.incin.inner.pause();
@@ -162,19 +162,20 @@ impl<T> Receiver<T> {
         }
     }
 
-    /// Tests if there are any `Sender`s still connected. There are no
-    /// guarantees that `recv` will succeed if this method returns `true`
-    /// because the `Receiver` may disconnect meanwhile. This method may
-    /// also return `true` if the `Sender` disconnected but there are
-    /// messages pending in the buffer. Note that another `Receiver` may pop
-    /// out the pending messages after this method was called.
+    /// Tests if there are any [`Sender`]s still connected. There are no
+    /// guarantees that [`recv`](Receiver::recv) will succeed if this method
+    /// returns `true` because the [`Receiver`] may disconnect meanwhile.
+    /// This method may also return `true` if the [`Sender`] disconnected
+    /// but there are messages pending in the buffer. Note that another
+    /// [`Receiver`] may pop out the pending messages after this method was
+    /// called.
     pub fn is_connected(&self) -> bool {
         let _pause = self.inner.incin.inner.pause();
         let front = unsafe { &*self.inner.front.load(Acquire) };
         front.message.is_present() || front.next.load(Acquire) as usize & 1 == 0
     }
 
-    /// The shared incinerator used by this `Receiver`.
+    /// The shared incinerator used by this [`Receiver`].
     pub fn incin(&self) -> SharedIncin<T> {
         self.inner.incin.clone()
     }

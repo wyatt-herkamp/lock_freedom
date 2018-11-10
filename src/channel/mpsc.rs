@@ -13,8 +13,8 @@ use std::{
 };
 
 /// Creates an asynchronous lock-free Multi-Producer-Single-Consumer (MPSC)
-/// channel. In order to allow multiple producers, `Sender` is clonable and does
-/// not require mutability.
+/// channel. In order to allow multiple producers, [`Sender`] is clonable and
+/// does not require mutability.
 pub fn create<T>() -> (Sender<T>, Receiver<T>) {
     let alloc = OwnedAlloc::new(Node {
         message: None,
@@ -39,8 +39,8 @@ pub fn create<T>() -> (Sender<T>, Receiver<T>) {
     (sender, receiver)
 }
 
-/// The `Sender` handle of a MPSC channel. Created by `channel` function. It is
-/// clonable and does not require mutability.
+/// The [`Sender`] handle of a MPSC channel. Created by [`create`] function. It
+/// is clonable and does not require mutability.
 pub struct Sender<T> {
     inner: Arc<SenderInner<T>>,
 }
@@ -94,9 +94,9 @@ impl<T> Sender<T> {
         }
     }
 
-    /// Tests if the `Receiver` is still connected. There are no guarantees that
-    /// `send` will succeed if this method returns `true` because the `Receiver`
-    /// may disconnect meanwhile.
+    /// Tests if the [`Receiver`] is still connected. There are no guarantees
+    /// that [`send`](Sender::send) will succeed if this method returns `true`
+    /// because the [`Receiver`] may disconnect meanwhile.
     pub fn is_connected(&self) -> bool {
         let back = unsafe { self.inner.back.as_ref() };
         back.ptr.load(Acquire) as usize & 1 == 0
@@ -120,7 +120,7 @@ impl<T> fmt::Debug for Sender<T> {
     }
 }
 
-/// The `Receiver` handle of a MPSC channel. Created by `channel` function.
+/// The [`Receiver`] handle of a MPSC channel. Created by [`create`] function.
 pub struct Receiver<T> {
     back: NonNull<SharedBack<T>>,
     front: NonNull<Node<T>>,
@@ -128,8 +128,8 @@ pub struct Receiver<T> {
 
 impl<T> Receiver<T> {
     /// Tries to receive a message. If no message is available,
-    /// `Err(RecvErr::NoMessage)` is returned. If the sender disconnected,
-    /// `Err(RecvErr::NoSender)` is returned.
+    /// [`Err`]`(`[`RecvErr::NoMessage`]`)` is returned. If the sender
+    /// disconnected, [`Err`]`(`[`RecvErr::NoSender`]`)` is returned.
     pub fn recv(&mut self) -> Result<T, RecvErr> {
         let mut node = unsafe { &mut *self.front.as_ptr() };
         loop {
@@ -175,11 +175,11 @@ impl<T> Receiver<T> {
         }
     }
 
-    /// Tests if there any `Sender`s still connected. There are no guarantees
-    /// that `recv` will succeed if this method returns `true` because the
-    /// `Receiver` may disconnect meanwhile. This method may also return
-    /// `true` if the `Sender` disconnected but there are messages pending
-    /// in the buffer.
+    /// Tests if there any [`Sender`]s still connected. There are no guarantees
+    /// that [`recv`](Receiver::recv) will succeed if this method returns `true`
+    /// because the [`Receiver`] may disconnect meanwhile. This method may
+    /// also return `true` if the [`Sender`] disconnected but there are
+    /// messages pending in the buffer.
     pub fn is_connected(&self) -> bool {
         let front = unsafe { self.front.as_ref() };
         let back = unsafe { self.back.as_ref() };
