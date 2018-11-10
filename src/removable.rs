@@ -24,6 +24,8 @@ impl<T> Removable<T> {
     /// Creates a removable item with no present value.
     pub fn empty() -> Self {
         Self {
+            // This is safe because we will only read from the item if present
+            // is true. Present will only be true if we write to it.
             item: ManuallyDrop::new(unsafe { uninitialized() }),
             present: AtomicBool::new(false),
         }
@@ -36,6 +38,8 @@ impl<T> Removable<T> {
         if self.present.swap(true, Relaxed) {
             Some(replace(&mut *self.item, val))
         } else {
+            // Safe because we get the pointer from a valid reference and
+            // present will only be false if item is uninitialized.
             unsafe { (&mut *self.item as *mut T).write(val) };
             None
         }
@@ -62,6 +66,8 @@ impl<T> Removable<T> {
     /// is returned.
     pub fn take(&self) -> Option<T> {
         if self.present.swap(false, AcqRel) {
+            // Safe because if present was true, the memory was initialized. All
+            // other reads won't happen because we set present to false.
             Some(unsafe { (&*self.item as *const T).read() })
         } else {
             None
@@ -90,6 +96,8 @@ impl<T> Default for Removable<T> {
 impl<T> Drop for Removable<T> {
     fn drop(&mut self) {
         if self.is_present() {
+            // Safe because present will only be true when the memory is
+            // initialized. And now we are at drop.
             unsafe { ManuallyDrop::drop(&mut self.item) }
         }
     }

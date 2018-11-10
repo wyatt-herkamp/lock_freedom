@@ -1,8 +1,9 @@
 use incin::Incinerator;
-use owned_alloc::{OwnedAlloc, UninitAlloc};
+use owned_alloc::OwnedAlloc;
 use std::{
     fmt,
     iter::FromIterator,
+    mem::ManuallyDrop,
     ptr::{null_mut, NonNull},
     sync::{
         atomic::{AtomicPtr, Ordering::*},
@@ -44,7 +45,7 @@ impl<T> Stack<T> {
     /// Pushes a new value onto the top of the stack.
     pub fn push(&self, val: T) {
         // Let's first create a node.
-        let mut target = OwnedAlloc::new(Node::new(val, null_mut()));
+        let mut target = OwnedAlloc::new(Node::new(val));
         loop {
             // Load current top as our "next".
             let next = self.top.load(Acquire);
@@ -66,7 +67,7 @@ impl<T> Stack<T> {
 
     /// Pops a single element from the top of the stack.
     pub fn pop(&self) -> Option<T> {
-        // We need this because of ABA problem.
+        // We need this because of ABA problem and use-after-free.
         let pause = self.incin.inner.pause();
         loop {
             // First, let's load our top.
@@ -77,7 +78,7 @@ impl<T> Stack<T> {
             // because of incinerator. Otherwise, we would face the "ABA
             // problem".
             //
-            // Note this dereferra is safe because we only delete nodes via
+            // Note this dereferral is safe because we only delete nodes via
             // incinerator and we have a pause now.
             let res = self.top.compare_and_swap(
                 top,
@@ -87,12 +88,17 @@ impl<T> Stack<T> {
 
             // We succeed if top still was the loaded pointer.
             if res == top {
-                // Done with an element.
-
-                // Let's first get the "val" to be returned.
-                let val = unsafe { (&mut nnptr.as_mut().val as *mut T).read() };
-                // Then, let's dealloc (now or later).
-                pause.add_to_incin(unsafe { UninitAlloc::from_raw(nnptr) });
+                // Done with an element. Let's first get the "val" to be
+                // returned.
+                //
+                // This derreferal and read is safe since we drop the
+                // node via incinerator and we never drop the inner value
+                // when dropping the node in the incinerator.
+                let val =
+                    unsafe { (&mut *nnptr.as_mut().val as *mut T).read() };
+                // Safe because we already removed the node and we are adding to
+                // the incinerator rather than dropping it directly.
+                pause.add_to_incin(unsafe { OwnedAlloc::from_raw(nnptr) });
                 break Some(val);
             }
         }
@@ -122,7 +128,10 @@ impl<T> Drop for Stack<T> {
         while let Some(nnptr) = NonNull::new(node_ptr) {
             // This is safe because we only store pointers allocated via
             // `OwnedAlloc`. Also, we have exclusive access to this pointer.
-            let node = unsafe { OwnedAlloc::from_raw(nnptr) };
+            let mut node = unsafe { OwnedAlloc::from_raw(nnptr) };
+            // Safe because when we move a value out we also remove the node
+            // from the list.
+            unsafe { ManuallyDrop::drop(&mut node.val) }
             node_ptr = node.next;
         }
     }
@@ -176,7 +185,7 @@ impl<'stack, T> fmt::Debug for PopIter<'stack, T> {
 
 make_shared_incin! {
     { "[`Stack`]" }
-    pub SharedIncin<T> of UninitAlloc<Node<T>>
+    pub SharedIncin<T> of OwnedAlloc<Node<T>>
 }
 
 impl<T> fmt::Debug for SharedIncin<T> {
@@ -187,13 +196,16 @@ impl<T> fmt::Debug for SharedIncin<T> {
 
 #[derive(Debug)]
 struct Node<T> {
-    val: T,
+    val: ManuallyDrop<T>,
     next: *mut Node<T>,
 }
 
 impl<T> Node<T> {
-    fn new(val: T, next: *mut Self) -> Self {
-        Self { val, next }
+    fn new(val: T) -> Self {
+        Self {
+            val: ManuallyDrop::new(val),
+            next: null_mut(),
+        }
     }
 }
 
