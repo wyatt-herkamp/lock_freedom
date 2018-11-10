@@ -129,6 +129,10 @@ impl<T> Sender<T> {
     /// that [`send`](Sender::send) will succeed if this method returns `true`
     /// because the [`Receiver`] may disconnect meanwhile.
     pub fn is_connected(&self) -> bool {
+        // This is safe because we only store nodes allocated via
+        // `OwnedAlloc`. Also, the shared back is only deallocated
+        // when both sides disconnected. We load it to check for bit
+        // marking (since it means sender disconnected).
         let back = unsafe { self.inner.back.as_ref() };
         back.ptr.load(Acquire) as usize & 1 == 0
     }
@@ -245,7 +249,13 @@ impl<T> Receiver<T> {
     /// also return `true` if the [`Sender`] disconnected but there are
     /// messages pending in the buffer.
     pub fn is_connected(&self) -> bool {
+        // Safe because we always have at least one node, which is only dropped
+        // in the last side to disconnect's drop.
         let front = unsafe { self.front.as_ref() };
+        // This is safe because we only store nodes allocated via
+        // `OwnedAlloc`. Also, the shared back is only deallocated
+        // when both sides disconnected. We load it to check for bit
+        // marking (since it means sender disconnected).
         let back = unsafe { self.back.as_ref() };
         back.ptr.load(Acquire) as usize & 1 == 0
             || front.message.is_some()
@@ -289,7 +299,7 @@ impl<T> Drop for Receiver<T> {
 
             // This is safe because we only store nodes allocated via
             // `OwnedAlloc`. Also, the shared back is only deallocated when both
-            // sides disconnected.
+            // sides have disconnected.
             let res = unsafe {
                 // Let's try to mark the back. Needs to be a CAS because the
                 // back might change the back to some other pointer it
@@ -304,10 +314,10 @@ impl<T> Drop for Receiver<T> {
             // If we succeeded, we need to delete all nodes unreachable by the
             // senders.
             if res == ptr {
+                // Safe because we pass a pointer to the loaded back as "last".
+                // We cannot even dereference it. We are also the only ones with
+                // reference to nodes from the front until before last.
                 debug_assert!(!ptr.is_null());
-                // Safe because we never store null in the back. Also, we pass
-                // our a pointer to the loaded back. We cannot even dereference
-                // it.
                 unsafe { delete_before_last(self.front, NonNull::new(ptr)) }
                 break;
             }

@@ -93,6 +93,8 @@ impl<T> Sender<T> {
     /// guarantees that [`send`](Sender::send) will succeed if this method
     /// returns `true` because the [`Receiver`] may disconnect meanwhile.
     pub fn is_connected(&self) -> bool {
+        // Safe because we always have at least one node, which is only dropped
+        // in the last side to disconnect's drop.
         let back = unsafe { self.back.as_ref() };
         back.next.load(Acquire).is_null()
     }
@@ -163,10 +165,16 @@ impl<T> Receiver<T> {
             // delete nodes via incinerator.
             match unsafe { front_nnptr.as_ref().message.take() } {
                 Some(val) => {
+                    // Safe to call because we passed a pointer from the front
+                    // which was loaded during the very same pause we are
+                    // passing.
                     unsafe { self.try_clear_first(front_nnptr, &pause) };
                     break Ok(val);
                 },
 
+                // Safe to call because we passed a pointer from the front
+                // which was loaded during the very same pause we are
+                // passing.
                 None => unsafe { self.try_clear_first(front_nnptr, &pause)? },
             }
         }
@@ -180,7 +188,10 @@ impl<T> Receiver<T> {
     /// [`Receiver`] may pop out the pending messages after this method was
     /// called.
     pub fn is_connected(&self) -> bool {
+        // We need this pause because of use-after-free.
         let _pause = self.inner.incin.inner.pause();
+        // Safe to derefer this pointer because we paused the incinerator and we
+        // only delete nodes via incinerator.
         let front = unsafe { &*self.inner.front.load(Acquire) };
         front.message.is_present() || front.next.load(Acquire) as usize & 1 == 0
     }

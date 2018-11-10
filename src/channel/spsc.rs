@@ -73,6 +73,8 @@ impl<T> Sender<T> {
     /// that [`send`](Sender::send) will succeed if this method returns `true`
     /// because the [`Receiver`] may disconnect meanwhile.
     pub fn is_connected(&self) -> bool {
+        // Safe because we always have at least one node, which is only dropped
+        // in the last side to disconnect's drop.
         let back = unsafe { self.back.as_ref() };
         back.next.load(Acquire).is_null()
     }
@@ -183,6 +185,8 @@ impl<T> Receiver<T> {
     /// also return `true` if the [`Sender`] disconnected but there are
     /// messages pending in the buffer.
     pub fn is_connected(&self) -> bool {
+        // Safe because we always have at least one node, which is only dropped
+        // in the last side to disconnect's drop.
         let front = unsafe { self.front.as_ref() };
         front.message.is_some() || front.next.load(Acquire) as usize & 1 == 0
     }
