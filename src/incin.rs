@@ -298,13 +298,17 @@ macro_rules! make_shared_incin {
                 }
             }
 
-            #[allow(dead_code)]
-            fn clear(&mut self) {
-                if let Some(incin) = Arc::get_mut(&mut self.inner) {
-                    incin.clear();
-                    return;
+            doc! {
+                concat!("Tries to clear the incinerator garbage list in the \
+                         best possible way given the runtime status of this \
+                         incinerator.");
+                $vis fn clear(&mut self) {
+                    if let Some(incin) = Arc::get_mut(&mut self.inner) {
+                        incin.clear();
+                        return;
+                    }
+                    self.inner.try_clear();
                 }
-                self.inner.try_clear();
             }
         }
 

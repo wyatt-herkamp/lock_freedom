@@ -28,12 +28,12 @@ pub fn with_incin<T>(incin: SharedIncin<T>) -> (Sender<T>, Receiver<T>) {
         message: Removable::empty(),
         next: AtomicPtr::new(null_mut()),
     });
-    let nnptr = alloc.into_raw();
+    let single_node = alloc.into_raw();
 
-    let sender = Sender { back: nnptr };
+    let sender = Sender { back: single_node };
     let receiver = Receiver {
         inner: Arc::new(ReceiverInner {
-            front: AtomicPtr::new(nnptr.as_ptr()),
+            front: AtomicPtr::new(single_node.as_ptr()),
             incin,
         }),
     };
@@ -255,10 +255,10 @@ mod test {
     #[test]
     fn correct_numbers() {
         const THREADS: usize = 8;
-        const MESSAGES: usize = 512;
+        const MSGS: usize = 512;
 
-        let mut done = Vec::with_capacity(MESSAGES);
-        for _ in 0 .. MESSAGES {
+        let mut done = Vec::with_capacity(MSGS);
+        for _ in 0 .. MSGS {
             done.push(AtomicBool::new(false));
         }
         let done = Arc::<[AtomicBool]>::from(done);
@@ -278,7 +278,7 @@ mod test {
             }))
         }
 
-        for i in 0 .. MESSAGES {
+        for i in 0 .. MSGS {
             sender.send(i).unwrap();
         }
 

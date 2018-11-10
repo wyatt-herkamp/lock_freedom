@@ -1,4 +1,4 @@
-pub use channel::{mpsc, spmc, spsc};
+pub use channel::{mpmc, mpsc, spmc, spsc};
 pub use incin::Incinerator;
 pub use map::Map;
 pub use queue::Queue;

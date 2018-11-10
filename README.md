@@ -7,7 +7,7 @@ We currently have:
 * Set
 * Queue
 * Stack
-* SPSC, MPSC, SPMC channels
+* SPSC, MPSC, SPMC and MPMC channels
 * Doubly Atomic Reference Counter
 * Atomic Box
 * Atomic Optional Box

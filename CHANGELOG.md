@@ -1,5 +1,5 @@
 # 0.4.0 (preview)
-* Added SPSC, MPSC and SPMC channels.
+* Added SPSC, MPSC, SPMC and MPMC channels.
 * Added methods `get_mut` and `into_inner` for atomics.
 * Added `removable`
 * Fixed bad `Send` and `Sync` implementations.

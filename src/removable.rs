@@ -95,5 +95,14 @@ impl<T> Drop for Removable<T> {
     }
 }
 
+impl<T> From<Option<T>> for Removable<T> {
+    fn from(opt: Option<T>) -> Self {
+        match opt {
+            Some(item) => Self::new(item),
+            None => Self::empty(),
+        }
+    }
+}
+
 unsafe impl<T> Send for Removable<T> where T: Send {}
 unsafe impl<T> Sync for Removable<T> where T: Send {}
