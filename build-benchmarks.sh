@@ -63,6 +63,12 @@ cargo run --bin spmc --release >> $FILE || exit 1
 echo '```' >> $FILE
 echo '' >> $FILE
 
+echo '## MPMC CHANNEL' >> $FILE
+echo '```' >> $FILE
+cargo run --bin mpmc --release >> $FILE || exit 1
+echo '```' >> $FILE
+echo '' >> $FILE
+
 echo '## REQUEST PROGRAM' >> $FILE
 echo '```' >> $FILE
 cargo run --bin request --release >> $FILE || exit 1

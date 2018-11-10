@@ -51,3 +51,7 @@ path = "src/spsc.rs"
 [[bin]]
 name = "spmc"
 path = "src/spmc.rs"
+
+[[bin]]
+name = "mpmc"
+path = "src/mpmc.rs"
