@@ -12,6 +12,7 @@ use std::{
 /// Creates an asynchronous lock-free Single-Producer-Single-Consumer (SPSC)
 /// channel.
 pub fn create<T>() -> (Sender<T>, Receiver<T>) {
+    // A single empty node shared between two ends.
     let alloc = OwnedAlloc::new(Node {
         message: None,
         next: AtomicPtr::new(null_mut()),
@@ -29,13 +30,25 @@ pub struct Sender<T> {
 impl<T> Sender<T> {
     /// Sends a message and if the receiver disconnected, an error is returned.
     pub fn send(&mut self, message: T) -> Result<(), NoRecv<T>> {
+        // First we create a node for our message.
         let alloc = OwnedAlloc::new(Node {
             message: Some(message),
             next: AtomicPtr::new(null_mut()),
         });
         let nnptr = alloc.into_raw();
 
+        // This dereferral is safe because the queue will always have at least
+        // one node. Our back is a single node. In any case, back will always be
+        // present. Also, we only put valid pointers allocated via `OwnedAlloc`.
         let res = unsafe {
+            // First we try to publish the new node through the back's next
+            // field. The receiver will see our changes because at some point it
+            // will reach our current back.
+            //
+            // We compare to null because, when disconnecting, the receiver will
+            // mark the lower bit of the pointer. In order words, it will be
+            // null | 1. We do not need to publish the new node if we receiver
+            // disconnected.
             self.back.as_ref().next.compare_and_swap(
                 null_mut(),
                 nnptr.as_ptr(),
@@ -44,9 +57,12 @@ impl<T> Sender<T> {
         };
 
         if res.is_null() {
+            // If we succeeded, let's update our back so we respect the rule of
+            // having a single node in the back.
             self.back = nnptr;
             Ok(())
         } else {
+            // If we failed, the receiver disconnected and marked the bit.
             let mut alloc = unsafe { OwnedAlloc::from_raw(nnptr) };
             let message = alloc.message.take().unwrap();
             Err(NoRecv { message })
@@ -64,14 +80,23 @@ impl<T> Sender<T> {
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
+        // This dereferral is safe because the queue will always have at least
+        // one node. Also, we only put nodes allocated from `OwnedAlloc`.
         let res = unsafe {
-            self.back.as_ref().next.compare_and_swap(
-                null_mut(),
-                (null_mut::<Node<T>>() as usize | 1) as *mut _,
-                Release,
-            )
+            // Let's try to mark next's bit so that receiver will see we
+            // disconnected, if it hasn't disconnected by itself. It is ok to
+            // just swap, since we have only two possible values (null and
+            // null | 1) and we everyone will be setting to the same value
+            // (null | 1).
+            self.back
+                .as_ref()
+                .next
+                .swap((null_mut::<Node<T>>() as usize | 1) as *mut _, AcqRel)
         };
 
+        // If the previously stored value was not null, receiver has already
+        // disconnected. It is safe to drop because we are the only ones that
+        // have a pointer to the node.
         if !res.is_null() {
             unsafe { OwnedAlloc::from_raw(self.back) };
         }
@@ -83,7 +108,7 @@ unsafe impl<T> Sync for Sender<T> where T: Send {}
 
 impl<T> fmt::Debug for Sender<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("spsc::Senderr")
+        fmtr.write_str("spsc::Sender")
     }
 }
 
@@ -98,13 +123,23 @@ impl<T> Receiver<T> {
     /// disconnected, [`Err`]`(`[`RecvErr::NoSender`]`)` is returned.
     pub fn recv(&mut self) -> Result<T, RecvErr> {
         loop {
+            // This dereferral is safe because we only put nodes allocated from
+            // `OwnedAlloc`.
             let node = unsafe { &mut *self.front.as_ptr() };
 
+            // First we remove a node logically.
             match node.message.take() {
                 Some(message) => {
+                    // Let's replace the front with a new node.
                     let next = node.next.load(Acquire) as usize;
 
+                    // But only if we have a new node. Otherwise we will not
+                    // remove the only node of the queue. Also, let's clear the
+                    // bit flag so null pointers are not misused.
                     if let Some(nnptr) = NonNull::new((next & !1) as *mut _) {
+                        // This is safe because the node was allocated with
+                        // `OwnedAlloc` and we have the only pointer to it (back
+                        // is something else).
                         unsafe { OwnedAlloc::from_raw(self.front) };
                         self.front = nnptr;
                     }
@@ -113,18 +148,28 @@ impl<T> Receiver<T> {
                 },
 
                 None => {
+                    // If the node was empty, we will try to remove it.
                     let next = node.next.load(Acquire);
 
                     if next as usize & 1 == 0 {
+                        // Lower bit clean. Let's try to remove the next.
                         match NonNull::new(next) {
                             Some(nnptr) => {
+                                // This is safe because the node was allocated
+                                // with `OwnedAlloc` and we have the only
+                                // pointer to it (back is something else since
+                                // it has a single node).
                                 unsafe { OwnedAlloc::from_raw(self.front) };
                                 self.front = nnptr;
                             },
 
+                            // If the next is null, we have no message and we
+                            // will not remove this list's single node.
                             None => break Err(RecvErr::NoMessage),
                         }
                     } else {
+                        // If the sender marked the lower bit of the pointer, it
+                        // has disconnected.
                         break Err(RecvErr::NoSender);
                     }
                 },
@@ -146,25 +191,39 @@ impl<T> Receiver<T> {
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         loop {
+            // This dereferral is safe because we only put nodes allocated from
+            // `OwnedAlloc`.
             let next = unsafe {
-                self.front.as_ref().next.compare_and_swap(
-                    null_mut(),
+                // Let's try to mark next's bit so that sender will see we
+                // disconnected, if it hasn't disconnected by itself. It is ok
+                // to just swap, since we have only two possible
+                // values (null and null | 1) and we everyone
+                // will be setting to the same value (null | 1).
+                self.front.as_ref().next.swap(
                     (null_mut::<Node<T>>() as usize | 1) as *mut _,
                     AcqRel,
                 )
             };
 
+            // Then we check for null (success of our swap).
             let next_nnptr = match NonNull::new(next) {
                 Some(nnptr) => nnptr,
+                // If it was null, no other action is required. We should not
+                // deallocate it because the sender still sees it through back.
                 None => break,
             };
 
+            // It is safe to drop because we are the only ones that
+            // have a pointer to the node.
             unsafe { OwnedAlloc::from_raw(self.front) };
 
+            // if next is marked, it is actually null | 1, but we can deallocate
+            // it because the sender already disconnected.
             if next as usize & 1 == 1 {
                 break;
             }
 
+            // Update the front just like in pop.
             self.front = next_nnptr;
         }
     }
