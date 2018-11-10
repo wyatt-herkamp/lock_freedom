@@ -59,7 +59,7 @@ pub trait Atomic: Send + Sync {
 
     /// With the first ordering for success and the second for failures, tests
     /// the stored value with an expected one, if succeeds, sets the inner
-    /// value. Returns the old value as either `Ok` or `Err`. Has the same
+    /// value. Returns the old value as either [`Ok`] or [`Err`]. Has the same
     /// semantics as stdlib atomics.
     fn compare_exchange(
         &self,
@@ -69,9 +69,9 @@ pub trait Atomic: Send + Sync {
         fail: Ordering,
     ) -> Result<Self::Inner, Self::Inner>;
 
-    /// Same as `compare_exchange`, but weaker. This means the swap may fail
-    /// even if the comparison succeeds. Has the same semantics as stdlib
-    /// atomics.
+    /// Same as [`compare_exchange`](Atomic::compare_exchange), but weaker. This
+    /// means the swap may fail even if the comparison succeeds. Has the
+    /// same semantics as stdlib atomics.
     fn compare_exchange_weak(
         &self,
         curr: Self::Inner,
@@ -80,12 +80,14 @@ pub trait Atomic: Send + Sync {
         fail: Ordering,
     ) -> Result<Self::Inner, Self::Inner>;
 
-    /// Abstraction over a loop with `compare_and_swap` method. The function
+    /// Abstraction over a loop with
+    /// [`compare_and_swap`](Atomic::compare_and_swap) method. The function
     /// `fun`, which receives the current state, processes it, and if a
     /// compare and swap is needed, the function returns `Some(new_value)`,
     /// otherwise, `None`. This method loops until either `None` is returned (a
     /// failure), or compare and swap succeeds (a success). An initial state
-    /// is given, and it is updated with `compare_and_swap` return value.
+    /// is given, and it is updated with
+    /// [`compare_and_swap`](Atomic::compare_and_swap) return value.
     fn cas_loop<F>(
         &self,
         mut loaded: Self::Inner,
@@ -108,10 +110,11 @@ pub trait Atomic: Send + Sync {
         }
     }
 
-    /// Abstraction over a loop with `load` and `compare_and_swap` methods. The
-    /// main difference between this method and `cas_loop` is that instead of
+    /// Abstraction over a loop with [`load`](Atomic::load) and
+    /// [`compare_and_swap`](Atomic::compare_and_swap) methods. The main
+    /// difference between this method and `cas_loop` is that instead of
     /// taking an initial value and updating it with cas, it always get the
-    /// value from the `load` method.
+    /// value from the [`load`](Atomic::load) method.
     fn load_cas_loop<F>(
         &self,
         mut fun: F,
@@ -248,7 +251,7 @@ impl<T> AtomicBox<T>
 where
     T: Copy + PartialEq + Send,
 {
-    /// Creates the `AtomicBox` with an initial value and a given shared
+    /// Creates the [`AtomicBox`] with an initial value and a given shared
     /// incinerator.
     pub fn with_incin(init: T, incin: BoxSharedIncin<T>) -> Self {
         Self {
@@ -257,7 +260,7 @@ where
         }
     }
 
-    /// The shared incinerator used by this `AtomicBox`.
+    /// The shared incinerator used by this [`AtomicBox`].
     pub fn incin(&self) -> BoxSharedIncin<T> {
         self.incin.clone()
     }
@@ -501,8 +504,8 @@ where
     }
 }
 
-/// Atomic Optional Box of `T`. Similar to `AtomicBox`, but the pointer of
-/// `AtomicOptionBox` can be null.
+/// Atomic Optional Box of `T`. Similar to [`AtomicBox`], but the pointer of
+/// [`AtomicOptionBox`] can be null.
 pub struct AtomicOptionBox<T> {
     ptr: AtomicPtr<T>,
     incin: BoxSharedIncin<T>,
@@ -512,7 +515,7 @@ impl<T> AtomicOptionBox<T>
 where
     T: Copy + PartialEq + Send,
 {
-    /// Creates the `AtomicOptionBox` with an initial value and a given shared
+    /// Creates the [`AtomicOptionBox`] with an initial value and a given shared
     /// incinerator.
     pub fn with_incin(init: Option<T>, incin: BoxSharedIncin<T>) -> Self {
         Self {
@@ -521,7 +524,7 @@ where
         }
     }
 
-    /// The shared incinerator used by this `AtomicOptionBox`.
+    /// The shared incinerator used by this [`AtomicOptionBox`].
     pub fn incin(&self) -> BoxSharedIncin<T> {
         self.incin.clone()
     }
@@ -785,7 +788,7 @@ where
 }
 
 make_shared_incin! {
-    { "`AtomicBox` and `AtomicOptionBox`" }
+    { "[`AtomicBox`] and [`AtomicOptionBox`]" }
     pub BoxSharedIncin<T> of OwnedAlloc<T>
 }
 

@@ -30,12 +30,13 @@ impl<T> Stack<T> {
         }
     }
 
-    /// Returns the shared incinerator used by this `Stack`.
+    /// Returns the shared incinerator used by this [`Stack`].
     pub fn incin(&self) -> SharedIncin<T> {
         self.incin.clone()
     }
 
-    /// Creates an iterator over `T`s, based on `pop` operation of the stack.
+    /// Creates an iterator over `T`s, based on [`pop`](Stack::pop) operation of
+    /// the [`Stack`].
     pub fn pop_iter<'stack>(&'stack self) -> PopIter<'stack, T> {
         PopIter { stack: self }
     }
@@ -149,7 +150,7 @@ impl<T> fmt::Debug for Stack<T> {
 unsafe impl<T> Send for Stack<T> where T: Send {}
 unsafe impl<T> Sync for Stack<T> where T: Send {}
 
-/// An iterator based on `pop` operation of the `Stack`.
+/// An iterator based on [`pop`](Stack::pop) operation of the [`Stack`].
 pub struct PopIter<'stack, T>
 where
     T: 'stack,
@@ -172,7 +173,7 @@ impl<'stack, T> fmt::Debug for PopIter<'stack, T> {
 }
 
 make_shared_incin! {
-    { "`Stack`" }
+    { "[`Stack`]" }
     pub SharedIncin<T> of UninitAlloc<Node<T>>
 }
 

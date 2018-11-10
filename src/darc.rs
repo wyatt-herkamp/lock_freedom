@@ -7,20 +7,20 @@ use std::{
     },
 };
 
-/// Darc: Doubly atomic reference counter. `Darc` is an atomic pointer which
-/// stores `Arc`s.
+/// Darc: Doubly atomic reference counter. [`Darc`] is an atomic pointer which
+/// stores [`Arc`]s.
 pub struct Darc<T> {
     ptr: AtomicPtr<T>,
     incin: SharedIncin<T>,
 }
 
 impl<T> Darc<T> {
-    /// Creates a new `Darc` from the given `Arc`.
+    /// Creates a new [`Darc`] from the given [`Arc`].
     pub fn new(arc: Arc<T>) -> Self {
         Self::with_incin(arc, SharedIncin::new())
     }
 
-    /// Creates a new `Darc` from the given `Arc` and a given shared
+    /// Creates a new [`Darc`] from the given [`Arc`] and a given shared
     /// incinerator.
     pub fn with_incin(arc: Arc<T>, incin: SharedIncin<T>) -> Self {
         Self {
@@ -29,14 +29,14 @@ impl<T> Darc<T> {
         }
     }
 
-    /// The shared incinerator used by this `Darc`.
+    /// The shared incinerator used by this [`Darc`].
     pub fn incin(&self) -> SharedIncin<T> {
         SharedIncin {
             inner: self.incin.inner.clone(),
         }
     }
 
-    /// Loads the `Darc` into an `Arc`.
+    /// Loads the [`Darc`] into an [`Arc`].
     pub fn load(&self) -> Arc<T> {
         self.incin.inner.pause_with(|| {
             let ptr = self.ptr.load(Relaxed);
@@ -48,14 +48,14 @@ impl<T> Darc<T> {
         })
     }
 
-    /// Stores an `Arc` inconditionally. This is the same as swaping with
+    /// Stores an [`Arc`] inconditionally. This is the same as swaping with
     /// unused return.
     pub fn store(&self, new: Arc<T>) {
         // We have to swap it, anyway.
         self.swap(new);
     }
 
-    /// Swaps the inner `Arc` with the argument `new` inconditionally.
+    /// Swaps the inner [`Arc`] with the argument `new` inconditionally.
     pub fn swap(&self, new: Arc<T>) -> Arc<T> {
         let new = Arc::into_raw(new) as *mut _;
         let ptr = self.ptr.swap(new, Relaxed);
@@ -68,9 +68,9 @@ impl<T> Darc<T> {
         arc
     }
 
-    /// Compares the inner `Arc` with `curr`, and if they are the same pointer,
-    /// the inner `Arc` is swapped with `new`. To test the result, use
-    /// `Arc::ptr_eq(&curr, &ret)`.
+    /// Compares the inner [`Arc`] with `curr`, and if they are the same
+    /// pointer, the inner [`Arc`] is swapped with `new`. To test the
+    /// result, use `Arc::ptr_eq(&curr, &ret)`.
     pub fn compare_and_swap(&self, curr: Arc<T>, new: Arc<T>) -> Arc<T> {
         let curr = Arc::into_raw(curr) as *mut _;
         let new = Arc::into_raw(new) as *mut _;
@@ -113,7 +113,8 @@ impl<T> Darc<T> {
         }
     }
 
-    /// Same as `compare_and_swap` but it returns a `Result` instead.
+    /// Same as [`compare_and_swap`](Darc::compare_and_swap) but it returns a
+    /// [`Result`] instead.
     pub fn compare_exchange(
         &self,
         curr: Arc<T>,
@@ -157,7 +158,8 @@ impl<T> Darc<T> {
         })
     }
 
-    /// Same as `compare_exchange` but with weaker semanthics.
+    /// Same as [`compare_exchange`](Darc::compare_exchange_weak) but with
+    /// weaker semanthics.
     pub fn compare_exchange_weak(
         &self,
         curr: Arc<T>,
@@ -246,7 +248,7 @@ unsafe impl<T> Send for Darc<T> where T: Send + Sync {}
 unsafe impl<T> Sync for Darc<T> where T: Send + Sync {}
 
 make_shared_incin! {
-    { "`Darc`" }
+    { "[`Darc`]" }
     #[derive(Debug)]
     pub SharedIncin<T> of Arc<T>
 }

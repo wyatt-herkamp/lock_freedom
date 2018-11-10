@@ -67,12 +67,12 @@ pub struct Map<K, V, H = RandomState> {
 }
 
 impl<K, V> Map<K, V> {
-    /// Creates a new `Map` with the default hasher builder.
+    /// Creates a new [`Map`] with the default hasher builder.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Creates the `Map` using the given shared incinerator.
+    /// Creates the [`Map`] using the given shared incinerator.
     pub fn with_incin(incin: SharedIncin<K, V>) -> Self {
         Self::with_hasher_and_incin(RandomState::default(), incin)
     }
@@ -115,12 +115,13 @@ impl<K, V, H> Map<K, V, H>
 where
     H: BuildHasher,
 {
-    /// Creates the `Map` using the given hasher builder.
+    /// Creates the [`Map`] using the given hasher builder.
     pub fn with_hasher(builder: H) -> Self {
         Self::with_hasher_and_incin(builder, SharedIncin::new())
     }
 
-    /// Creates the `Map` using the given hasher builder and shared incinerator.
+    /// Creates the [`Map`] using the given hasher builder and shared
+    /// incinerator.
     pub fn with_hasher_and_incin(builder: H, incin: SharedIncin<K, V>) -> Self {
         Self {
             top: Table::new_alloc(),
@@ -129,12 +130,12 @@ where
         }
     }
 
-    /// The shared incinerator used by this `Map`.
+    /// The shared incinerator used by this [`Map`].
     pub fn incin(&self) -> SharedIncin<K, V> {
         self.incin.clone()
     }
 
-    /// The hasher buider used by this `Map`.
+    /// The hasher buider used by this [`Map`].
     pub fn hasher(&self) -> &H {
         &self.builder
     }
@@ -183,7 +184,7 @@ where
     /// Inserts _interactively_ the given key. A closure is passed to generate
     /// the value part of the entry and validate it with the found value. Even
     /// though the closure may have already accepted some condition, it might
-    /// get recalled many times due to concurrent modifications of the `Map`.
+    /// get recalled many times due to concurrent modifications of the [`Map`].
     ///
     /// The first argument passed to the closure is the key passed in first
     /// place. The second argument is an optional mutable reference to a
@@ -223,10 +224,10 @@ where
 
     /// Reinserts a previously removed entry. The entry must have been either:
     ///
-    /// 1. Removed from any `Map` using the same [`SharedIncin`] as this `Map`.
-    /// 2. Removed from an already dead `Map` with dead [`SharedIncin`].
-    /// 3. Removed from a `Map` whose `SharedIncin` has no sensitive reads
-    /// active.
+    /// 1. Removed from any [`Map`] using the same [`SharedIncin`] as this
+    /// [`Map`]. 2. Removed from an already dead [`Map`] with dead
+    /// [`SharedIncin`]. 3. Removed from a [`Map`] whose `SharedIncin` has
+    /// no sensitive reads active.
     ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.
@@ -268,14 +269,14 @@ where
     /// returned value is a boolean indicating if the reinsertion should go on.
     /// Even though the closure may have already accepted some condition, it
     /// might get recalled many times due to concurrent modifications of the
-    /// `Map`.
+    /// [`Map`].
     ///
     /// The entry must have been either:
     ///
-    /// 1. Removed from any `Map` using the same [`SharedIncin`] as this `Map`.
-    /// 2. Removed from an already dead `Map` with dead `SharedIncin`.
-    /// 3. Removed from a `Map` whose `SharedIncin` has no sensitive reads
-    /// active.
+    /// 1. Removed from any [`Map`] using the same [`SharedIncin`] as this
+    /// [`Map`]. 2. Removed from an already dead [`Map`] with dead
+    /// `SharedIncin`. 3. Removed from a [`Map`] whose `SharedIncin` has no
+    /// sensitive reads active.
     ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.
@@ -448,7 +449,7 @@ where
 }
 
 make_shared_incin! {
-    { "`Map`" }
+    { "[`Map`]" }
     pub SharedIncin<K, V> of Garbage<K, V>
 }
 

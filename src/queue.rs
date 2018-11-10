@@ -36,12 +36,13 @@ impl<T> Queue<T> {
         }
     }
 
-    /// Returns the shared incinerator used by this `Queue`.
+    /// Returns the shared incinerator used by this [`Queue`].
     pub fn incin(&self) -> SharedIncin<T> {
         self.incin.clone()
     }
 
-    /// Creates an iterator over `T`s, based on `pop` operation of the queue.
+    /// Creates an iterator over `T`s, based on [`pop`](Queue::pop) operation of
+    /// the [`Queue`].
     pub fn pop_iter<'queue>(&'queue self) -> PopIter<'queue, T> {
         PopIter { queue: self }
     }
@@ -149,7 +150,7 @@ impl<T> fmt::Debug for Queue<T> {
 unsafe impl<T> Send for Queue<T> where T: Send {}
 unsafe impl<T> Sync for Queue<T> where T: Send {}
 
-/// An iterator based on `pop` operation of the `Queue`.
+/// An iterator based on [`pop`](Queue::pop) operation of the [`Queue`].
 pub struct PopIter<'queue, T>
 where
     T: 'queue,
@@ -172,7 +173,7 @@ impl<'queue, T> fmt::Debug for PopIter<'queue, T> {
 }
 
 make_shared_incin! {
-    { "`Queue`" }
+    { "[`Queue`]" }
     pub SharedIncin<T> of OwnedAlloc<Node<T>>
 }
 
