@@ -43,16 +43,22 @@ impl<T> Stack<T> {
 
     /// Pushes a new value onto the top of the stack.
     pub fn push(&self, val: T) {
-        let mut target = OwnedAlloc::new(Node::new(val, null_mut())).into_raw();
+        // Let's first create a node.
+        let mut target = OwnedAlloc::new(Node::new(val, null_mut()));
         loop {
             // Load current top as our "next".
             let next = self.top.load(Acquire);
             // Put our "next" into the new top.
-            unsafe { target.as_mut().next = next }
-            let inner =
-                self.top.compare_and_swap(next, target.as_ptr(), Release);
+            target.next = next;
+
+            // Let's try to publish our changes.
+            let new_top = target.raw().as_ptr();
+            let inner = self.top.compare_and_swap(next, new_top, Release);
+
             // We will succeed if our "next" still was the top.
             if inner == next {
+                // Let's be sure we do not deallocate the pointer.
+                target.into_raw();
                 break;
             }
         }
@@ -60,40 +66,34 @@ impl<T> Stack<T> {
 
     /// Pops a single element from the top of the stack.
     pub fn pop(&self) -> Option<T> {
+        // We need this because of ABA problem.
         let pause = self.incin.inner.pause();
         loop {
             // First, let's load our top.
             let top = self.top.load(Acquire);
-            match NonNull::new(top) {
-                // If top is null, we have nothing. We're done without
-                // elements.
-                None => break None,
+            // If top is null, we have nothing. Try operator (?) handles it.
+            let mut nnptr = NonNull::new(top)?;
+            // The replacement for top is its "next". This is only possible
+            // because of incinerator. Otherwise, we would face the "ABA
+            // problem".
+            //
+            // Note this dereferra is safe because we only delete nodes via
+            // incinerator and we have a pause now.
+            let res = self.top.compare_and_swap(
+                top,
+                unsafe { nnptr.as_ref().next },
+                Release,
+            );
 
-                Some(mut nnptr) => {
-                    // The replacement for top is its "next".
-                    // This is only possible because of hazard pointers.
-                    // Otherwise, we would face the "ABA problem".
-                    let res = self.top.compare_and_swap(
-                        top,
-                        unsafe { nnptr.as_ref().next },
-                        Release,
-                    );
+            // We succeed if top still was the loaded pointer.
+            if res == top {
+                // Done with an element.
 
-                    // We succeed if top still was the loaded pointer.
-                    if res == top {
-                        // Done with an element.
-
-                        // Let's first get the "val" to be returned.
-                        let val = unsafe {
-                            (&mut nnptr.as_mut().val as *mut T).read()
-                        };
-                        // Then, let's dealloc (now or later).
-                        pause.add_to_incin(unsafe {
-                            UninitAlloc::from_raw(nnptr)
-                        });
-                        break Some(val);
-                    }
-                },
+                // Let's first get the "val" to be returned.
+                let val = unsafe { (&mut nnptr.as_mut().val as *mut T).read() };
+                // Then, let's dealloc (now or later).
+                pause.add_to_incin(unsafe { UninitAlloc::from_raw(nnptr) });
+                break Some(val);
             }
         }
     }
@@ -120,6 +120,8 @@ impl<T> Drop for Stack<T> {
         let mut node_ptr = self.top.load(Relaxed);
 
         while let Some(nnptr) = NonNull::new(node_ptr) {
+            // This is safe because we only store pointers allocated via
+            // `OwnedAlloc`. Also, we have exclusive access to this pointer.
             let node = unsafe { OwnedAlloc::from_raw(nnptr) };
             node_ptr = node.next;
         }

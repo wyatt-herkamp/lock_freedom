@@ -50,31 +50,49 @@ impl<T> Queue<T> {
     /// Pushes a value into the back of the queue. This operation is also
     /// wait-free.
     pub fn push(&self, item: T) {
+        // Pretty simple: create a node from the item.
         let node = Node::new(Removable::new(item));
         let alloc = OwnedAlloc::new(node);
         let node_ptr = alloc.into_raw().as_ptr();
+        // Swap with the previously stored back.
         let prev_back = self.back.swap(node_ptr, AcqRel);
         unsafe {
+            // Updates the previous back's next field to our newly allocated
+            // node. This may delay the visibility of the insertion.
             (*prev_back).next.store(node_ptr, Release);
         }
     }
 
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
+        // Pausing because of ABA problem involving remotion from linked lists.
         let pause = self.incin.inner.pause();
         loop {
             let front_nnptr = unsafe {
+                // The pointer stored in front and back must never be null. The
+                // queue always have at least one node. Front and back are
+                // always connected.
                 let ptr = self.front.load(Acquire);
                 debug_assert!(!ptr.is_null());
                 NonNull::new_unchecked(ptr)
             };
 
-            match unsafe { front_nnptr.as_ref() }.item.take() {
+            // This dereferral is safe because we paused the incinerator and
+            // only delete nodes via incinerator.
+            //
+            // We first remove the node logically.
+            match unsafe { front_nnptr.as_ref().item.take() } {
                 Some(val) => {
+                    // Safe to call because we passed a pointer from the front
+                    // which was loaded during the very same pause we are
+                    // passing.
                     unsafe { self.try_clear_first(front_nnptr, &pause) };
                     break Some(val);
                 },
 
+                // Safe to call because we passed a pointer from the front
+                // which was loaded during the very same pause we are
+                // passing.
                 None => unsafe { self.try_clear_first(front_nnptr, &pause)? },
             }
         }
@@ -90,6 +108,10 @@ impl<T> Queue<T> {
         }
     }
 
+    // Returns an `Option` so we can use the try operator (?) with the function.
+    // This function is unsafe because passing the wrong pointer will lead to
+    // undefined behavior. The pointer must have been loaded from the front
+    // during the passed pause.
     unsafe fn try_clear_first(
         &self,
         expected: NonNull<Node<T>>,
@@ -97,14 +119,23 @@ impl<T> Queue<T> {
     ) -> Option<()> {
         let next = expected.as_ref().next.load(Acquire);
 
+        // If this is the only node, we will not remove it. We want front and
+        // back to share the same node rather than having to set both to null
+        // when the queue is empty.
         if next.is_null() {
+            // Then we are sure the queue is empty.
             None
         } else {
             let ptr = expected.as_ptr();
             let res = self.front.compare_and_swap(ptr, next, Release);
+            // We are not oblied to succeed. This is just cleanup and some other
+            // thread might do it.
             if res == expected.as_ptr() {
+                // Only deleting nodes via incinerator due to ABA problem and
+                // use-after-frees.
                 pause.add_to_incin(OwnedAlloc::from_raw(expected));
             }
+            // Then we *might* have some element since we found another node.
             Some(())
         }
     }
@@ -120,6 +151,8 @@ impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
         let mut node_ptr = self.front.load(Relaxed);
         while let Some(nnptr) = NonNull::new(node_ptr) {
+            // This is safe because we only store pointers allocated via
+            // `OwnedAlloc`. Also, we have exclusive access to this pointer.
             let node = unsafe { OwnedAlloc::from_raw(nnptr) };
             node_ptr = node.next.load(Relaxed);
         }
