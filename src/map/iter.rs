@@ -7,8 +7,8 @@ use incin::Pause;
 use owned_alloc::OwnedAlloc;
 use std::{fmt, mem::replace, ptr::NonNull};
 
-/// An iterator over key-vaue entries of a `Map`. The `Item` of this iterator is
-/// a `ReadGuard`.
+/// An iterator over key-vaue entries of a [`Map`](super::Map). The `Item` of
+/// this iterator is a [`ReadGuard`].
 #[derive(Debug)]
 pub struct Iter<'map, K, V>
 where
@@ -86,7 +86,7 @@ where
 {
 }
 
-/// An owned iterator over key-vaue entries of a `Map`.
+/// An owned iterator over key-vaue entries of a [`Map`](super::Map).
 pub struct IntoIter<K, V> {
     tables: Vec<OwnedAlloc<Table<K, V>>>,
     curr_table: Option<(OwnedAlloc<Table<K, V>>, usize)>,
@@ -172,8 +172,9 @@ where
 {
 }
 
-/// An owned iterator over references to key-vaue entries of a `Map`. The
-/// reference to the value is mutable (but not the one to the key).
+/// An owned iterator over references to key-vaue entries of a
+/// [`Map`](super::Map). The reference to the value is mutable (but not the one
+/// to the key).
 pub struct IterMut<'map, K, V>
 where
     K: 'map,

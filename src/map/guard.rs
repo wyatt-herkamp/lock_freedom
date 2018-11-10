@@ -140,9 +140,10 @@ where
 {
 }
 
-/// A removed entry. It can be reinserted at the same `Map` it was removed. It
-/// can also be inserted on another `Map`, but only if either the `Map` is
-/// dropped or there are no sensitive reads running on that `Map`.
+/// A removed entry. It can be reinserted at the same [`Map`](super::Map) it was
+/// removed. It can also be inserted on another [`Map`](super::Map), but only if
+/// either the [`Map`](super::Map) is dropped or there are no sensitive reads
+/// running on that [`Map`](super::Map).
 pub struct Removed<K, V> {
     nnptr: NonNull<(K, V)>,
     origin: Weak<Incinerator<Garbage<K, V>>>,
@@ -203,8 +204,8 @@ impl<K, V> Removed<K, V> {
     }
 
     /// Tries to acquire a mutable reference to the pair. Succeeds only if
-    /// either the original `Map` was dropped or no sensitive reads are being
-    /// performed.
+    /// either the original [`Map`](super::Map) was dropped or no sensitive
+    /// reads are being performed.
     pub fn try_as_mut(this: &mut Self) -> Option<&mut (K, V)> {
         let success = match this.origin.upgrade() {
             None => true,
@@ -226,7 +227,8 @@ impl<K, V> Removed<K, V> {
     }
 
     /// Tries to convert this wrapper into the pair. Succeeds only if either the
-    /// original `Map` was dropped or no sensitive reads are being performed.
+    /// original [`Map`](super::Map) was dropped or no sensitive reads are being
+    /// performed.
     pub fn try_into(this: Self) -> Result<(K, V), Self> {
         let success = match this.origin.upgrade() {
             None => true,

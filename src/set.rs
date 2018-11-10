@@ -17,19 +17,19 @@ use std::{
     ops::Deref,
 };
 
-/// A lock-free set. This is currently implemented on top of `Map`. To check
-/// more details about it, please see `Map` docs.
+/// A lock-free set. This is currently implemented on top of
+/// [`Map`](::map::Map). To check more details about it, please see `Map` docs.
 pub struct Set<T, H = RandomState> {
     inner: Map<T, (), H>,
 }
 
 impl<T> Set<T> {
-    /// Creates a `Set` with the default hasher builder.
+    /// Creates a [`Set`] with the default hasher builder.
     pub fn new() -> Self {
         Self { inner: Map::new() }
     }
 
-    /// Creates the `Set` using the given shared incinerator.
+    /// Creates the [`Set`] using the given shared incinerator.
     pub fn with_incin(incin: SharedIncin<T>) -> Self {
         Self {
             inner: Map::with_incin(incin.inner),
@@ -48,14 +48,15 @@ impl<T, H> Set<T, H>
 where
     H: BuildHasher,
 {
-    /// Creates a `Set` with the given hasher builder.
+    /// Creates a [`Set`] with the given hasher builder.
     pub fn with_hasher(builder: H) -> Self {
         Self {
             inner: Map::with_hasher(builder),
         }
     }
 
-    /// Creates the `Set` using the given hasher builder and shared incinerator.
+    /// Creates the [`Set`] using the given hasher builder and shared
+    /// incinerator.
     pub fn with_hasher_and_incin(builder: H, incin: SharedIncin<T>) -> Self {
         Self {
             inner: Map::with_hasher_and_incin(builder, incin.inner),
@@ -69,7 +70,7 @@ where
         }
     }
 
-    /// Returns the hasher builder used by this `Set`.
+    /// Returns the hasher builder used by this [`Set`].
     pub fn hasher(&self) -> &H {
         self.inner.hasher()
     }
@@ -86,10 +87,10 @@ where
         self.inner.clear();
     }
 
-    /// Tests if the given element is present on the `Set`. The method accepts a
-    /// type resulted from borrowing the stored element. This method will only
-    /// work correctly if `Hash` and `Ord` are implemented in the same way for
-    /// the borrowed type and the stored type.
+    /// Tests if the given element is present on the [`Set`]. The method accepts
+    /// a type resulted from borrowing the stored element. This method will
+    /// only work correctly if [`Hash`] and [`Ord`] are implemented in the same
+    /// way for the borrowed type and the stored type.
     pub fn contains<U>(&self, elem: &U) -> bool
     where
         U: Hash + Ord,
@@ -98,12 +99,12 @@ where
         self.inner.get(elem).is_some()
     }
 
-    /// Returns a guarded reference to the given element in the `Set`. This may
-    /// be useful for types with additional metadata. The method accepts a type
-    /// resulted from borrowing the stored element. This method will only work
-    /// correctly if `Hash` and `Ord` are implemented in the same way for the
-    /// borrowed type and the stored type. If the element is not found, `None`
-    /// is obviously returned.
+    /// Returns a guarded reference to the given element in the [`Set`]. This
+    /// may be useful for types with additional metadata. The method accepts
+    /// a type resulted from borrowing the stored element. This method will
+    /// only work correctly if [`Hash`] and [`Ord`] are implemented in the same
+    /// way for the borrowed type and the stored type. If the element is not
+    /// found, [`None`] is obviously returned.
     pub fn get<'set, U>(&'set self, elem: &U) -> Option<ReadGuard<'set, T>>
     where
         U: Hash + Ord,
@@ -112,8 +113,8 @@ where
         self.inner.get(elem).map(ReadGuard::new)
     }
 
-    /// Inserts the element into the `Set`. If the element was already present,
-    /// `Err(the_passed_value)` is returned.
+    /// Inserts the element into the [`Set`]. If the element was already
+    /// present, [`Err`]`(the_passed_value)` is returned.
     pub fn insert(&self, elem: T) -> Result<(), T>
     where
         T: Hash + Ord,
@@ -132,7 +133,7 @@ where
         }
     }
 
-    /// Inserts _interactively_ the element into the `Set`. A passed closure
+    /// Inserts _interactively_ the element into the [`Set`]. A passed closure
     /// tests if the insertion should proceed. The first argument of the
     /// closure is the element passed to `insert_with` and the second is the
     /// stored found element, if any. The closure returns whether the insertion
@@ -160,9 +161,9 @@ where
     /// Tries to reinsert a previously removed element. The element must have
     /// been either:
     ///
-    /// 1. Removed from this very `Set`.
-    /// 2. Removed from an already dead `Set`.
-    /// 3. Removed from a `Set` which has no sensitive reads active.
+    /// 1. Removed from this very [`Set`].
+    /// 2. Removed from an already dead [`Set`].
+    /// 3. Removed from a [`Set`] which has no sensitive reads active.
     ///
     /// If the removed element does not fit any category, the insertion will
     /// fail. Otherwise, insertion cannot fail.
@@ -187,9 +188,9 @@ where
     /// returns whether the reinsertion should go on. The removed element must
     /// have been either:
     ///
-    /// 1. Removed from this very `Set`.
-    /// 2. Removed from an already dead `Set`.
-    /// 3. Removed from a `Set` which has no sensitive reads active.
+    /// 1. Removed from this very [`Set`].
+    /// 2. Removed from an already dead [`Set`].
+    /// 3. Removed from a [`Set`] which has no sensitive reads active.
     ///
     /// If the removed element does not fit any category, the insertion will
     /// fail. Otherwise, insertion cannot fail.
@@ -216,8 +217,8 @@ where
 
     /// Removes the given element inconditionally. The method accepts a
     /// type resulted from borrowing the stored element. This method will only
-    /// work correctly if `Hash` and `Ord` are implemented in the same way for
-    /// the borrowed type and the stored type.
+    /// work correctly if [`Hash`] and [`Ord`] are implemented in the same way
+    /// for the borrowed type and the stored type.
     pub fn remove<U>(&self, elem: &U) -> Option<Removed<T>>
     where
         U: Hash + Ord,
@@ -231,7 +232,7 @@ where
     /// reference to the found stored element. The return value is whether the
     /// removal should happen or not. The method accepts a type resulted from
     /// borrowing the stored element. This method will only work correctly
-    /// if `Hash` and `Ord` are implemented in the same way for the borrowed
+    /// if [`Hash`] and [`Ord`] are implemented in the same way for the borrowed
     /// type and the stored type.
     pub fn remove_with<U, F>(
         &self,
@@ -293,7 +294,7 @@ impl<'set, T, H> IntoIterator for &'set Set<T, H> {
     }
 }
 
-/// An `insert` operation result.
+/// An [`insert_with`](Set::insert_with) operation result.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Insertion<T, E> {
     /// The element was created.
@@ -303,7 +304,7 @@ pub enum Insertion<T, E> {
     /// The insertion failed and no operation was performed. Failure of an
     /// insertion might happen because the closure rejected the conditions.
     /// Another reason is that method-specific contract was not respected (such
-    /// as the one of `reinsert_with`).
+    /// as the one of [`reinsert_with`](Set::reinsert_with)).
     Failed(E),
 }
 
@@ -325,7 +326,8 @@ impl<T, E> Insertion<T, E> {
     }
 
     /// Tries to take the updated element of this insertion and encodes it as a
-    /// `Result`. `Ok` is returned only if this insertion updated an element.
+    /// [`Result`]. [`Ok`] is returned only if this insertion updated an
+    /// element.
     pub fn take_updated(self) -> Result<Removed<T>, Self> {
         match self {
             Insertion::Updated(pair) => Ok(pair),
@@ -342,7 +344,7 @@ impl<T, E> Insertion<T, E> {
     }
 
     /// Tries to take the failure of this insertion and encodes it as a
-    /// `Result`. `Ok` is returned only if this insertion has a failure.
+    /// [`Result`]. [`Ok`] is returned only if this insertion has a failure.
     pub fn take_failed(self) -> Result<E, Self> {
         match self {
             Insertion::Failed(e) => Ok(e),
@@ -423,9 +425,9 @@ impl<'set, T> AsRef<T> for ReadGuard<'set, T> {
     }
 }
 
-/// A removed element. It can be reinserted at the same `Set` it was removed. It
-/// can also be inserted on another `Set`, but only if either the `Set` is
-/// dropped or there are no sensitive reads running on that `Set`.
+/// A removed element. It can be reinserted at the same [`Set`] it was removed.
+/// It can also be inserted on another [`Set`], but only if either the [`Set`]
+/// is dropped or there are no sensitive reads running on that [`Set`].
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Removed<T> {
     inner: MapRemoved<T, ()>,
@@ -437,14 +439,14 @@ impl<T> Removed<T> {
     }
 
     /// Tries to acquire a mutable reference to the element. Succeeds only if
-    /// either the original `Set` was dropped or no sensitive reads are being
+    /// either the original [`Set`] was dropped or no sensitive reads are being
     /// performed.
     pub fn try_as_mut(this: &mut Self) -> Option<&mut T> {
         MapRemoved::try_as_mut(&mut this.inner).map(|(elem, _)| elem)
     }
 
     /// Tries to convert this wrapper into the element. Succeeds only if either
-    /// the original `Set` was dropped or no sensitive reads are being
+    /// the original [`Set`] was dropped or no sensitive reads are being
     /// performed.
     pub fn try_into(this: Self) -> Result<T, Self> {
         match MapRemoved::try_into(this.inner) {
@@ -510,8 +512,8 @@ impl<T> AsRef<T> for Removed<T> {
     }
 }
 
-/// An iterator over elements of a `Set`. The `Item` of this
-/// iterator is a `ReadGuard`.
+/// An iterator over elements of a [`Set`]. The `Item` of this
+/// iterator is a [`ReadGuard`].
 #[derive(Debug)]
 pub struct Iter<'set, T>
 where
@@ -528,7 +530,7 @@ impl<'set, T> Iterator for Iter<'set, T> {
     }
 }
 
-/// An iterator over owned elements of a `Set`.
+/// An iterator over owned elements of a [`Set`].
 pub struct IntoIter<T> {
     inner: MapIntoIter<T, ()>,
 }
@@ -547,7 +549,7 @@ impl<T> fmt::Debug for IntoIter<T> {
     }
 }
 
-/// The shared incinerator used by ", $target, ". You may want to use this type
+/// The shared incinerator used by [`Set`]. You may want to use this type
 /// in order to reduce memory consumption of the minimal space required by the
 /// incinerator. However, garbage items may be hold for longer time than they
 /// would if no shared incinerator were used.
@@ -556,7 +558,7 @@ pub struct SharedIncin<T> {
 }
 
 impl<T> SharedIncin<T> {
-    /// Creates a new shared incinerator for `Set`.
+    /// Creates a new shared incinerator for [`Set`].
     pub fn new() -> Self {
         Self {
             inner: MapIncin::new(),

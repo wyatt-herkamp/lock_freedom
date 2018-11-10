@@ -2,7 +2,7 @@ use super::Removed;
 use owned_alloc::{OwnedAlloc, UninitAlloc};
 use std::{mem::forget, ptr::NonNull};
 
-/// An `insert` operation result.
+/// A [`insert_with`](super::Map::insert_with) operation result.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Insertion<K, V, E> {
     /// The entry was created.
@@ -12,7 +12,7 @@ pub enum Insertion<K, V, E> {
     /// The insertion failed and no operation was performed. Failure of an
     /// insertion might happen because the closure rejected the conditions.
     /// Another reason is that method-specific contract was not respected (such
-    /// as the one of `reinsert_with`).
+    /// as the one of [`reinsert_with`](super::Map::reinsert_with)).
     Failed(E),
 }
 
@@ -34,7 +34,7 @@ impl<K, V, E> Insertion<K, V, E> {
     }
 
     /// Tries to take the updated entry of this insertion and encodes it as a
-    /// `Result`. `Ok` is returned only if this insertion updated a value.
+    /// [`Result`]. [`Ok`] is returned only if this insertion updated a value.
     pub fn take_updated(self) -> Result<Removed<K, V>, Self> {
         match self {
             Insertion::Updated(pair) => Ok(pair),
@@ -51,7 +51,7 @@ impl<K, V, E> Insertion<K, V, E> {
     }
 
     /// Tries to take the failure of this insertion and encodes it as a
-    /// `Result`. `Ok` is returned only if this insertion has a failure.
+    /// [`Result`]. [`Ok`] is returned only if this insertion has a failure.
     pub fn take_failed(self) -> Result<E, Self> {
         match self {
             Insertion::Failed(e) => Ok(e),
@@ -60,17 +60,19 @@ impl<K, V, E> Insertion<K, V, E> {
     }
 }
 
-/// The preview of an _interactive_ insertion. It is used by the `insert_with`
-/// method and it is the return value of the closure passed to the method.
+/// The preview of an _interactive_ insertion. It is used by the
+/// [`insert_with`](super::Map::insert_with) method and it is the return value
+/// of the closure passed to the method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preview<V> {
-    /// Tells the `Map` to discard the currently generated value. After this
-    /// return value, the insertion is probably canceled and it fails. However,
-    /// concurrent accesses to the `Map` may cause the conditions to be tested
-    /// again.
+    /// Tells the [`Map`](super::Map) to discard the currently generated value.
+    /// After this return value, the insertion is probably canceled and it
+    /// fails. However, concurrent accesses to the [`Map`](super::Map) may
+    /// cause the conditions to be tested again.
     Discard,
-    /// Tells the `Map` to keep the currently generated value. If there was no
-    /// generated value, this has the same effect as `Discard`.
+    /// Tells the [`Map`](super::Map) to keep the currently generated value. If
+    /// there was no generated value, this has the same effect as
+    /// [`Preview::Discard`].
     Keep,
     /// Tells the `Map to use this value instead of the previously generated
     /// (if any).

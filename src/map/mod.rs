@@ -143,9 +143,9 @@ where
     /// is a guarded reference. Guarded to ensure no thread deallocates the
     /// allocation for the entry while it is being used. The method accepts
     /// a type resulted from borrowing the stored key. This method will only
-    /// work correctly if `Hash` and `Ord` are implemented in the same way
+    /// work correctly if [`Hash`] and [`Ord`] are implemented in the same way
     /// for the borrowed type and the stored type. If the entry was not
-    /// found, `None` is returned.
+    /// found, [`None`] is returned.
     pub fn get<'map, Q>(&'map self, key: &Q) -> Option<ReadGuard<'map, K, V>>
     where
         Q: ?Sized + Hash + Ord,
@@ -188,7 +188,7 @@ where
     /// The first argument passed to the closure is the key passed in first
     /// place. The second argument is an optional mutable reference to a
     /// previously generated value. Obviously, if no value was ever generated,
-    /// it is `None`. The third argument is a reference to the found stored
+    /// it is [`None`]. The third argument is a reference to the found stored
     /// entry. Obviously, if no stored entry was found, it is `None`. The return
     /// value of the closure is a specification of "what to do with the
     /// insertion now".
@@ -223,8 +223,8 @@ where
 
     /// Reinserts a previously removed entry. The entry must have been either:
     ///
-    /// 1. Removed from any `Map` using the same `SharedIncin` as this `Map`.
-    /// 2. Removed from an already dead `Map` with dead `SharedIncin`.
+    /// 1. Removed from any `Map` using the same [`SharedIncin`] as this `Map`.
+    /// 2. Removed from an already dead `Map` with dead [`SharedIncin`].
     /// 3. Removed from a `Map` whose `SharedIncin` has no sensitive reads
     /// active.
     ///
@@ -264,7 +264,7 @@ where
     /// passed to validate if the conditions are correct for the reinsertion.
     /// The first argument passed to the closure is a reference to the removed
     /// entry, the second argument is a reference to the stored found entry.
-    /// Obviously, if no stored entry was found, the argument is `None`. The
+    /// Obviously, if no stored entry was found, the argument is [`None`]. The
     /// returned value is a boolean indicating if the reinsertion should go on.
     /// Even though the closure may have already accepted some condition, it
     /// might get recalled many times due to concurrent modifications of the
@@ -272,7 +272,7 @@ where
     ///
     /// The entry must have been either:
     ///
-    /// 1. Removed from any `Map` using the same `SharedIncin` as this `Map`.
+    /// 1. Removed from any `Map` using the same [`SharedIncin`] as this `Map`.
     /// 2. Removed from an already dead `Map` with dead `SharedIncin`.
     /// 3. Removed from a `Map` whose `SharedIncin` has no sensitive reads
     /// active.
@@ -314,10 +314,10 @@ where
     }
 
     /// Removes unconditionally the entry identified by the given key. If no
-    /// entry was found, `None` is returned. This method will only work
-    /// correctly if `Hash` and `Ord` are implemented in the same way for the
-    /// borrowed type and the stored type. If the entry was not found, `None` is
-    /// returned.
+    /// entry was found, [`None`] is returned. This method will only work
+    /// correctly if [`Hash`] and [`Ord`] are implemented in the same way for
+    /// the borrowed type and the stored type. If the entry was not found,
+    /// `None` is returned.
     pub fn remove<Q>(&self, key: &Q) -> Option<Removed<K, V>>
     where
         Q: ?Sized + Hash + Ord,
@@ -330,9 +330,9 @@ where
     /// is passed to validate the removal. The only argument passed to the
     /// closure is a reference to the found entry. The closure returns if the
     /// removal should go on. If no entry was found, `None` is returned. This
-    /// method will only work correctly if `Hash` and `Ord` are implemented
+    /// method will only work correctly if [`Hash`] and [`Ord`] are implemented
     /// in the same way for the borrowed type and the stored type. If the
-    /// entry was not found, `None` is returned.
+    /// entry was not found, [`None`] is returned.
     pub fn remove_with<Q, F>(
         &self,
         key: &Q,

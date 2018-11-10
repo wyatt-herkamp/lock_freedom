@@ -17,12 +17,13 @@
 //!
 //! This crate is under development, and there are plans for some structures.
 //! We have:
-//! - `[x]` Per-Object Thread-Local Storage
-//! - `[x]` Stack
-//! - `[x]` Queue
+//! - `[x]` [Per-Object Thread-Local Storage](tls::ThreadLocal)
+//! - `[x]` [Channels (SPSC, MPSC, SPMC, MPMC)](channel)
+//! - `[x]` [Map](map::Map)
+//! - `[x]` [Set](set::Set)
+//! - `[x]` [Stack](stack::Stack)
+//! - `[x]` [Queue](queue::Queue)
 //! - `[ ]` Deque
-//! - `[x]` Map
-//! - `[x]` Set
 //!
 //! # Performance Guide
 //! In order to achieve a better time performance with lockfree, it is
@@ -60,7 +61,8 @@ pub mod set;
 /// Collection of lock-free FIFO channels. These channels are fully asynchronous
 /// and their receivers do not provide any sort of `wait-for-message` operation.
 /// It would be blocking otherwise, thus not lock-free. If you need such a
-/// mechanism, consider using this channel with a `CondVar` (not lock-free).
+/// mechanism, consider using this channel with a
+/// [`Condvar`](::std::sync::Condvar) (not lock-free).
 pub mod channel;
 
 /// A shared removable value. No extra allocation is necessary.
