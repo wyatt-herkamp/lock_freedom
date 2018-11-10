@@ -172,7 +172,10 @@ impl<T> Receiver<T> {
     pub fn is_connected(&self) -> bool {
         let _pause = self.inner.incin.inner.pause();
         let front = unsafe { &*self.inner.front.load(Acquire) };
-        front.message.is_present() || front.next.load(Acquire) as usize & 1 == 0
+        let back = unsafe { self.inner.back.as_ref() };
+        back.ptr.load(Acquire) as usize & 1 == 0
+            || front.message.is_present()
+            || !front.next.load(Acquire).is_null()
     }
 
     /// The shared incinerator used by this [`Receiver`].
