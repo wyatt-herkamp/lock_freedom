@@ -278,7 +278,8 @@ impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         loop {
             // This is safe because when senders disconnect, they won't drop the
-            // back. And we are the only receiver.
+            // back. The shared back is only deleted when both sides disconnect.
+            // And we are the only receiver.
             //
             // Let's check if sender disconnected.
             let ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };

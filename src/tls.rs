@@ -71,12 +71,16 @@ impl<T> ThreadLocal<T> {
         let mut tables = Vec::new();
 
         // Method clear means we are also resetting all node pointers to null.
-        self.top.clear(&mut tables);
+        //
+        // Safe because we store nodes only correctly.
+        unsafe { self.top.clear(&mut tables) }
 
         while let Some(mut table) = tables.pop() {
             // Method free_nodes means we are only freeing node pointers but not
             // clearing them.
-            table.free_nodes(&mut tables);
+            //
+            // Safe because we will never refer to these nodes again.
+            unsafe { table.free_nodes(&mut tables) }
         }
     }
 
@@ -113,6 +117,13 @@ impl<T> ThreadLocal<T> {
                 // Having in_place's lower bit set to 0 means it is a
                 // pointer to entry.
                 if in_place as usize & 1 == 0 {
+                    // This is safe since:
+                    //
+                    // 1. We only store nodes with cleared lower bit if it is an
+                    // entry.
+                    //
+                    // 2. We only delete stuff when we are behind mutable
+                    // references.
                     let entry = unsafe { &*(in_place as *mut Entry<T>) };
                     break if entry.id == id {
                         // We only have an entry for the thread if the ids
@@ -128,6 +139,16 @@ impl<T> ThreadLocal<T> {
                 // Clear the pointer first lower bit so we can dereference it.
                 let table_ptr = (in_place as usize & !1) as *mut Table<T>;
                 // Set it as the table to be checked in the next iteration.
+                // This is safe since:
+                //
+                // 1. We only store nodes with marked lower bit if it is an
+                // table.
+                //
+                // 2. W cleared up the bit above so we can get the original
+                // pointer.
+                //
+                // 3. We only delete stuff when we are behind mutable
+                // references.
                 table = unsafe { &*table_ptr };
                 // Shift our "hash" for the next level.
                 shifted >>= BITS;
@@ -177,10 +198,22 @@ impl<T> ThreadLocal<T> {
                     if res.is_null() {
                         // If the stored value still was null, we succeeded.
                         // Let's read the entry.
+                        //
+                        // This is safe since... This is the pointer we just
+                        // allocated and we only delete nodes through mutable
+                        // references to the TLS.
                         break reader(unsafe { &nnptr.as_ref().val });
                     }
                 } else if in_place as usize & 1 == 0 {
                     // First lower bit set to 0 means we have an entry.
+                    //
+                    // This is safe since:
+                    //
+                    // 1. We only store nodes with cleared lower bit if it is an
+                    // entry.
+                    //
+                    // 2. We only delete stuff when we are behind mutable
+                    // references.
                     let entry = unsafe { &*(in_place as *mut Entry<T>) };
                     // If ids match, this is the entry for our thread.
                     if entry.id == id {
@@ -221,6 +254,10 @@ impl<T> ThreadLocal<T> {
                         // If the old node was still stored, we succeeded.
                         // Let's set the new table as the table for the next
                         // iteration.
+                        //
+                        // This is safe since it is the table we just allocated
+                        // and we only delete it through mutable references to
+                        // the TLS.
                         table = unsafe { &*new_tbl_ptr.as_ptr() };
                         // We are going one depth further.
                         depth += 1;
@@ -228,6 +265,9 @@ impl<T> ThreadLocal<T> {
                         shifted >>= BITS;
                     } else {
                         // If we failed, let's rebuild the owned allocation.
+                        //
+                        // This is safe since it is the table we just allocated
+                        // and we don't share it.
                         let new_tbl =
                             unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
                         // Clear that pre-inserted node.
@@ -244,6 +284,15 @@ impl<T> ThreadLocal<T> {
                     // can dereference it.
                     let table_ptr = (in_place as usize & !1) as *mut Table<T>;
                     // Set it as table for the next iteration.
+                    //
+                    // 1. We only store nodes with marked lower bit if it is an
+                    // table.
+                    //
+                    // 2. W cleared up the bit above so we can get the original
+                    // pointer.
+                    //
+                    // 3. We only delete stuff when we are behind mutable
+                    // references.
                     table = unsafe { &*table_ptr };
                     // We are going one depth further.
                     depth += 1;
@@ -272,10 +321,13 @@ impl<T> Drop for ThreadLocal<T> {
         // Method free_nodes means we are only freeing node pointers but not
         // clearing them (no need to clear since nobody will ever use them
         // again, we are dropping the TLS).
-        self.top.free_nodes(&mut tables);
+        //
+        // This is safe because we never load the nodes again.
+        unsafe { self.top.free_nodes(&mut tables) }
 
         while let Some(mut table) = tables.pop() {
-            table.free_nodes(&mut tables);
+            // This is safe because we never load the nodes again.
+            unsafe { table.free_nodes(&mut tables) }
         }
     }
 }
@@ -308,6 +360,7 @@ impl<T> IntoIterator for ThreadLocal<T> {
     fn into_iter(self) -> Self::IntoIter {
         let raw = self.top.raw();
         mem::forget(self);
+        // Safe since this is the allocation we just forgot about.
         let top = unsafe { OwnedAlloc::from_raw(raw) };
 
         IntoIter {
@@ -349,11 +402,30 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Entry<T>;
                     self.curr_table = Some((table, index + 1));
+                    // This is safe since:
+                    //
+                    // 1. We only store nodes with cleared lower bit if it is an
+                    // entry.
+                    //
+                    // 2. We only delete stuff when we are behind mutable
+                    // references *and* we are the only mutable reference to the
+                    // TLS. We are not deleting it.
                     break Some(unsafe { &mut (*ptr).val });
                 },
 
                 Some(ptr) => {
                     let ptr = (ptr as usize & !1) as *mut Table<T>;
+                    // Set it as table for the next iteration.
+                    //
+                    // 1. We only store nodes with marked lower bit if it is an
+                    // table.
+                    //
+                    // 2. W cleared up the bit above so we can get the original
+                    // pointer.
+                    //
+                    // 3. We only delete stuff when we are behind mutable
+                    // references *and* we are the only mutable reference to the
+                    // TLS. We are not deleting it.
                     self.tables.push(unsafe { &mut *ptr });
                     self.curr_table = Some((table, index + 1));
                 },
@@ -393,6 +465,13 @@ impl<T> Iterator for IntoIter<T> {
 
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Entry<T>;
+                    // This is safe since:
+                    //
+                    // 1. We only store nodes with cleared lower bit if it is an
+                    // entry.
+                    //
+                    // 2. We have ownership over the TLS, so no one else is
+                    // reading or writing or deleting.
                     let alloc = unsafe {
                         OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
                     };
@@ -403,6 +482,13 @@ impl<T> Iterator for IntoIter<T> {
 
                 Some(ptr) => {
                     let ptr = (ptr as usize & !1) as *mut Table<T>;
+                    // This is safe since:
+                    //
+                    // 1. We only store nodes with marked lower bit if it is an
+                    // table.
+                    //
+                    // 2. We have ownership over the TLS, so no one else is
+                    // reading or writing or deleting.
                     self.tables.push(unsafe {
                         OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
                     });
@@ -432,6 +518,8 @@ struct Node<T> {
 }
 
 impl<T> Node<T> {
+    // Unsafe because it is *pretty easy* to make undefined behavior out of this
+    // because the pointer does not have even a fixed type.
     unsafe fn free_ptr(
         ptr: *mut (),
         tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>,
@@ -466,10 +554,13 @@ struct Table<T> {
 impl<T> Table<T> {
     #[inline]
     fn new_alloc() -> OwnedAlloc<Self> {
+        // Safe because it calls a correctly a function which correctly
+        // initializes uninitialized memory with, indeed, uninitialized memory.
         unsafe { UninitAlloc::<Self>::new().init_in_place(|this| this.init()) }
     }
 
     #[inline]
+    // Unsafe because passing ininitialized memory may cause leaks.
     unsafe fn init(&mut self) {
         for node_ref in &mut self.nodes as &mut [_] {
             (node_ref as *mut Node<T>).write(Node {
@@ -480,21 +571,20 @@ impl<T> Table<T> {
     }
 
     #[inline]
-    fn free_nodes(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
+    // Unsafe because calling this function and using the table again later will
+    // cause undefined behavior.
+    unsafe fn free_nodes(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
         for node in &self.nodes as &[Node<_>] {
-            unsafe { Node::free_ptr(node.atomic.load(Relaxed), tbl_stack) };
+            Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
         }
     }
 
     #[inline]
-    fn clear(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
+    // Unsafe because storing the wrong pointers in the table will lead to
+    // undefined behavior.
+    unsafe fn clear(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
         for node in &self.nodes as &[Node<_>] {
-            unsafe {
-                Node::free_ptr(
-                    node.atomic.swap(null_mut(), Relaxed),
-                    tbl_stack,
-                );
-            }
+            Node::free_ptr(node.atomic.swap(null_mut(), Relaxed), tbl_stack);
         }
     }
 }
