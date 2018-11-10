@@ -4,7 +4,7 @@ use super::{
 };
 use incin::{Incinerator, Pause};
 use owned_alloc::OwnedAlloc;
-use ptr;
+use ptr::non_zero_null;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -25,14 +25,22 @@ pub struct Bucket<K, V> {
 
 impl<K, V> Bucket<K, V> {
     pub fn new(hash: u64, pair: NonNull<(K, V)>) -> Self {
+        // We create a bucket with a single entry.
+
+        // First we create an entry for the pair whose next node is null.
         let entry = Entry {
             pair,
             next: null_mut(),
         };
+
+        // Then we create a list to keep the entry.
         let list = List::new(entry);
         let list_ptr = OwnedAlloc::new(list).into_raw().as_ptr();
+
         Self {
             hash,
+            // Then we make the "sentinel" "root" entry (never deleted from the
+            // bucket).
             list: List::new(Entry::root(list_ptr)),
         }
     }
@@ -41,21 +49,36 @@ impl<K, V> Bucket<K, V> {
         self.hash
     }
 
+    // Unsafe because it might need incinerator's pause.
     pub unsafe fn is_empty(&self) -> bool {
         (*self.list.atomic.load(Acquire)).is_empty()
     }
 
     pub fn take_first(&mut self) -> Option<OwnedAlloc<Entry<K, V>>> {
+        // First let's load the root entry.
+        //
+        // Safe because of exclusive reference. We are the only ones accessing
+        // it. We also *do not* store null pointers in list's AtomicPtr!
         let entry = unsafe { &mut *self.list.atomic.load(Relaxed) };
         let prev = entry.next;
+        // Let's set the root entry's next field to null.
         entry.next = null_mut();
+
         NonNull::new(prev).map(|nnptr| {
+            // It's safe because we only store properly allocated nodes. Also,
+            // we have removed the node.
             let list = unsafe { OwnedAlloc::from_raw(nnptr) };
             let ptr = list.atomic.load(Relaxed);
+            // Safe to by-pass null check because we never store null pointers
+            // in list's AtomicPtr! Safe to deallocate because we removed the
+            // node.
             unsafe { OwnedAlloc::from_raw(NonNull::new_unchecked(ptr)) }
         })
     }
 
+    // Unsafe because it might need incinerator's pause and there is no
+    // guarantee the passed pause by this thread comes from the same incinerator
+    // from which other threads pass pauses.
     pub unsafe fn get<'map, Q>(
         &self,
         key: &Q,
@@ -66,17 +89,24 @@ impl<K, V> Bucket<K, V> {
         K: Borrow<Q>,
     {
         match self.find(key, &pause) {
+            // The table must delete the whole bucket.
             FindRes::Delete => GetRes::Delete(pause),
 
+            // We found the entry.
             FindRes::Exact { curr, .. } => GetRes::Found(ReadGuard::new(
                 &*curr.as_ref().pair.as_ptr(),
                 pause,
             )),
 
+            // We found no entry.
             FindRes::After { .. } => GetRes::NotFound,
         }
     }
 
+    // Unsafe because it might need incinerator's pause and there is no
+    // guarantee the passed pause by this thread comes from the same incinerator
+    // from which other threads pass pauses. Also because the inserter must be
+    // implemented correctly and must yield valid pointers.
     pub unsafe fn insert<I>(
         &self,
         mut inserter: I,
@@ -89,59 +119,89 @@ impl<K, V> Bucket<K, V> {
     {
         loop {
             match self.find(inserter.key(), pause) {
+                // The table must delete the whole bucket.
                 FindRes::Delete => break InsertRes::Delete(inserter),
 
+                // We found an entry with equal key.
                 FindRes::Exact { curr_list, curr } => {
+                    // Let's test the found conditions. Let's test if the
+                    // inserter "approves" it.
                     inserter.input(Some(curr.as_ref().pair.as_ref()));
+                    // Then we try to extract the pair pointer.
                     let pair = match inserter.pointer() {
+                        // The inserter approved the conditions.
                         Some(nnptr) => nnptr,
+                        // The inserter rejected the conditions.
                         None => break InsertRes::Failed(inserter),
                     };
+                    // Create a new entry with a new pair but same next field.
                     let new_entry = Entry {
                         pair,
                         next: curr.as_ref().next,
                     };
                     let new_ptr = OwnedAlloc::new(new_entry).into_raw();
 
-                    let pair_ptr = curr.as_ref().pair;
+                    // We extract the old pair.
+                    let old_pair = curr.as_ref().pair;
+                    // And now we try to update the place where the old entry
+                    // was.
                     if curr_list.try_update(curr, new_ptr, pause) {
+                        // Remember to prevent the inserter from deallocating.
                         inserter.take_pointer();
-                        let pair = OwnedAlloc::from_raw(pair_ptr);
+                        // Create a removed entry from the old pair.
+                        let pair = OwnedAlloc::from_raw(old_pair);
                         let removed = Removed::new(pair, incin);
                         break InsertRes::Updated(removed);
                     }
                 },
 
+                // We found a spot to insert at.
                 FindRes::After { prev_list, prev } => {
+                    // Let's test the found conditions. Let's test if the
+                    // inserter "approves" it.
                     inserter.input(None);
+                    // Then we try to extract the pair pointer.
                     let pair = match inserter.pointer() {
+                        // The inserter approved the conditions.
                         Some(nnptr) => nnptr,
+                        // The inserter rejected the conditions.
                         None => break InsertRes::Failed(inserter),
                     };
+
+                    // Create a new entry with the next field.
                     let curr_entry = Entry {
                         pair,
                         next: prev.as_ref().next,
                     };
+                    // Make an intermediate node for it.
                     let curr_list = List::new(curr_entry);
                     let curr_nnptr = OwnedAlloc::new(curr_list).into_raw();
+
+                    // Create a new predecessor for our freshly created entry.
                     let new_prev = Entry {
                         pair: prev.as_ref().pair,
                         next: curr_nnptr.as_ptr(),
                     };
                     let new_ptr = OwnedAlloc::new(new_prev).into_raw();
 
+                    // And try to update.
                     if prev_list.try_update(prev, new_ptr, pause) {
+                        // Remember to prevent the inserter from deallocating.
                         inserter.take_pointer();
                         break InsertRes::Created;
-                    } else {
-                        OwnedAlloc::from_raw(curr_nnptr.as_ref().load());
-                        OwnedAlloc::from_raw(curr_nnptr);
                     }
+
+                    // Clean-up in case of failure.
+                    OwnedAlloc::from_raw(curr_nnptr.as_ref().load());
+                    OwnedAlloc::from_raw(curr_nnptr);
                 },
             }
         }
     }
 
+    // Unsafe because it might need incinerator's pause and there is no
+    // guarantee the passed pause by this thread comes from the same incinerator
+    // from which other threads pass pauses.
     pub unsafe fn remove<Q, F>(
         &self,
         key: &Q,
@@ -197,6 +257,9 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
+    // Unsafe because it might need incinerator's pause and there is no
+    // guarantee the passed pause by this thread comes from the same incinerator
+    // from which other threads pass pauses.
     pub unsafe fn collect<'map, F, T>(
         &'map self,
         pause: &Pause<Garbage<K, V>>,
@@ -239,6 +302,9 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
+    // Unsafe because it might need incinerator's pause and there is no
+    // guarantee the passed pause by this thread comes from the same incinerator
+    // from which other threads pass pauses.
     unsafe fn find<'map, Q>(
         &'map self,
         key: &Q,
@@ -302,10 +368,14 @@ impl<K, V> IntoIterator for Bucket<K, V> {
     type IntoIter = IntoIter<K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
+        // By-passing this null check is ok because we never store null pointer
+        // on the list's AomticPtr.
         let nnptr =
             unsafe { NonNull::new_unchecked(self.list.atomic.load(Relaxed)) };
         let head = unsafe { OwnedAlloc::from_raw(nnptr) };
         mem::forget(self);
+        // Making an owned allocation is safe because we have ownership over the
+        // bucket.
         IntoIter {
             curr: NonNull::new(head.next)
                 .map(|nnptr| unsafe { OwnedAlloc::from_raw(nnptr) }),
@@ -319,7 +389,11 @@ impl<'map, K, V> IntoIterator for &'map mut Bucket<K, V> {
     type IntoIter = IterMut<'map, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
+        // By-passing this null check is ok because we never store null pointer
+        // on the list's AomticPtr.
         let head = unsafe { &mut *self.list.atomic.load(Relaxed) };
+        // This dereferral is ok because we have exclusive reference to the
+        // bucket.
         IterMut {
             curr: unsafe { head.next.as_mut() },
         }
@@ -332,18 +406,32 @@ impl<K, V> Drop for Bucket<K, V> {
             let ptr = self.list.atomic.load(Relaxed);
             let sentinel = NonNull::new_unchecked(ptr);
             let mut top = sentinel.as_ref().next;
+            // Ok to deallocate it now since we already retrieved information.
+            // Note that we have exclusive access to the bucket.
             OwnedAlloc::from_raw(sentinel);
 
             while let Some(list) = NonNull::new(top) {
                 let ptr = list.as_ref().atomic.load(Relaxed);
+                // By-passing this null check is ok because we never store null
+                // pointer on the list's AomticPtr.
                 let entry = NonNull::new_unchecked(ptr);
+                // Ok to deallocate it now since we already retrieved
+                // information. Note that we have exclusive
+                // access to the bucket.
                 OwnedAlloc::from_raw(list);
+
                 let next = if entry.as_ref().next as usize & 1 == 0 {
+                    // If the node is *not* marked, this entry was not removed
+                    // and the pair needs to be deallocated. Ok to deallocate
+                    // since we have exclusive reference.
                     OwnedAlloc::from_raw(entry.as_ref().pair);
                     entry.as_ref().next
                 } else {
                     (entry.as_ref().next as usize & !1) as *mut _
                 };
+                // Ok to deallocate it now since we already retrieved
+                // information. Note that we have exclusive
+                // access to the bucket.
                 OwnedAlloc::from_raw(entry);
                 top = next;
             }
@@ -360,14 +448,16 @@ impl<K, V> Entry<K, V> {
     #[inline]
     pub fn root(next: *mut List<K, V>) -> Self {
         Self {
-            pair: ptr::non_zero_null(),
+            // Use this dangling pointer to mark an entry as the "sentinel"
+            // "root" entry.
+            pair: non_zero_null(),
             next,
         }
     }
 
     #[inline]
     pub fn is_root(&self) -> bool {
-        self.pair == ptr::non_zero_null()
+        self.pair == non_zero_null()
     }
 
     #[inline]
@@ -409,10 +499,15 @@ impl<K, V> List<K, V> {
         }
     }
 
+    // Unsafe because `Bucket` needs to store entries correctly.
     unsafe fn load(&self) -> NonNull<Entry<K, V>> {
         NonNull::new_unchecked(self.atomic.load(Acquire))
     }
 
+    // Unsafe because it might need incinerator's pause and there is no
+    // guarantee the passed pause by this thread comes from the same incinerator
+    // from which other threads pass pauses. Also, `Bucket` needs to store
+    // entries correctly.
     unsafe fn load_next(
         &self,
         prev: NonNull<Entry<K, V>>,
@@ -445,6 +540,10 @@ impl<K, V> List<K, V> {
         }
     }
 
+    // Unsafe because it might need incinerator's pause and there is no
+    // guarantee the passed pause by this thread comes from the same incinerator
+    // from which other threads pass pauses. Also, `Bucket` needs to store
+    // entries correctly.
     unsafe fn try_update(
         &self,
         loaded: NonNull<Entry<K, V>>,
@@ -557,12 +656,16 @@ impl<K, V> Iterator for IntoIter<K, V> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let list = self.curr.take()?;
-            let entry_ptr =
-                unsafe { NonNull::new_unchecked(list.atomic.load(Relaxed)) };
-            let entry = unsafe { OwnedAlloc::from_raw(entry_ptr) };
+            // Safe because we only store non-null nodes.
+            let entry_nnptr = unsafe { list.load() };
+            // Safe because we have ownership over the nodes.
+            let entry = unsafe { OwnedAlloc::from_raw(entry_nnptr) };
+            // Safe because we have ownership over the nodes *and* we clear the
+            // bit that may be set.
             self.curr = NonNull::new((entry.next as usize & !1) as *mut _)
                 .map(|nnptr| unsafe { OwnedAlloc::from_raw(nnptr) });
 
+            // Safe because, again, we have ownership over the nodes.
             if entry.next as usize & 1 == 0 {
                 break Some(unsafe { OwnedAlloc::from_raw(entry.pair) });
             }
@@ -603,14 +706,19 @@ impl<'map, K, V> Iterator for IterMut<'map, K, V> {
         loop {
             let list = self.curr.take()?;
             let ptr = list.atomic.load(Relaxed);
+            // Safe because we never store non-null nodes in list's AtomicPtr.
             let entry = unsafe { &mut *ptr };
 
+            // Safe because we clear the only bit we mark. Also, we only store
+            // properly allocated nodes.
             self.curr = unsafe {
                 let cleared = entry.next as usize & !1;
                 (cleared as *mut List<K, V>).as_mut()
             };
 
             if entry.next as usize & 1 == 0 {
+                // Safe because the only case in which entry.pair is dangling is
+                // when entry.next is marked. We checked for the mark.
                 let (key, val) = unsafe { &mut *entry.pair.as_ptr() };
                 break Some((&*key, val));
             }
