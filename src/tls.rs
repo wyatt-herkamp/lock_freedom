@@ -559,8 +559,8 @@ impl<T> Table<T> {
         unsafe { UninitAlloc::<Self>::new().init_in_place(|this| this.init()) }
     }
 
-    #[inline]
     // Unsafe because passing ininitialized memory may cause leaks.
+    #[inline]
     unsafe fn init(&mut self) {
         for node_ref in &mut self.nodes as &mut [_] {
             (node_ref as *mut Node<T>).write(Node {
@@ -570,18 +570,18 @@ impl<T> Table<T> {
         }
     }
 
-    #[inline]
     // Unsafe because calling this function and using the table again later will
     // cause undefined behavior.
+    #[inline]
     unsafe fn free_nodes(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
         for node in &self.nodes as &[Node<_>] {
             Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
         }
     }
 
-    #[inline]
     // Unsafe because storing the wrong pointers in the table will lead to
     // undefined behavior.
+    #[inline]
     unsafe fn clear(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
         for node in &self.nodes as &[Node<_>] {
             Node::free_ptr(node.atomic.swap(null_mut(), Relaxed), tbl_stack);

@@ -26,17 +26,24 @@ pub struct Table<K, V> {
 
 impl<K, V> Table<K, V> {
     pub fn new_alloc() -> OwnedAlloc<Self> {
+        // Safe because it calls a correctly a function which correctly
+        // initializes uninitialized memory with, indeed, uninitialized memory.
         unsafe {
             UninitAlloc::<Self>::new().init_in_place(|val| val.init_in_place())
         }
     }
 
+    // Unsafe because passing ininitialized memory may cause leaks.
+    #[inline]
     pub unsafe fn init_in_place(&mut self) {
         for node in &mut self.nodes as &mut [_] {
             (node as *mut Node<K, V>).write(Node::new())
         }
     }
 
+    // Unsafe because the incinerator needs to be paused and there are no
+    // guarantees the passed pause comes from the incinerator used with the map
+    // by other threads. Map implementation guarantees that.
     pub unsafe fn get<'map, Q>(
         &self,
         key: &Q,
@@ -51,25 +58,33 @@ impl<K, V> Table<K, V> {
         let mut shifted = hash;
 
         loop {
+            // Compute the index from the shifted hash's lower bits.
             let index = shifted as usize & (1 << BITS) - 1;
+            // Load what is in the index.
             let loaded = table.nodes[index].atomic.load(Acquire);
 
+            // Null means we have nothing.
             if loaded.is_null() {
                 break None;
             }
 
+            // Cleared lower bit means this is a bucket.
             if loaded as usize & 1 == 0 {
                 let bucket = &*(loaded as *mut Bucket<K, V>);
 
+                // This bucket only matters if it has the same hash we do.
                 if bucket.hash() != hash {
                     break None;
                 }
 
                 break match bucket.get(key, pause) {
+                    // Success.
                     GetRes::Found(pair) => Some(pair),
 
+                    // Not here.
                     GetRes::NotFound => None,
 
+                    // Delete the bucket completely.
                     GetRes::Delete(pause) => {
                         let res = self.nodes[index].atomic.compare_and_swap(
                             loaded,
@@ -81,6 +96,8 @@ impl<K, V> Table<K, V> {
                             let alloc = OwnedAlloc::from_raw(
                                 NonNull::new_unchecked(loaded as *mut _),
                             );
+                            // Needs to be destroyed by the incinerator as it is
+                            // shared.
                             pause.add_to_incin(Garbage::Bucket(alloc));
                         }
 
@@ -89,11 +106,17 @@ impl<K, V> Table<K, V> {
                 };
             }
 
+            // If none of other cases have been confirmed, the only remaining
+            // case is a branching table. Let's try to look at it.
             table = &*((loaded as usize & !1) as *mut Self);
+            // Shifting the hash so we test some other bits.
             shifted >>= BITS;
         }
     }
 
+    // Unsafe because the incinerator needs to be paused and there are no
+    // guarantees the passed pause comes from the incinerator used with the map
+    // by other threads. Map implementation guarantees that.
     #[inline(never)]
     pub unsafe fn insert<I>(
         &self,
@@ -112,20 +135,26 @@ impl<K, V> Table<K, V> {
         let mut tbl_cache = Cache::<OwnedAlloc<Self>>::new();
 
         loop {
+            // Compute the index from the shifted hash's lower bits.
             let index = shifted as usize & (1 << BITS) - 1;
-
+            // Load what is in the index before trying to insert.
             let loaded = table.nodes[index].atomic.load(Acquire);
 
             if loaded.is_null() {
+                // Let's test the found conditions.
                 inserter.input(None);
                 let pair = match inserter.pointer() {
+                    // The inserter accepted the conditions.
                     Some(nnptr) => nnptr,
+                    // The inserter rejected the conditions.
                     None => break Insertion::Failed(inserter),
                 };
 
+                // Allocation of a bucket containing a single entry. Our pair.
                 let bucket = Bucket::new(hash, pair);
                 let bucket_nnptr = OwnedAlloc::new(bucket).into_raw();
 
+                // We try to put it in the index.
                 let res = table.nodes[index].atomic.compare_and_swap(
                     loaded,
                     bucket_nnptr.as_ptr() as *mut (),
@@ -133,15 +162,22 @@ impl<K, V> Table<K, V> {
                 );
 
                 if res.is_null() {
+                    // Let's not forget to prevent the inserter from
+                    // deallocating the pointer.
                     inserter.take_pointer();
                     break Insertion::Created;
                 }
 
+                // If we failed this try, we have to clean up.
                 let mut bucket = OwnedAlloc::from_raw(bucket_nnptr);
                 bucket.take_first();
             } else if loaded as usize & 1 == 0 {
+                // We keep pointers to Buckets with the lower bit cleared.
                 let bucket = &*(loaded as *mut Bucket<K, V>);
 
+                // If the hash of the bucket is equal to ours, there is no need
+                // for us to branch. Actually, we must not do it. We must insert
+                // in the bucket.
                 if bucket.hash() == hash {
                     match bucket.insert(inserter, pause, incin) {
                         InsertRes::Created => break Insertion::Created,
@@ -154,6 +190,8 @@ impl<K, V> Table<K, V> {
                             break Insertion::Failed(inserter)
                         },
 
+                        // This means we must delete the bucket entirely. And
+                        // try again, obviously.
                         InsertRes::Delete(returned) => {
                             let res = table.nodes[index]
                                 .atomic
@@ -170,24 +208,32 @@ impl<K, V> Table<K, V> {
                         },
                     }
                 } else {
+                    // In the case hashes aren't equal, we will branch!
                     let new_table = tbl_cache.take_or(|| Self::new_alloc());
                     let other_shifted = bucket.hash() >> (depth * BITS);
                     let other_index = other_shifted as usize & (1 << BITS) - 1;
 
+                    // Placing the found bucket into the new table first.
                     new_table.nodes[other_index].atomic.store(loaded, Relaxed);
 
                     let new_table_nnptr = new_table.into_raw();
                     let res = table.nodes[index].atomic.compare_and_swap(
                         loaded,
+                        // Note we mark the lower bit!
                         (new_table_nnptr.as_ptr() as usize | 1) as *mut (),
                         Release,
                     );
 
                     if res == loaded {
+                        // If we succeeded, let's act like we found another
+                        // table in this index.
                         depth += 1;
                         table = &*new_table_nnptr.as_ptr();
                         shifted >>= BITS;
                     } else {
+                        // If we failed -> clean up! And store the allocation in
+                        // some cache, since allocating a table can be really
+                        // expensive due to it's size.
                         let new_table = OwnedAlloc::from_raw(new_table_nnptr);
                         new_table.nodes[other_index]
                             .atomic
@@ -196,6 +242,9 @@ impl<K, V> Table<K, V> {
                     }
                 }
             } else {
+                // If none of other cases have been confirmed, the only
+                // remaining case is a branching table. Let's
+                // try to look at it.
                 depth += 1;
                 table = &*((loaded as usize & !1) as *mut Self);
                 shifted >>= BITS;
@@ -203,6 +252,9 @@ impl<K, V> Table<K, V> {
         }
     }
 
+    // Unsafe because the incinerator needs to be paused and there are no
+    // guarantees the passed pause comes from the incinerator used with the map
+    // by other threads. Map implementation guarantees that.
     pub unsafe fn remove<Q, F>(
         &self,
         key: &Q,
@@ -220,22 +272,29 @@ impl<K, V> Table<K, V> {
         let mut shifted = hash;
 
         loop {
+            // Compute the index from the shifted hash's lower bits.
             let index = shifted as usize & (1 << BITS) - 1;
+            // Let's load to see what is in there.
             let loaded = table.nodes[index].atomic.load(Acquire);
 
+            // Null means we have nothing.
             if loaded.is_null() {
                 break None;
             }
 
+            // Cleared lower bit means this is a bucket.
             if loaded as usize & 1 == 0 {
                 let bucket = &*(loaded as *mut Bucket<K, V>);
 
+                // This bucket only matters if it has the same hash we do.
                 if bucket.hash() != hash {
                     break None;
                 }
 
                 let res = bucket.remove(key, interactive, pause, incin);
 
+                // If this field is true it means the whole bucket must be
+                // removed. Regardless of failure or success.
                 if res.delete {
                     let res = self.nodes[index].atomic.compare_and_swap(
                         loaded,
@@ -253,23 +312,30 @@ impl<K, V> Table<K, V> {
                 break res.pair;
             }
 
+            // If none of other cases have been confirmed, the only remaining
+            // case is a branching table. Let's try to look at it.
             table = &*((loaded as usize & !1) as *mut Self);
+            // Shifting the hash so we test some other bits.
             shifted >>= BITS;
         }
     }
 
+    // Unsafe because calling this function and using the table again later will
+    // cause undefined behavior.
     #[inline]
-    pub fn free_nodes(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>) {
+    pub unsafe fn free_nodes(
+        &mut self,
+        tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>,
+    ) {
         for node in &self.nodes as &[Node<K, V>] {
-            unsafe {
-                Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
-            }
+            Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
         }
     }
 
     #[inline]
     pub fn clear(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>) {
         for node in &self.nodes as &[Node<K, V>] {
+            // This should be safe because we store only proper pointers.
             unsafe {
                 Node::free_ptr(
                     node.atomic.swap(null_mut(), Relaxed),
@@ -290,27 +356,51 @@ impl<K, V> Table<K, V> {
                 removed += 1;
             } else if loaded as usize & 1 == 0 {
                 let bucket_ptr = loaded as *mut Bucket<K, V>;
+                // This is safe because:
+                //
+                // 1. We have exclusive reference to the table.
+                //
+                // 2. We proper allocate pointers stored in the table.
+                //
+                // 3. Bucket pointers are not marked and we checked for it.
                 if unsafe { (*bucket_ptr).is_empty() } {
                     node.atomic.store(null_mut(), Release);
                     removed += 1;
 
+                    // This is safe because we have exclusive reference to the
+                    // map. Also, we remove the bucket from the table so no one
+                    // else will find it.
                     unsafe {
                         OwnedAlloc::from_raw(NonNull::new_unchecked(
                             bucket_ptr,
                         ));
                     }
                 } else {
+                    // Safe because of the same things in the list above. Also,
+                    // we checked for null already, we can by-pass this check.
                     let nnptr = unsafe { NonNull::new_unchecked(bucket_ptr) };
                     last_bucket = Some(nnptr);
                 }
             } else {
                 let table_ptr = (loaded as usize & !1) as *mut Table<K, V>;
 
+                // This is safe because:
+                //
+                // 1. We have exclusive reference to the table.
+                //
+                // 2. We proper allocate pointers stored in the table.
+                //
+                // 3. Table pointers are marked and we checked for it.
+                //
+                // 4. We cleared the marked bit.
                 match unsafe { &mut *table_ptr }.optimize_space() {
                     OptSpaceRes::NoOpt => (),
 
                     OptSpaceRes::Remove => {
                         node.atomic.store(null_mut(), Relaxed);
+                        // This is safe because we have exclusive reference to
+                        // the map. Also, we remove the inner table from the
+                        // outer table so no one else will find it.
                         unsafe {
                             let nnptr = NonNull::new_unchecked(table_ptr);
                             OwnedAlloc::from_raw(nnptr);
@@ -318,12 +408,15 @@ impl<K, V> Table<K, V> {
                         removed += 1;
                     },
 
-                    OptSpaceRes::TableToBucket(nnptr) => {
+                    OptSpaceRes::TableToBucket(bucket) => {
                         unsafe {
+                            // This is safe because we have exclusive reference
+                            // to the map. Also, we remove the inner table from
+                            // the outer table so no one else will find it.
                             let nnptr = NonNull::new_unchecked(table_ptr);
                             OwnedAlloc::from_raw(nnptr);
                         }
-                        node.atomic.store(nnptr.as_ptr() as *mut _, Relaxed)
+                        node.atomic.store(bucket.as_ptr() as *mut _, Relaxed)
                     },
                 }
             }
@@ -360,6 +453,8 @@ struct Node<K, V> {
 }
 
 impl<K, V> Node<K, V> {
+    // Unsafe because it is *pretty easy* to make undefined behavior out of this
+    // because the pointer does not have even a fixed type.
     unsafe fn free_ptr(
         ptr: *mut (),
         tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>,

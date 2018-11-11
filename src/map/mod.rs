@@ -106,7 +106,7 @@ impl<K, V, H> Map<K, V, H> {
         self.top.clear(&mut tables);
 
         while let Some(mut table) = tables.pop() {
-            table.free_nodes(&mut tables);
+            unsafe { table.free_nodes(&mut tables) }
         }
     }
 }
@@ -388,10 +388,10 @@ impl<K, V, H> Drop for Map<K, V, H> {
     fn drop(&mut self) {
         let mut tables = Vec::new();
 
-        self.top.free_nodes(&mut tables);
+        unsafe { self.top.free_nodes(&mut tables) }
 
         while let Some(mut table) = tables.pop() {
-            table.free_nodes(&mut tables);
+            unsafe { table.free_nodes(&mut tables) }
         }
     }
 }
