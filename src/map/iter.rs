@@ -8,7 +8,11 @@ use owned_alloc::OwnedAlloc;
 use std::{fmt, mem::replace, ptr::NonNull};
 
 /// An iterator over key-vaue entries of a [`Map`](super::Map). The `Item` of
-/// this iterator is a [`ReadGuard`].
+/// this iterator is a [`ReadGuard`]. This iterator may be inconsistent, but
+/// still it is memory-safe. It is guaranteed to yield items that have been in
+/// the `Map` since the iterator creation and the current call to
+/// [`next`](Iterator::next). However, it is not guaranteed to yield all items
+/// present in the `Map` at some point if the `Map` is shared between threads.
 #[derive(Debug)]
 pub struct Iter<'map, K, V>
 where
@@ -40,30 +44,56 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
+            // If we have something in the cache return it.
             if let Some(guard) = self.cache.pop() {
                 break Some(guard);
             }
 
+            // If the iterator was empty, let's try to get a new one from
+            // another bucket.
             let (table, index) = self.curr_table?;
             self.curr_table = match table.load_index(index) {
+                // If the pointer is null, simply go to the next element.
                 Some(ptr) if ptr.is_null() => Some((table, index + 1)),
 
-                Some(ptr) if ptr as usize & 1 == 0 => unsafe {
+                // If the pointer is a bucket, collect all entries into the
+                // cache.
+                Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Bucket<K, V>;
                     let mut cache = replace(&mut self.cache, Vec::new());
 
-                    (*ptr).collect(&self.pause, &mut cache);
+                    // This is safe because:
+                    //
+                    // 1. The incinerator is paused.
+                    //
+                    // 2. We checked for null already.
+                    //
+                    // 3. We only store preoperly allocated nodes in the table
+                    // and mark buckets with 0.
+                    unsafe { (*ptr).collect(&self.pause, &mut cache) };
 
                     self.cache = cache;
                     Some((table, index + 1))
                 },
 
+                // If the pointer is a table, put it on the table list.
                 Some(ptr) => {
                     let ptr = (ptr as usize & !1) as *mut Table<K, V>;
+                    // This is safe because:
+                    //
+                    // 1. The incinerator is paused.
+                    //
+                    // 2. We checked for null already.
+                    //
+                    // 3. We only store preoperly allocated nodes in the table
+                    // and mark tables with 1.
+                    //
+                    // 4. We cleared the marked bit.
                     self.tables.push(unsafe { &*ptr });
                     Some((table, index + 1))
                 },
 
+                // If the pointer is null, get the next table.
                 None => self.tables.pop().map(|tbl| (tbl, 0)),
             };
         }
@@ -106,17 +136,30 @@ impl<K, V> Iterator for IntoIter<K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
+            // We try to run the bucket's iterator first.
             if let Some(alloc) = self.entries.next() {
                 let (pair, _) = alloc.move_inner();
                 break Some(pair);
             }
 
+            // If the iterator was empty, let's try to get a new one from
+            // another bucket.
             let (table, index) = self.curr_table.take()?;
             self.curr_table = match table.load_index(index) {
+                // If the pointer is null, simply go to the next element.
                 Some(ptr) if ptr.is_null() => Some((table, index + 1)),
 
+                // If the pointer is a bucket, get the new bucket iterator.
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Bucket<K, V>;
+                    // This is safe because:
+                    //
+                    // 1. We checked for null already.
+                    //
+                    // 2. We only store preoperly allocated nodes in the table
+                    // and mark buckets with 0.
+                    //
+                    // 3. We have ownership over the `Map`.
                     let alloc = unsafe {
                         OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
                     };
@@ -125,8 +168,19 @@ impl<K, V> Iterator for IntoIter<K, V> {
                     Some((table, index + 1))
                 },
 
+                // If the pointer is a table, put it on the table list.
                 Some(ptr) => {
                     let ptr = (ptr as usize & !1) as *mut Table<K, V>;
+                    // This is safe because:
+                    //
+                    // 1. We checked for null already.
+                    //
+                    // 2. We only store preoperly allocated nodes in the table
+                    // and mark tables with 1.
+                    //
+                    // 3. We cleared the marked bit.
+                    //
+                    // 4. We have ownership over the `Map`.
                     let alloc = unsafe {
                         OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
                     };
@@ -134,6 +188,7 @@ impl<K, V> Iterator for IntoIter<K, V> {
                     Some((table, index + 1))
                 },
 
+                // If the pointer is null, get the next table.
                 None => self.tables.pop().map(|tbl| (tbl, 0)),
             };
         }
@@ -198,27 +253,52 @@ impl<'map, K, V> Iterator for IterMut<'map, K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
+            // We try to run the bucket's iterator first.
             if let Some(refr) = self.entries.next() {
                 break Some(refr);
             }
 
+            // If the iterator was empty, let's try to get a new one from
+            // another bucket.
             let (table, index) = self.curr_table.take()?;
             self.curr_table = match table.load_index(index) {
+                // If the pointer is null, simply go to the next element.
                 Some(ptr) if ptr.is_null() => Some((table, index + 1)),
 
+                // If the pointer is a bucket, get the new bucket iterator.
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Bucket<K, V>;
+                    // This is safe because:
+                    //
+                    // 1. We checked for null already.
+                    //
+                    // 2. We only store preoperly allocated nodes in the table
+                    // and mark buckets with 0.
+                    //
+                    // 3. We have exclusive reference over the `Map`.
                     let bucket = unsafe { &mut *ptr };
                     self.entries = bucket.into_iter();
                     Some((table, index + 1))
                 },
 
+                // If the pointer is a table, put it on the table list.
                 Some(ptr) => {
                     let ptr = (ptr as usize & !1) as *mut Table<K, V>;
+                    // This is safe because:
+                    //
+                    // 1. We checked for null already.
+                    //
+                    // 2. We only store preoperly allocated nodes in the table
+                    // and mark tables with 1.
+                    //
+                    // 3. We cleared the marked bit.
+                    //
+                    // 4. We have exclusive reference over the `Map`.
                     self.tables.push(unsafe { &mut *ptr });
                     Some((table, index + 1))
                 },
 
+                // If the pointer is null, get the next table.
                 None => self.tables.pop().map(|tbl| (tbl, 0)),
             };
         }

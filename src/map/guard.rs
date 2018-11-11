@@ -142,8 +142,9 @@ where
 
 /// A removed entry. It can be reinserted at the same [`Map`](super::Map) it was
 /// removed. It can also be inserted on another [`Map`](super::Map), but only if
-/// either the [`Map`](super::Map) is dropped or there are no sensitive reads
-/// running on that [`Map`](super::Map).
+/// either the [`Map`](super::Map) is dropped, there are no sensitive reads
+/// running on that [`Map`](super::Map) or both [`Map`](super::Map)s share the
+/// same incinerator.
 pub struct Removed<K, V> {
     nnptr: NonNull<(K, V)>,
     origin: Weak<Incinerator<Garbage<K, V>>>,
@@ -161,7 +162,10 @@ impl<K, V> Removed<K, V> {
     }
 
     pub(super) fn into_alloc(mut this: Self) -> OwnedAlloc<(K, V)> {
+        // It is safe because we own the allocation.
         let alloc = unsafe { OwnedAlloc::from_raw(this.nnptr) };
+        // There is no other way of dropping the weak and forgetting ourselves.
+        // Rust does not let us move fields of a `Drop` struct.
         unsafe { (&mut this.origin as *mut Weak<_>).drop_in_place() }
         forget(this);
         alloc
@@ -220,6 +224,7 @@ impl<K, V> Removed<K, V> {
         };
 
         if success {
+            // We own the allocation. This must be safe.
             Some(unsafe { this.nnptr.as_mut() })
         } else {
             None
@@ -236,6 +241,7 @@ impl<K, V> Removed<K, V> {
         };
 
         if success {
+            // We own the allocation. This must be safe.
             let (ret, _) =
                 unsafe { OwnedAlloc::from_raw(this.nnptr) }.move_inner();
             forget(this);
@@ -248,6 +254,7 @@ impl<K, V> Removed<K, V> {
 
 impl<K, V> Drop for Removed<K, V> {
     fn drop(&mut self) {
+        // We own the allocation. This must be safe.
         let alloc = unsafe { OwnedAlloc::from_raw(self.nnptr) };
         self.origin
             .upgrade()
@@ -259,6 +266,7 @@ impl<K, V> Deref for Removed<K, V> {
     type Target = (K, V);
 
     fn deref(&self) -> &Self::Target {
+        // We own the allocation. This must be safe.
         unsafe { self.nnptr.as_ref() }
     }
 }

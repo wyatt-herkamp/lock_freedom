@@ -79,18 +79,26 @@ pub enum Preview<V> {
     New(V),
 }
 
+// A trait we use to insert stuff with interactive generation of entries and
+// validation of conditions.
 pub trait Inserter<K, V>: Sized {
+    // Feed the inserter with this found pair, if any.
     fn input(&mut self, found: Option<&(K, V)>);
 
+    // The pointer to memory allocated via `OwnedAlloc`, given the conditions
+    // fed by `input`. Return `None` to reject the conditions.
     fn pointer(&self) -> Option<NonNull<(K, V)>>;
 
+    // Simply access the key. Must not fail.
     fn key(&self) -> &K;
 
+    // Take ownership of the pointer's allocation.
     fn take_pointer(self) {
         forget(self);
     }
 }
 
+// An inserter which inserts a new allocation.
 pub struct InsertNew<F, K, V>
 where
     F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
@@ -107,6 +115,8 @@ where
     pub fn with_key(interactive: F, key: K) -> Self {
         Self {
             interactive,
+            // I know it sounds weird, but we need to initialize just the key.
+            // We handle it in drop through the field `is_val_init`.
             nnptr: unsafe {
                 let alloc = UninitAlloc::new().init_in_place(|(key_mem, _)| {
                     (key_mem as *mut K).write(key)
@@ -126,8 +136,11 @@ where
     }
 
     pub fn into_pair(self) -> (K, Option<V>) {
+        // Doing this is safe by itself. However, callers should be careful if
+        // they used the pointer.
         let ((key, val), _) =
             unsafe { OwnedAlloc::from_raw(self.nnptr) }.move_inner();
+        // Note we check for the case in which val is uninitialized.
         let val = if self.is_val_init {
             Some(val)
         } else {
@@ -144,6 +157,8 @@ where
     F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
 {
     fn drop(&mut self) {
+        // Must be safe. Callers should forget the inserter if they are
+        // using the pointer. Note we check if the value is uninitialized.
         if self.is_val_init {
             unsafe { OwnedAlloc::from_raw(self.nnptr) };
         } else {
@@ -163,6 +178,7 @@ where
     F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
 {
     fn input(&mut self, found: Option<&(K, V)>) {
+        // This is safe. This allocation is owned by us.
         let (key, val) = unsafe { self.nnptr.as_mut() };
 
         let preview = {
@@ -177,6 +193,8 @@ where
         match preview {
             Preview::Discard if self.is_val_init => {
                 self.is_val_init = false;
+                // Safe because we check for the initialization of the value and
+                // we update it too.
                 unsafe { (val as *mut V).drop_in_place() };
             },
 
@@ -185,6 +203,8 @@ where
                     *val = new_val;
                 } else {
                     self.is_val_init = true;
+                    // Safe because we check for the initialization of the value
+                    // and we update it too.
                     unsafe { (val as *mut V).write(new_val) };
                 }
             },
@@ -202,11 +222,13 @@ where
     }
 
     fn key(&self) -> &K {
+        // This is safe. This allocation is owned by us
         let (key, _) = unsafe { self.nnptr.as_ref() };
         key
     }
 }
 
+// An inserter which reinserts a previously removed allocation.
 pub struct Reinsert<F, K, V>
 where
     F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
