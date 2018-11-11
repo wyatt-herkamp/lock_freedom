@@ -8,9 +8,6 @@ We currently have:
 * Queue
 * Stack
 * SPSC, MPSC, SPMC and MPMC channels
-* Doubly Atomic Reference Counter
-* Atomic Box
-* Atomic Optional Box
 
 # Documentation for Latest Commit
 <https://bzim.gitlab.io/lockfree/lockfree/>
