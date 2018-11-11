@@ -3,7 +3,7 @@ extern crate lockfree;
 use lockfree::channel::spsc;
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{mpsc as std_mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -146,18 +146,49 @@ impl Drop for MutexedReceiver {
     }
 }
 
+struct Std;
+
+impl Channel for Std {
+    type Sender = std_mpsc::Sender<u128>;
+    type Receiver = std_mpsc::Receiver<u128>;
+
+    fn create() -> (Self::Sender, Self::Receiver) {
+        std_mpsc::channel()
+    }
+}
+
+impl Sender for std_mpsc::Sender<u128> {
+    fn send(&mut self, val: u128) -> Result<(), spsc::NoRecv<u128>> {
+        (&*self)
+            .send(val)
+            .map_err(|std_mpsc::SendError(message)| spsc::NoRecv { message })
+    }
+}
+
+impl Receiver for std_mpsc::Receiver<u128> {
+    fn recv(&mut self) -> Result<u128, spsc::RecvErr> {
+        self.try_recv().map_err(|err| match err {
+            std_mpsc::TryRecvError::Empty => spsc::NoMessage,
+            std_mpsc::TryRecvError::Disconnected => spsc::NoSender,
+        })
+    }
+}
+
 fn main() {
     const SAMPLES: usize = 5;
     const NITER: u128 = 0x80000;
 
     let mut deque = Duration::default();
+    let mut std = Duration::default();
     let mut lockfree = Duration::default();
 
     for _ in 0 .. SAMPLES {
         deque += measure::<Mutexed>(NITER);
+        std += measure::<Std>(NITER);
         lockfree += measure::<Lockfree>(NITER);
     }
 
     println!("Mutexed VecDeque total time: {:?}", deque);
+    println!("Std's MPSC (as SPSC) total time: {:?}", std);
     println!("Lockfree SPSC total time: {:?}", lockfree);
 }

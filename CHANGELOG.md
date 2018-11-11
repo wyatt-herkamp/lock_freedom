@@ -4,6 +4,7 @@
 * Fixed bad `Send` and `Sync` implementations.
 * Added some iterators.
 * Added some `FromIterator` and `Extend` implementations.
+* Renamed `Queue` and `Stack` iterators to `PopIter`.
 * Deprecated `atomic`, and `Darc`.
 
 # 0.3.2 (release)

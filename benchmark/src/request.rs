@@ -1,16 +1,12 @@
 extern crate lockfree;
 
-use lockfree::{map::Map as LfMap, queue::Queue as LfQueue};
+use lockfree::{channel::spmc, map::Map as LfMap};
 use std::{
-    collections::{HashMap, LinkedList, VecDeque},
+    collections::HashMap,
     fmt::Write,
     mem::uninitialized,
-    sync::{
-        atomic::{AtomicBool, Ordering::*},
-        Arc,
-        Mutex,
-    },
-    thread::{self, JoinHandle},
+    sync::{mpsc as std_mpsc, Arc, Mutex},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -28,159 +24,95 @@ enum Request {
     Delete(Arc<str>),
 }
 
-#[derive(Debug)]
-struct ThreadHandle {
-    joiner: JoinHandle<()>,
-}
-
-#[derive(Debug)]
-struct Server<Q, M>
+fn measure<C, M>(
+    nthread: usize,
+    step1: usize,
+    step2: usize,
+    nest1: usize,
+    nest2: usize,
+    sleep1: u64,
+    sleep2: u64,
+) -> Duration
 where
-    Q: Queue + Send + Sync + 'static,
+    C: Channel,
     M: Map + Send + Sync + 'static,
 {
-    pool: Vec<ThreadHandle>,
-    shared: Arc<Shared<Q, M>>,
-}
+    let mut threads = Vec::with_capacity(nthread);
+    let map = Arc::new(M::default());
+    let (mut sender, receiver) = C::create();
 
-impl<Q, M> Server<Q, M>
-where
-    Q: Queue + Send + Sync + 'static,
-    M: Map + Send + Sync + 'static,
-{
-    fn new(threads: usize) -> Self {
-        if threads == 0 {
-            panic!("Cannot have the server with 0 threads")
-        }
+    for _ in 0 .. nthread {
+        let map = map.clone();
+        let receiver = receiver.clone();
+        let joiner = thread::spawn(move || {
+            while let Some(request) = receiver.wait() {
+                match request {
+                    Request::Put(key, val) => map.put(key, val),
 
-        let mut this = Self {
-            pool: Vec::with_capacity(threads),
-            shared: Arc::new(Shared::default()),
-        };
+                    Request::Get(key) => prevent_opt(map.get(&key)),
 
-        for _ in 0 .. threads {
-            let shared = this.shared.clone();
-            let joiner = thread::spawn(move || {
-                while !shared.die_flag.load(Acquire) {
-                    while let Some(request) = shared.requests.pop() {
-                        match request {
-                            Request::Put(key, val) => shared.map.put(key, val),
-
-                            Request::Get(key) => {
-                                prevent_opt(shared.map.get(&key))
-                            },
-
-                            Request::Delete(key) => {
-                                prevent_opt(shared.map.delete(&key))
-                            },
-                        }
-                    }
+                    Request::Delete(key) => prevent_opt(map.delete(&key)),
                 }
-            });
-
-            this.pool.push(ThreadHandle { joiner });
-        }
-
-        this
-    }
-
-    fn send_request(&self, request: Request) {
-        self.shared.requests.push(request)
-    }
-
-    fn send_default_requests(
-        &self,
-        step1: usize,
-        step2: usize,
-        nest1: usize,
-        nest2: usize,
-        sleep1: u64,
-        sleep2: u64,
-    ) {
-        let mut pairs = Vec::with_capacity(step1);
-        for i in 0 .. step1 {
-            let mut key = String::with_capacity(step1 * nest1 * 2 + 1);
-            for j in 0 .. nest1 {
-                write!(key, "{}{}", i * j, (i + j) as u8 as char).unwrap();
             }
-            let mut val = format!("{}", i);
-            pairs.push((key, val));
-        }
+        });
 
-        while let Some((key, val)) = pairs.pop() {
-            let key = Arc::<str>::from(key);
-            self.send_request(Request::Put(key.clone(), val.into()));
-            self.send_request(Request::Get(key.clone()));
-            self.send_request(Request::Get(key.clone()));
-            self.send_request(Request::Get(key.clone()));
-            self.send_request(Request::Delete(key.clone()));
-            self.send_request(Request::Delete(key));
-        }
-
-        thread::sleep(Duration::from_millis(sleep1));
-
-        for i in 0 .. step2 {
-            let mut key = String::with_capacity(nest2 * step2 * 2 + 1);
-            for j in 0 .. nest2 {
-                write!(key, "{}{}", (i + j) as u8 as char, (i + j * 2))
-                    .unwrap();
-            }
-            let mut val = format!("{}", i);
-            pairs.push((key, val));
-        }
-
-        while let Some((key, val)) = pairs.pop() {
-            let key = Arc::<str>::from(key);
-            self.send_request(Request::Put(key.clone(), val.into()));
-            self.send_request(Request::Get(key.clone()));
-            self.send_request(Request::Get(key.clone()));
-            self.send_request(Request::Delete(key.clone()));
-            self.send_request(Request::Delete(key));
-        }
-
-        thread::sleep(Duration::from_millis(sleep2));
-        self.send_request(Request::Delete(Arc::from("not in the map")));
+        threads.push(joiner);
     }
 
-    fn await_threads(&mut self) {
-        self.shared.die_flag.store(true, Release);
-        while let Some(handle) = self.pool.pop() {
-            handle.joiner.join().expect("thread failed");
+    let then = Instant::now();
+
+    let mut pairs = Vec::with_capacity(step1);
+    for i in 0 .. step1 {
+        let mut key = String::with_capacity(step1 * nest1 * 2 + 1);
+        for j in 0 .. nest1 {
+            write!(key, "{}{}", i * j, (i + j) as u8 as char).unwrap();
         }
+        let mut val = format!("{}", i);
+        pairs.push((key, val));
     }
 
-    fn measure(
-        threads: usize,
-        step1: usize,
-        step2: usize,
-        nest1: usize,
-        nest2: usize,
-        sleep1: u64,
-        sleep2: u64,
-    ) -> Duration {
-        let mut this = Self::new(threads);
-        let then = Instant::now();
-        this.send_default_requests(step1, step2, nest1, nest2, sleep1, sleep2);
-        this.await_threads();
-        then.elapsed()
+    while let Some((key, val)) = pairs.pop() {
+        let key = Arc::<str>::from(key);
+        sender.send(Request::Put(key.clone(), val.into())).unwrap();
+        sender.send(Request::Get(key.clone())).unwrap();
+        sender.send(Request::Get(key.clone())).unwrap();
+        sender.send(Request::Get(key.clone())).unwrap();
+        sender.send(Request::Delete(key.clone())).unwrap();
+        sender.send(Request::Delete(key)).unwrap();
     }
-}
 
-impl<Q, M> Drop for Server<Q, M>
-where
-    Q: Queue + Send + Sync + 'static,
-    M: Map + Send + Sync + 'static,
-{
-    fn drop(&mut self) {
-        self.await_threads()
+    thread::sleep(Duration::from_millis(sleep1));
+
+    for i in 0 .. step2 {
+        let mut key = String::with_capacity(nest2 * step2 * 2 + 1);
+        for j in 0 .. nest2 {
+            write!(key, "{}{}", (i + j) as u8 as char, (i + j * 2)).unwrap();
+        }
+        let mut val = format!("{}", i);
+        pairs.push((key, val));
     }
-}
 
-#[derive(Default, Debug)]
-struct Shared<Q, M> {
-    requests: Q,
-    map: M,
-    die_flag: AtomicBool,
+    while let Some((key, val)) = pairs.pop() {
+        let key = Arc::<str>::from(key);
+        sender.send(Request::Put(key.clone(), val.into())).unwrap();
+        sender.send(Request::Get(key.clone())).unwrap();
+        sender.send(Request::Get(key.clone())).unwrap();
+        sender.send(Request::Delete(key.clone())).unwrap();
+        sender.send(Request::Delete(key)).unwrap();
+    }
+
+    thread::sleep(Duration::from_millis(sleep2));
+    sender
+        .send(Request::Delete(Arc::from("not in the map")))
+        .unwrap();
+
+    drop(sender);
+
+    for thread in threads {
+        thread.join().unwrap();
+    }
+
+    then.elapsed()
 }
 
 trait Map: Default {
@@ -217,71 +149,113 @@ impl Map for Mutex<HashMap<Arc<str>, Arc<str>>> {
     }
 }
 
-trait Queue: Default {
-    fn push(&self, request: Request);
-    fn pop(&self) -> Option<Request>;
+trait Channel {
+    type Sender: Sender + Send + 'static;
+    type Receiver: Clone + Receiver + Send + 'static;
+
+    fn create() -> (Self::Sender, Self::Receiver);
 }
 
-impl Queue for LfQueue<Request> {
-    fn push(&self, request: Request) {
-        self.push(request)
-    }
+trait Sender {
+    fn send(&mut self, val: Request) -> Result<(), spmc::NoRecv<Request>>;
+}
 
-    fn pop(&self) -> Option<Request> {
-        self.pop()
+trait Receiver {
+    fn recv(&self) -> Result<Request, spmc::RecvErr>;
+
+    // not really lock-free
+    fn wait(&self) -> Option<Request> {
+        loop {
+            match self.recv() {
+                Ok(req) => break Some(req),
+                Err(spmc::NoSender) => break None,
+                Err(spmc::NoMessage) => {
+                    thread::sleep(Duration::from_millis(32))
+                },
+            }
+        }
     }
 }
 
-impl Queue for Mutex<VecDeque<Request>> {
-    fn push(&self, request: Request) {
-        self.lock().unwrap().push_back(request)
-    }
+struct Lockfree;
 
-    fn pop(&self) -> Option<Request> {
-        self.lock().unwrap().pop_front()
+impl Channel for Lockfree {
+    type Sender = spmc::Sender<Request>;
+    type Receiver = spmc::Receiver<Request>;
+
+    fn create() -> (Self::Sender, Self::Receiver) {
+        spmc::create()
     }
 }
 
-impl Queue for Mutex<LinkedList<Request>> {
-    fn push(&self, request: Request) {
-        self.lock().unwrap().push_back(request)
+impl Sender for spmc::Sender<Request> {
+    fn send(&mut self, val: Request) -> Result<(), spmc::NoRecv<Request>> {
+        self.send(val)
+    }
+}
+
+impl Receiver for spmc::Receiver<Request> {
+    fn recv(&self) -> Result<Request, spmc::RecvErr> {
+        self.recv()
+    }
+}
+
+struct Std;
+
+impl Channel for Std {
+    type Sender = std_mpsc::Sender<Request>;
+    type Receiver = Arc<Mutex<std_mpsc::Receiver<Request>>>;
+
+    fn create() -> (Self::Sender, Self::Receiver) {
+        let (sender, receiver) = std_mpsc::channel();
+        (sender, Arc::new(Mutex::new(receiver)))
+    }
+}
+
+impl Sender for std_mpsc::Sender<Request> {
+    fn send(&mut self, val: Request) -> Result<(), spmc::NoRecv<Request>> {
+        (&*self)
+            .send(val)
+            .map_err(|std_mpsc::SendError(message)| spmc::NoRecv { message })
+    }
+}
+
+impl Receiver for Arc<Mutex<std_mpsc::Receiver<Request>>> {
+    fn recv(&self) -> Result<Request, spmc::RecvErr> {
+        self.lock().unwrap().try_recv().map_err(|err| match err {
+            std_mpsc::TryRecvError::Empty => spmc::NoMessage,
+            std_mpsc::TryRecvError::Disconnected => spmc::NoSender,
+        })
     }
 
-    fn pop(&self) -> Option<Request> {
-        self.lock().unwrap().pop_front()
+    fn wait(&self) -> Option<Request> {
+        self.lock().unwrap().recv().ok()
     }
 }
 
 fn main() {
     println!("A program simulating a concurrent server.");
 
-    const STEP1: usize = 0x20000;
-    const STEP2: usize = 0x4000;
-    const NEST1: usize = 5;
-    const NEST2: usize = 10;
+    const STEP1: usize = 0x10000;
+    const STEP2: usize = 0x8000;
+    const NEST1: usize = 10;
+    const NEST2: usize = 20;
     const SLEEP1: u64 = 62;
     const SLEEP2: u64 = 2;
 
     for &nthread in &[2, 4, 8, 16] {
         println!();
 
-        let mut deque = Server::<Mutex<VecDeque<_>>, Mutex<_>>::measure(
+        let std = measure::<Std, Mutex<_>>(
             nthread, STEP1, STEP2, NEST1, NEST2, SLEEP1, SLEEP2,
         );
-        let mut linked = Server::<Mutex<LinkedList<_>>, Mutex<_>>::measure(
-            nthread, STEP1, STEP2, NEST1, NEST2, SLEEP1, SLEEP2,
-        );
-        let mut lockfree = Server::<LfQueue<_>, LfMap<_, _>>::measure(
+        let lockfree = measure::<Lockfree, LfMap<_, _>>(
             nthread, STEP1, STEP2, NEST1, NEST2, SLEEP1, SLEEP2,
         );
 
         println!(
-            "Mutexed HashMap and VecDeque with {} threads total time: {:?}",
-            nthread, deque
-        );
-        println!(
-            "Mutexed HashMap and LinkedList with {} threads total time: {:?}",
-            nthread, linked
+            "Mutexed HashMap and Std's MPSC with {} threads total time: {:?}",
+            nthread, std
         );
         println!(
             "Lockfree structures with {} threads total time: {:?}",
