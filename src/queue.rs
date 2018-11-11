@@ -149,12 +149,12 @@ impl<T> Default for Queue<T> {
 
 impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
-        let mut node_ptr = self.front.load(Relaxed);
-        while let Some(nnptr) = NonNull::new(node_ptr) {
+        let front = self.front.get_mut();
+        while let Some(nnptr) = NonNull::new(*front) {
             // This is safe because we only store pointers allocated via
             // `OwnedAlloc`. Also, we have exclusive access to this pointer.
-            let node = unsafe { OwnedAlloc::from_raw(nnptr) };
-            node_ptr = node.next.load(Relaxed);
+            let mut node = unsafe { OwnedAlloc::from_raw(nnptr) };
+            *front = *node.next.get_mut();
         }
     }
 }
@@ -167,6 +167,45 @@ impl<T> FromIterator<T> for Queue<T> {
         let this = Self::new();
         this.extend(iterable);
         this
+    }
+}
+
+impl<T> Iterator for Queue<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        let front = self.front.get_mut();
+        // Safe to by-pass it because the queue always have at least one node.
+        let mut front_node = unsafe { NonNull::new_unchecked(*front) };
+        loop {
+            let (item, next) = unsafe {
+                let node_ref = front_node.as_mut();
+                (node_ref.item.take(), *node_ref.next.get_mut())
+            };
+
+            match (item, NonNull::new(next)) {
+                (Some(item), maybe_next) => {
+                    if let Some(next) = maybe_next {
+                        // Ok to drop it like this because we have exclusive
+                        // reference to the queue.
+                        unsafe { OwnedAlloc::from_raw(front_node) };
+                        *front = next.as_ptr();
+                    }
+
+                    break Some(item);
+                },
+
+                (None, None) => break None,
+
+                (None, Some(next)) => {
+                    // Ok to drop it like this because we have exclusive
+                    // reference to the queue.
+                    unsafe { OwnedAlloc::from_raw(front_node) };
+                    *front = next.as_ptr();
+                    front_node = next;
+                },
+            }
+        }
     }
 }
 
@@ -266,6 +305,18 @@ mod test {
         assert_eq!(queue.pop(), Some(3));
         assert_eq!(queue.pop(), Some(5));
         assert_eq!(queue.pop(), Some(6));
+    }
+
+    #[test]
+    fn queue_iter() {
+        let mut queue = Queue::new();
+        queue.push(3);
+        queue.push(5);
+        queue.push(6);
+        assert_eq!(queue.next(), Some(3));
+        assert_eq!(queue.next(), Some(5));
+        assert_eq!(queue.next(), Some(6));
+        assert_eq!(queue.next(), None);
     }
 
     #[test]

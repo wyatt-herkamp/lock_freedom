@@ -1,9 +1,9 @@
 # 0.4.0 (preview)
 * Added SPSC, MPSC, SPMC and MPMC channels.
-* Added methods `get_mut` and `into_inner` for atomics.
 * Added `removable`
 * Fixed bad `Send` and `Sync` implementations.
 * Added some iterators.
+* Added methods `get_mut` and `into_inner` for atomics.
 * Deprecated `AtomicOptionBox`, `AtomicBox`, and `Darc`.
 
 # 0.3.2 (release)

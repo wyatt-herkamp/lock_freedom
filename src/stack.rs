@@ -91,7 +91,7 @@ impl<T> Stack<T> {
                 // Done with an element. Let's first get the "val" to be
                 // returned.
                 //
-                // This derreferal and read is safe since we drop the
+                // This derreferal and read are safe since we drop the
                 // node via incinerator and we never drop the inner value
                 // when dropping the node in the incinerator.
                 let val =
@@ -123,17 +123,25 @@ impl<T> Default for Stack<T> {
 
 impl<T> Drop for Stack<T> {
     fn drop(&mut self) {
-        let mut node_ptr = self.top.load(Relaxed);
+        while let Some(_) = self.next() {}
+    }
+}
 
-        while let Some(nnptr) = NonNull::new(node_ptr) {
+impl<T> Iterator for Stack<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        let top = self.top.get_mut();
+
+        NonNull::new(*top).map(|nnptr| {
             // This is safe because we only store pointers allocated via
             // `OwnedAlloc`. Also, we have exclusive access to this pointer.
             let mut node = unsafe { OwnedAlloc::from_raw(nnptr) };
-            // Safe because when we move a value out we also remove the node
-            // from the list.
-            unsafe { ManuallyDrop::drop(&mut node.val) }
-            node_ptr = node.next;
-        }
+            *top = node.next;
+            // This read is we never drop the inner value when dropping the
+            // node.
+            unsafe { (&mut *node.val as *mut T).read() }
+        })
     }
 }
 
@@ -235,6 +243,7 @@ mod test {
     #[test]
     fn order() {
         let stack = Stack::new();
+        stack.push(4);
         stack.push(3);
         stack.push(5);
         stack.push(6);
