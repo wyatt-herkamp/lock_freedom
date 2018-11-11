@@ -22,6 +22,7 @@ use std::{
     borrow::Borrow,
     fmt,
     hash::{BuildHasher, Hash, Hasher},
+    iter::FromIterator,
     mem,
     sync::Arc,
 };
@@ -360,6 +361,17 @@ where
         }
     }
 
+    /// Acts just like [`Extend::extend`] but does not require mutability.
+    pub fn extend<I>(&self, iterable: I)
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Hash + Ord,
+    {
+        for (key, val) in iterable {
+            self.insert(key, val);
+        }
+    }
+
     fn hash_of<Q>(&self, key: &Q) -> u64
     where
         Q: ?Sized + Hash,
@@ -443,6 +455,34 @@ impl<K, V, H> IntoIterator for Map<K, V, H> {
             mem::forget(self);
             IntoIter::new(OwnedAlloc::from_raw(raw))
         }
+    }
+}
+
+impl<K, V, H> Extend<(K, V)> for Map<K, V, H>
+where
+    H: BuildHasher,
+    K: Hash + Ord,
+{
+    fn extend<I>(&mut self, iterable: I)
+    where
+        I: IntoIterator<Item = (K, V)>,
+    {
+        (&*self).extend(iterable)
+    }
+}
+
+impl<K, V, H> FromIterator<(K, V)> for Map<K, V, H>
+where
+    H: BuildHasher + Default,
+    K: Hash + Ord,
+{
+    fn from_iter<I>(iterable: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let this = Self::default();
+        this.extend(iterable);
+        this
     }
 }
 

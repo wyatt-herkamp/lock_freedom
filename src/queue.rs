@@ -98,7 +98,8 @@ impl<T> Queue<T> {
         }
     }
 
-    /// Extends the queue from a given iterable.
+    /// Pushes elements from the given iterable. Acts just like
+    /// [`Extend::extend`] but does not require mutability.
     pub fn extend<I>(&self, iterable: I)
     where
         I: IntoIterator<Item = T>,
@@ -167,6 +168,15 @@ impl<T> FromIterator<T> for Queue<T> {
         let this = Self::new();
         this.extend(iterable);
         this
+    }
+}
+
+impl<T> Extend<T> for Queue<T> {
+    fn extend<I>(&mut self, iterable: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        (&*self).extend(iterable)
     }
 }
 

@@ -14,6 +14,7 @@ use std::{
     cmp::Ordering,
     fmt,
     hash::{BuildHasher, Hash},
+    iter::FromIterator,
     ops::Deref,
 };
 
@@ -248,6 +249,18 @@ where
             .remove_with(elem, |(elem, _)| interactive(elem))
             .map(Removed::new)
     }
+
+    /// Acts just like [`Extend::extend`] but does not require mutability.
+    #[allow(unused_must_use)]
+    pub fn extend<I>(&self, iterable: I)
+    where
+        I: IntoIterator<Item = T>,
+        T: Hash + Ord,
+    {
+        for val in iterable {
+            self.insert(val);
+        }
+    }
 }
 
 impl<T, H> Default for Set<T, H>
@@ -291,6 +304,34 @@ impl<'set, T, H> IntoIterator for &'set Set<T, H> {
         Iter {
             inner: self.inner.iter(),
         }
+    }
+}
+
+impl<T, H> FromIterator<T> for Set<T, H>
+where
+    H: BuildHasher + Default,
+    T: Hash + Ord,
+{
+    fn from_iter<I>(iterable: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let this = Self::default();
+        this.extend(iterable);
+        this
+    }
+}
+
+impl<T, H> Extend<T> for Set<T, H>
+where
+    H: BuildHasher,
+    T: Hash + Ord,
+{
+    fn extend<I>(&mut self, iterable: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        (&*self).extend(iterable)
     }
 }
 

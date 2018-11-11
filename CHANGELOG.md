@@ -3,8 +3,8 @@
 * Added `removable`
 * Fixed bad `Send` and `Sync` implementations.
 * Added some iterators.
-* Added methods `get_mut` and `into_inner` for atomics.
-* Deprecated `AtomicOptionBox`, `AtomicBox`, and `Darc`.
+* Added some `FromIterator` and `Extend` implementations.
+* Deprecated `atomic`, and `Darc`.
 
 # 0.3.2 (release)
 * Fixed a queue bug.

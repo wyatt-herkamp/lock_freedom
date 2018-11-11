@@ -104,7 +104,8 @@ impl<T> Stack<T> {
         }
     }
 
-    /// Extends the stack from a given iterable. All values are pushed.
+    /// Pushes elements from the given iterable. Acts just like
+    /// [`Extend::extend`] but does not require mutability.
     pub fn extend<I>(&self, iterable: I)
     where
         I: IntoIterator<Item = T>,
@@ -142,6 +143,15 @@ impl<T> Iterator for Stack<T> {
             // node.
             unsafe { (&mut *node.val as *mut T).read() }
         })
+    }
+}
+
+impl<T> Extend<T> for Stack<T> {
+    fn extend<I>(&mut self, iterable: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        (&*self).extend(iterable)
     }
 }
 
