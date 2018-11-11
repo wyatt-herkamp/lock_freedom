@@ -125,7 +125,7 @@ impl<T> ThreadLocal<T> {
                     // 2. We only delete stuff when we are behind mutable
                     // references.
                     let entry = unsafe { &*(in_place as *mut Entry<T>) };
-                    break if entry.id == id {
+                    break if id_eq(entry.id, id) {
                         // We only have an entry for the thread if the ids
                         // match.
                         Some(reader(&entry.val))
@@ -216,7 +216,7 @@ impl<T> ThreadLocal<T> {
                     // references.
                     let entry = unsafe { &*(in_place as *mut Entry<T>) };
                     // If ids match, this is the entry for our thread.
-                    if entry.id == id {
+                    if id_eq(entry.id, id) {
                         // There is no possible way we have initialized the
                         // `LazyInit`. It will only happen if we found an empty
                         // node while searching, and the only way of putting a
@@ -655,6 +655,10 @@ where
         let align = mem::align_of::<IdMaker>();
         exec(word >> align.trailing_zeros())
     })
+}
+
+fn id_eq(a: usize, b: usize) -> bool {
+    a as *const IdMaker == b as *const IdMaker
 }
 
 #[cfg(test)]
