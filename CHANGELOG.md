@@ -1,4 +1,7 @@
-# 0.4.0 (preview)
+# 0.4.1 (release)
+* Improved comparison of TLS's id.
+
+# 0.4.0 (release)
 * Added SPSC, MPSC, SPMC and MPMC channels.
 * Added `removable`
 * Fixed bad `Send` and `Sync` implementations.
