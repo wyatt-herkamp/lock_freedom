@@ -19,10 +19,6 @@ git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 members = [".", "fuzzsuite"]
 
 [[bin]]
-name = "darc"
-path = "fuzz_targets/darc.rs"
-
-[[bin]]
 name = "queue"
 path = "fuzz_targets/queue.rs"
 
@@ -33,14 +29,6 @@ path = "fuzz_targets/stack.rs"
 [[bin]]
 name = "map"
 path = "fuzz_targets/map.rs"
-
-[[bin]]
-name = "atomic_box"
-path = "fuzz_targets/atomic_box.rs"
-
-[[bin]]
-name = "atomic_opt"
-path = "fuzz_targets/atomic_opt.rs"
 
 [[bin]]
 name = "mpsc"

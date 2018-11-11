@@ -1,6 +1,7 @@
 use std::{
     cell::Cell,
     fmt,
+    marker::PhantomData,
     sync::atomic::{AtomicUsize, Ordering::*},
 };
 use tls::ThreadLocal;
@@ -92,7 +93,10 @@ impl<T> Incinerator<T> {
             // `Pause::drop`. Nobody will be able to drop stuff while this is
             // not 0.
             if self.counter.compare_and_swap(init, init + 1, Release) == init {
-                break Pause { incin: self };
+                break Pause {
+                    incin: self,
+                    _unsync: PhantomData,
+                };
             }
         }
     }
@@ -168,6 +172,7 @@ where
     T: 'incin,
 {
     incin: &'incin Incinerator<T>,
+    _unsync: PhantomData<*mut ()>,
 }
 
 impl<'incin, T> Pause<'incin, T> {
@@ -219,6 +224,8 @@ impl<'incin, T> Clone for Pause<'incin, T> {
         self.incin.pause()
     }
 }
+
+unsafe impl<'incin, T> Send for Pause<'incin, T> where T: Send {}
 
 struct GarbageList<T> {
     list: Cell<Vec<T>>,

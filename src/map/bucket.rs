@@ -33,7 +33,7 @@ impl<K, V> Bucket<K, V> {
             next: null_mut(),
         };
 
-        // Then we create a list to keep the entry.
+        // Then we create an intermediate node to keep the entry.
         let list = List::new(entry);
         let list_ptr = OwnedAlloc::new(list).into_raw().as_ptr();
 
@@ -216,6 +216,7 @@ impl<K, V> Bucket<K, V> {
     {
         loop {
             match self.find(key, pause) {
+                // The table must delete the whole bucket.
                 FindRes::Delete => {
                     break RemoveRes {
                         pair: None,
@@ -223,7 +224,9 @@ impl<K, V> Bucket<K, V> {
                     }
                 },
 
+                // We found an entry whose key matches the input.
                 FindRes::Exact { curr_list, curr } => {
+                    // Let's test if the met conditions are ok!
                     if !interactive(curr.as_ref().pair.as_ref()) {
                         break RemoveRes {
                             pair: None,
@@ -231,6 +234,8 @@ impl<K, V> Bucket<K, V> {
                         };
                     }
 
+                    // Let's first remove it logically. Let's create an entry
+                    // with same data... but marked!
                     let pair_ptr = curr.as_ref().pair;
                     let new_entry = Entry {
                         pair: pair_ptr,
@@ -238,15 +243,18 @@ impl<K, V> Bucket<K, V> {
                     };
                     let new_ptr = OwnedAlloc::new(new_entry).into_raw();
 
+                    // Then we try to update where it was before.
                     if curr_list.try_update(curr, new_ptr, pause) {
                         let pair = OwnedAlloc::from_raw(pair_ptr);
                         break RemoveRes {
                             pair: Some(Removed::new(pair, incin)),
+                            // Just some clean up.
                             delete: self.try_clear_first(pause),
                         };
                     }
                 },
 
+                // This means the entry was not found.
                 FindRes::After { .. } => {
                     break RemoveRes {
                         pair: None,
@@ -260,17 +268,16 @@ impl<K, V> Bucket<K, V> {
     // Unsafe because it might need incinerator's pause and there is no
     // guarantee the passed pause by this thread comes from the same incinerator
     // from which other threads pass pauses.
-    pub unsafe fn collect<'map, F, T>(
+    pub unsafe fn collect<'map>(
         &'map self,
-        pause: &Pause<Garbage<K, V>>,
-        out: &mut Vec<T>,
-        mut map: F,
-    ) where
-        F: FnMut(&'map (K, V)) -> T,
-    {
+        pause: &Pause<'map, Garbage<K, V>>,
+        out: &mut Vec<ReadGuard<'map, K, V>>,
+    ) {
+        // The length to which we will truncate the vector at each retry.
         let trunc = out.len();
 
         'retry: loop {
+            // Clean-up previous try.
             out.truncate(trunc);
             let mut prev_list = &self.list;
             let mut prev = prev_list.load();
@@ -281,7 +288,10 @@ impl<K, V> Bucket<K, V> {
                     LoadNextRes::End => break 'retry,
                     LoadNextRes::Cleared { new_prev } => prev = new_prev,
                     LoadNextRes::Ok { list, entry } => {
-                        out.push(map(&*entry.as_ref().pair.as_ptr()));
+                        out.push(ReadGuard::new(
+                            &*entry.as_ref().pair.as_ptr(),
+                            pause.clone(),
+                        ));
                         prev_list = &*list.as_ptr();
                         prev = entry;
                     },
@@ -290,6 +300,10 @@ impl<K, V> Bucket<K, V> {
         }
     }
 
+    // Returns whether the bucket is empty. Unsafe because it might need
+    // incinerator's pause and there is no guarantee the passed pause by
+    // this thread comes from the same incinerator from which other threads
+    // pass pauses.
     unsafe fn try_clear_first(&self, pause: &Pause<Garbage<K, V>>) -> bool {
         let mut prev = self.list.load();
         loop {
@@ -323,11 +337,15 @@ impl<K, V> Bucket<K, V> {
                     LoadNextRes::Failed => continue 'retry,
 
                     LoadNextRes::End => {
+                        // If the previous is the root and we reached the end we
+                        // should delete the whole bucket.
                         break 'retry if prev.as_ref().is_root() {
                             FindRes::Delete
                         } else {
+                            // Otherwise it just means the key would fit better
+                            // after the previous.
                             FindRes::After { prev_list, prev }
-                        }
+                        };
                     },
 
                     LoadNextRes::Cleared { new_prev } => prev = new_prev,
@@ -339,6 +357,7 @@ impl<K, V> Bucket<K, V> {
                         };
 
                         match comparison {
+                            // The exact key.
                             Ordering::Equal => {
                                 break 'retry FindRes::Exact {
                                     curr_list: &*list.as_ptr(),
@@ -346,10 +365,12 @@ impl<K, V> Bucket<K, V> {
                                 }
                             },
 
+                            // The previous is the point of insertion.
                             Ordering::Less => {
                                 break 'retry FindRes::After { prev_list, prev }
                             },
 
+                            // Let's keep looking.
                             Ordering::Greater => {
                                 prev_list = &*list.as_ptr();
                                 prev = entry;
@@ -504,31 +525,40 @@ impl<K, V> List<K, V> {
         NonNull::new_unchecked(self.atomic.load(Acquire))
     }
 
-    // Unsafe because it might need incinerator's pause and there is no
-    // guarantee the passed pause by this thread comes from the same incinerator
-    // from which other threads pass pauses. Also, `Bucket` needs to store
-    // entries correctly.
+    // Loads the next and do clean-up if necessary. Unsafe because it might need
+    // incinerator's pause and there is no guarantee the passed pause by
+    // this thread comes from the same incinerator from which other threads
+    // pass pauses. Also, `Bucket` needs to store entries correctly.
     unsafe fn load_next(
         &self,
         prev: NonNull<Entry<K, V>>,
         pause: &Pause<Garbage<K, V>>,
     ) -> LoadNextRes<K, V> {
+        // Loading the previous node's next field (e.g. the "current" node).
         let list = match NonNull::new(prev.as_ref().next) {
             Some(nnptr) => nnptr,
+            // The next is null; there is no next.
             None => return LoadNextRes::End,
         };
 
         let entry = list.as_ref().load();
         let next = entry.as_ref().next as usize;
 
+        // If the next field was marked, this node was logically removed. Time
+        // to remove it physically.
         if next & 1 == 1 {
+            // Make a new previous node. A node with the same pair as the found
+            // previous, but with next field pointing to current node's the
+            // intermediate list.
             let new_entry = Entry {
                 pair: prev.as_ref().pair,
                 next: (next & !1) as *mut _,
             };
             let new_ptr = OwnedAlloc::new(new_entry).into_raw();
 
+            // Then we try to update the previous node.
             if self.try_update(prev, new_ptr, pause) {
+                // This is shared data. Must be deleted through the incinerator.
                 pause.add_to_incin(Garbage::List(OwnedAlloc::from_raw(list)));
                 pause.add_to_incin(Garbage::Entry(OwnedAlloc::from_raw(entry)));
                 LoadNextRes::Cleared { new_prev: new_ptr }
@@ -540,10 +570,11 @@ impl<K, V> List<K, V> {
         }
     }
 
-    // Unsafe because it might need incinerator's pause and there is no
-    // guarantee the passed pause by this thread comes from the same incinerator
-    // from which other threads pass pauses. Also, `Bucket` needs to store
-    // entries correctly.
+    // Tries to update this intermediate node and does clean-up of the passed
+    // pointers. Unsafe because it might need incinerator's pause and there is
+    // no guarantee the passed pause by this thread comes from the same
+    // incinerator from which other threads pass pauses. Also, `Bucket`
+    // needs to store entries correctly.
     unsafe fn try_update(
         &self,
         loaded: NonNull<Entry<K, V>>,
@@ -557,10 +588,12 @@ impl<K, V> List<K, V> {
         );
 
         if res == loaded.as_ptr() {
+            // Clean-up of the old pointer.
             let alloc = OwnedAlloc::from_raw(loaded);
             pause.add_to_incin(Garbage::Entry(alloc));
             true
         } else {
+            // Clean-up of the tried new pointer.
             OwnedAlloc::from_raw(new);
             false
         }
