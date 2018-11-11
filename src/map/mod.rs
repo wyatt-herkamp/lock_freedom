@@ -106,6 +106,8 @@ impl<K, V, H> Map<K, V, H> {
         self.top.clear(&mut tables);
 
         while let Some(mut table) = tables.pop() {
+            // This is safe because we won't be using these tables anymore. We
+            // won't load its nodes' contents.
             unsafe { table.free_nodes(&mut tables) }
         }
     }
@@ -154,6 +156,7 @@ where
     {
         let hash = self.hash_of(key);
         let pause = self.incin.inner.pause();
+        // Safe because we paused properly.
         unsafe { self.top.get(key, hash, pause) }
     }
 
@@ -165,6 +168,7 @@ where
     {
         let pause = self.incin.inner.pause();
         let hash = self.hash_of(&key);
+        // Safe because we paused properly.
         let insertion = unsafe {
             self.top.insert(
                 InsertNew::with_pair(|_, _, _| Preview::Keep, (key, val)),
@@ -204,6 +208,7 @@ where
     {
         let hash = self.hash_of(&key);
         let pause = self.incin.inner.pause();
+        // Safe because we paused properly.
         let insertion = unsafe {
             self.top.insert(
                 InsertNew::with_key(interactive, key),
@@ -245,6 +250,7 @@ where
         let hash = self.hash_of(removed.key());
 
         let pause = self.incin.inner.pause();
+        // Safe because we paused properly.
         let insertion = unsafe {
             self.top.insert(
                 Reinsert::new(|_, _| true, removed),
@@ -296,6 +302,7 @@ where
         let hash = self.hash_of(removed.key());
 
         let pause = self.incin.inner.pause();
+        // Safe because we paused properly.
         let insertion = unsafe {
             self.top.insert(
                 Reinsert::new(interactive, removed),
@@ -346,6 +353,7 @@ where
     {
         let hash = self.hash_of(key);
         let pause = self.incin.inner.pause();
+        // Safe because we paused properly.
         unsafe {
             self.top
                 .remove(key, interactive, hash, &pause, &self.incin.inner)
@@ -388,9 +396,13 @@ impl<K, V, H> Drop for Map<K, V, H> {
     fn drop(&mut self) {
         let mut tables = Vec::new();
 
+        // Safe because we won't use these nodes anymore. We are in the
+        // destructor.
         unsafe { self.top.free_nodes(&mut tables) }
 
         while let Some(mut table) = tables.pop() {
+            // Safe because we won't use these nodes anymore. We are in the
+            // destructor.
             unsafe { table.free_nodes(&mut tables) }
         }
     }
@@ -423,6 +435,8 @@ impl<K, V, H> IntoIterator for Map<K, V, H> {
 
     fn into_iter(mut self) -> Self::IntoIter {
         let raw = self.top.raw();
+        // Unfortunately, this unsafe is needed since there is no other way of
+        // dropping the field and forgetting the Map.
         unsafe {
             (&mut self.builder as *mut H).drop_in_place();
             (&mut self.incin as *mut SharedIncin<K, V>).drop_in_place();
