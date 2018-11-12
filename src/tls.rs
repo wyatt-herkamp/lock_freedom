@@ -404,6 +404,12 @@ impl PartialEq for CachedId {
 
 impl Eq for CachedId {}
 
+impl Default for CachedId {
+    fn default() -> Self {
+        Self::load()
+    }
+}
+
 impl<T> IntoIterator for ThreadLocal<T> {
     type IntoIter = IntoIter<T>;
     type Item = T;
