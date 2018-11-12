@@ -126,12 +126,11 @@ impl<T> Incinerator<T> {
             // resource was removed from shared context. Since we use Thread
             // Local Storage, nobody can add something to the list meanwhile
             // besides us.
-            self.tls_list.with(GarbageList::clear);
+            self.tls_list.get().map(GarbageList::clear);
             drop(val);
         } else {
             // Not safe to drop. We have to save the value in the garbage list.
-            self.tls_list
-                .with_init(GarbageList::new, |list| list.add(val));
+            self.tls_list.with_init(GarbageList::new).add(val);
         }
     }
 
@@ -143,7 +142,7 @@ impl<T> Incinerator<T> {
             // It is only safe to drop if there are no active pauses. Remember
             // nobody can add something to this specific list besides us because
             // it is thread local.
-            self.tls_list.with(GarbageList::clear);
+            self.tls_list.get().map(GarbageList::clear);
             true
         } else {
             false
@@ -192,13 +191,11 @@ impl<'incin, T> Pause<'incin, T> {
             // resource was removed from shared context. Since we use Thread
             // Local Storage, nobody can add something to the list meanwhile
             // besides us.
-            self.incin.tls_list.with(GarbageList::clear);
+            self.incin.tls_list.get().map(GarbageList::clear);
             drop(val);
         } else {
             // Not safe to drop. We have to save the value in the garbage list.
-            self.incin
-                .tls_list
-                .with_init(GarbageList::new, |list| list.add(val));
+            self.incin.tls_list.with_init(GarbageList::new).add(val);
         }
     }
 
@@ -214,7 +211,7 @@ impl<'incin, T> Drop for Pause<'incin, T> {
         if self.incin.counter.fetch_sub(1, AcqRel) == 1 {
             // If the previous value was 1, this means now it is 0 and... we can
             // delete our local list.
-            self.incin.tls_list.with(GarbageList::clear);
+            self.incin.tls_list.get().map(GarbageList::clear);
         }
     }
 }

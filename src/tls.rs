@@ -2,7 +2,7 @@ use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
     fmt,
     marker::PhantomData,
-    mem,
+    mem::{align_of, forget, replace},
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
@@ -28,21 +28,16 @@ const BITS: usize = 8;
 ///     let tls = tls.clone();
 ///     threads.push(thread::spawn(move || {
 ///         let stored = if i == 32 {
-///             tls.with_default(|&x| {
-///                 assert_eq!(x, 0);
-///                 x
-///             })
+///             let stored = *tls.with_default();
+///             assert_eq!(stored, 0);
+///             stored
 ///         } else {
-///             tls.with_init(
-///                 || i,
-///                 |&x| {
-///                     assert_eq!(x, i);
-///                     x
-///                 },
-///             )
+///             let stored = *tls.with_init(|| i);
+///             assert_eq!(stored, i);
+///             stored
 ///         };
 ///
-///         if tls.with(|&x| assert_eq!(x, stored)).is_none() {
+///         if tls.get().map(|&x| assert_eq!(x, stored)).is_none() {
 ///             eprintln!("Warning: OS mis-reset the global thread state")
 ///         }
 ///     }))
@@ -94,52 +89,208 @@ impl<T> ThreadLocal<T> {
 
     /// Accesses the entry for the current thread. No initialization is
     /// performed.
-    pub fn with<F, A>(&self, reader: F) -> Option<A>
-    where
-        F: FnOnce(&T) -> A,
-    {
-        with_thread_id(|id| {
-            let mut table = &*self.top;
-            let mut shifted = id;
+    #[inline]
+    pub fn get(&self) -> Option<&T> {
+        self.get_with_id(IdCache::load())
+    }
 
-            loop {
-                // The index of the node for our id.
-                let index = shifted & (1 << BITS) - 1;
+    /// Accesses the entry for the current thread with a given cached ID.
+    /// Repeated calls with cached IDs should be faster than reloading the ID
+    /// everytime. No initialization is performed.
+    pub fn get_with_id(&self, id: IdCache) -> Option<&T> {
+        let mut table = &*self.top;
+        let mut shifted = id.bits();
 
-                // Load what is in there.
-                let in_place = table.nodes[index].atomic.load(Acquire);
+        loop {
+            // The index of the node for our id.
+            let index = shifted & (1 << BITS) - 1;
 
-                // Null means there is nothing.
-                if in_place.is_null() {
-                    break None;
-                }
+            // Load what is in there.
+            let in_place = table.nodes[index].atomic.load(Acquire);
 
-                // Having in_place's lower bit set to 0 means it is a
-                // pointer to entry.
-                if in_place as usize & 1 == 0 {
-                    // This is safe since:
-                    //
-                    // 1. We only store nodes with cleared lower bit if it is an
-                    // entry.
-                    //
-                    // 2. We only delete stuff when we are behind mutable
-                    // references.
-                    let entry = unsafe { &*(in_place as *mut Entry<T>) };
-                    break if id_eq(entry.id, id) {
-                        // We only have an entry for the thread if the ids
-                        // match.
-                        Some(reader(&entry.val))
-                    } else {
-                        None
-                    };
-                }
+            // Null means there is nothing.
+            if in_place.is_null() {
+                break None;
+            }
 
-                // The remaining case (non-null with lower bit set to 1) means
-                // we have a child table.
-                // Clear the pointer first lower bit so we can dereference it.
-                let table_ptr = (in_place as usize & !1) as *mut Table<T>;
-                // Set it as the table to be checked in the next iteration.
+            // Having in_place's lower bit set to 0 means it is a
+            // pointer to entry.
+            if in_place as usize & 1 == 0 {
                 // This is safe since:
+                //
+                // 1. We only store nodes with cleared lower bit if it is an
+                // entry.
+                //
+                // 2. We only delete stuff when we are behind mutable
+                // references.
+                let entry = unsafe { &*(in_place as *mut Entry<T>) };
+                break if entry.id == id {
+                    // We only have an entry for the thread if the ids
+                    // match.
+                    Some(&entry.data)
+                } else {
+                    None
+                };
+            }
+
+            // The remaining case (non-null with lower bit set to 1) means
+            // we have a child table.
+            // Clear the pointer first lower bit so we can dereference it.
+            let table_ptr = (in_place as usize & !1) as *mut Table<T>;
+            // Set it as the table to be checked in the next iteration.
+            // This is safe since:
+            //
+            // 1. We only store nodes with marked lower bit if it is an
+            // table.
+            //
+            // 2. W cleared up the bit above so we can get the original
+            // pointer.
+            //
+            // 3. We only delete stuff when we are behind mutable
+            // references.
+            table = unsafe { &*table_ptr };
+            // Shift our "hash" for the next level.
+            shifted >>= BITS;
+        }
+    }
+
+    /// Accesses the entry for the current thread. If necessary, the `init`
+    /// closure is called to initialize the entry.
+    #[inline]
+    pub fn with_init<F>(&self, init: F) -> &T
+    where
+        F: FnOnce() -> T,
+    {
+        self.with_id_and_init(IdCache::load(), init)
+    }
+
+    /// Accesses the entry for the current thread with a given cached ID.
+    /// Repeated calls with cached IDs should be faster than reloading the ID
+    /// everytime. If necessary, the `init` closure is called to initialize the
+    /// entry.
+    pub fn with_id_and_init<F>(&self, id: IdCache, init: F) -> &T
+    where
+        F: FnOnce() -> T,
+    {
+        let mut table = &*self.top;
+        // The depth of the iterations.
+        let mut depth = 1;
+        let mut shifted = id.bits();
+        // Using `LazyInit` to make sure we only initialize if there is no
+        // entry.
+        let mut init = LazyInit::Pending(move || Entry { id, data: init() });
+        let mut tbl_cache = Cache::<OwnedAlloc<Table<T>>>::new();
+
+        loop {
+            // The index of the node for our id.
+            let index = shifted & (1 << BITS) - 1;
+            // First of all, let's check what is stored.
+            let in_place = table.nodes[index].atomic.load(Acquire);
+
+            if in_place.is_null() {
+                // Null means we have an empty node and also our thread has
+                // not stored anything. Let's initialize.
+                let nnptr = init.get();
+                // First lower bit set to 0 means this is a pointer to
+                // entry. This should be guaranteed by the alignment,
+                // however, always good to ensure it.
+                debug_assert!(nnptr.as_ptr() as usize & 1 == 0);
+
+                // Trying to publish our freshly created entry.
+                let res = table.nodes[index].atomic.compare_and_swap(
+                    in_place,
+                    nnptr.as_ptr() as *mut (),
+                    Release,
+                );
+
+                if res.is_null() {
+                    // If the stored value still was null, we succeeded.
+                    // Let's read the entry.
+                    //
+                    // This is safe since... This is the pointer we just
+                    // allocated and we only delete nodes through mutable
+                    // references to the TLS.
+                    break unsafe { &(*nnptr.as_ptr()).data };
+                }
+            } else if in_place as usize & 1 == 0 {
+                // First lower bit set to 0 means we have an entry.
+                //
+                // This is safe since:
+                //
+                // 1. We only store nodes with cleared lower bit if it is an
+                // entry.
+                //
+                // 2. We only delete stuff when we are behind mutable
+                // references.
+                let entry = unsafe { &*(in_place as *mut Entry<T>) };
+                // If ids match, this is the entry for our thread.
+                if entry.id == id {
+                    // There is no possible way we have initialized the
+                    // `LazyInit`. It will only happen if we found an empty
+                    // node while searching, and the only way of putting a
+                    // non-empty node is either we put it or some other
+                    // thread (with different id obviously) put it.
+                    debug_assert!(init.is_pending());
+                    // And let's read it...
+                    break &entry.data;
+                }
+
+                // Get a table allocation from the cache.
+                let new_tbl = tbl_cache.take_or(Table::new_alloc);
+
+                // Calculate index for the collided entry.
+                let other_shifted = entry.id.bits() >> depth * BITS;
+                let other_index = other_shifted & (1 << BITS) - 1;
+
+                // Pre-insert it in the table from the cache.
+                new_tbl.nodes[other_index].atomic.store(in_place, Relaxed);
+
+                // Forget about the owned allocation and turn it into a
+                // pointer.
+                let new_tbl_ptr = new_tbl.into_raw();
+
+                // Let's try to publish our work.
+                let res = table.nodes[index].atomic.compare_and_swap(
+                    in_place,
+                    // First lower bit set to 1 means it is a table
+                    // pointer.
+                    (new_tbl_ptr.as_ptr() as usize | 1) as *mut (),
+                    Release,
+                );
+
+                if res == in_place {
+                    // If the old node was still stored, we succeeded.
+                    // Let's set the new table as the table for the next
+                    // iteration.
+                    //
+                    // This is safe since it is the table we just allocated
+                    // and we only delete it through mutable references to
+                    // the TLS.
+                    table = unsafe { &*new_tbl_ptr.as_ptr() };
+                    // We are going one depth further.
+                    depth += 1;
+                    // Shift our "hash" for the next level.
+                    shifted >>= BITS;
+                } else {
+                    // If we failed, let's rebuild the owned allocation.
+                    //
+                    // This is safe since it is the table we just allocated
+                    // and we don't share it.
+                    let new_tbl = unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
+                    // Clear that pre-inserted node.
+                    new_tbl.nodes[other_index]
+                        .atomic
+                        .store(null_mut(), Relaxed);
+
+                    // Store it into the cache for later.
+                    tbl_cache.store(new_tbl);
+                }
+            } else {
+                // The remaining case (non-null with first lower bit set to
+                // 1) is a table. Clear the pointer first lower bit so we
+                // can dereference it.
+                let table_ptr = (in_place as usize & !1) as *mut Table<T>;
+                // Set it as table for the next iteration.
                 //
                 // 1. We only store nodes with marked lower bit if it is an
                 // table.
@@ -150,167 +301,34 @@ impl<T> ThreadLocal<T> {
                 // 3. We only delete stuff when we are behind mutable
                 // references.
                 table = unsafe { &*table_ptr };
+                // We are going one depth further.
+                depth += 1;
                 // Shift our "hash" for the next level.
                 shifted >>= BITS;
             }
-        })
-    }
-
-    /// Accesses the entry for the current thread. If necessary, the `init`
-    /// closure is called to initialize the entry.
-    pub fn with_init<I, F, A>(&self, init: I, reader: F) -> A
-    where
-        I: FnOnce() -> T,
-        F: FnOnce(&T) -> A,
-    {
-        with_thread_id(|id| {
-            let mut table = &*self.top;
-            // The depth of the iterations.
-            let mut depth = 1;
-            let mut shifted = id;
-            // Using `LazyInit` to make sure we only initialize if there is no
-            // entry.
-            let mut init = LazyInit::Pending(move || Entry { id, val: init() });
-            let mut tbl_cache = Cache::<OwnedAlloc<Table<T>>>::new();
-
-            loop {
-                // The index of the node for our id.
-                let index = shifted & (1 << BITS) - 1;
-                // First of all, let's check what is stored.
-                let in_place = table.nodes[index].atomic.load(Acquire);
-
-                if in_place.is_null() {
-                    // Null means we have an empty node and also our thread has
-                    // not stored anything. Let's initialize.
-                    let nnptr = init.get();
-                    // First lower bit set to 0 means this is a pointer to
-                    // entry. This should be guaranteed by the alignment,
-                    // however, always good to ensure it.
-                    debug_assert!(nnptr.as_ptr() as usize & 1 == 0);
-
-                    // Trying to publish our freshly created entry.
-                    let res = table.nodes[index].atomic.compare_and_swap(
-                        in_place,
-                        nnptr.as_ptr() as *mut (),
-                        Release,
-                    );
-
-                    if res.is_null() {
-                        // If the stored value still was null, we succeeded.
-                        // Let's read the entry.
-                        //
-                        // This is safe since... This is the pointer we just
-                        // allocated and we only delete nodes through mutable
-                        // references to the TLS.
-                        break reader(unsafe { &nnptr.as_ref().val });
-                    }
-                } else if in_place as usize & 1 == 0 {
-                    // First lower bit set to 0 means we have an entry.
-                    //
-                    // This is safe since:
-                    //
-                    // 1. We only store nodes with cleared lower bit if it is an
-                    // entry.
-                    //
-                    // 2. We only delete stuff when we are behind mutable
-                    // references.
-                    let entry = unsafe { &*(in_place as *mut Entry<T>) };
-                    // If ids match, this is the entry for our thread.
-                    if id_eq(entry.id, id) {
-                        // There is no possible way we have initialized the
-                        // `LazyInit`. It will only happen if we found an empty
-                        // node while searching, and the only way of putting a
-                        // non-empty node is either we put it or some other
-                        // thread (with different id obviously) put it.
-                        debug_assert!(init.is_pending());
-                        // And let's read it...
-                        break reader(&entry.val);
-                    }
-
-                    // Get a table allocation from the cache.
-                    let new_tbl = tbl_cache.take_or(Table::new_alloc);
-
-                    // Calculate index for the collided entry.
-                    let other_shifted = entry.id >> depth * BITS;
-                    let other_index = other_shifted & (1 << BITS) - 1;
-
-                    // Pre-insert it in the table from the cache.
-                    new_tbl.nodes[other_index].atomic.store(in_place, Relaxed);
-
-                    // Forget about the owned allocation and turn it into a
-                    // pointer.
-                    let new_tbl_ptr = new_tbl.into_raw();
-
-                    // Let's try to publish our work.
-                    let res = table.nodes[index].atomic.compare_and_swap(
-                        in_place,
-                        // First lower bit set to 1 means it is a table
-                        // pointer.
-                        (new_tbl_ptr.as_ptr() as usize | 1) as *mut (),
-                        Release,
-                    );
-
-                    if res == in_place {
-                        // If the old node was still stored, we succeeded.
-                        // Let's set the new table as the table for the next
-                        // iteration.
-                        //
-                        // This is safe since it is the table we just allocated
-                        // and we only delete it through mutable references to
-                        // the TLS.
-                        table = unsafe { &*new_tbl_ptr.as_ptr() };
-                        // We are going one depth further.
-                        depth += 1;
-                        // Shift our "hash" for the next level.
-                        shifted >>= BITS;
-                    } else {
-                        // If we failed, let's rebuild the owned allocation.
-                        //
-                        // This is safe since it is the table we just allocated
-                        // and we don't share it.
-                        let new_tbl =
-                            unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
-                        // Clear that pre-inserted node.
-                        new_tbl.nodes[other_index]
-                            .atomic
-                            .store(null_mut(), Relaxed);
-
-                        // Store it into the cache for later.
-                        tbl_cache.store(new_tbl);
-                    }
-                } else {
-                    // The remaining case (non-null with first lower bit set to
-                    // 1) is a table. Clear the pointer first lower bit so we
-                    // can dereference it.
-                    let table_ptr = (in_place as usize & !1) as *mut Table<T>;
-                    // Set it as table for the next iteration.
-                    //
-                    // 1. We only store nodes with marked lower bit if it is an
-                    // table.
-                    //
-                    // 2. W cleared up the bit above so we can get the original
-                    // pointer.
-                    //
-                    // 3. We only delete stuff when we are behind mutable
-                    // references.
-                    table = unsafe { &*table_ptr };
-                    // We are going one depth further.
-                    depth += 1;
-                    // Shift our "hash" for the next level.
-                    shifted >>= BITS;
-                }
-            }
-        })
+        }
     }
 
     /// Accesses the entry for the current thread. If necessary, the entry is
     /// initialized with default value.
-    pub fn with_default<F, A>(&self, reader: F) -> A
+    #[inline]
+    pub fn with_default(&self) -> &T
     where
         T: Default,
-        F: FnOnce(&T) -> A,
     {
-        self.with_init(T::default, reader)
+        self.with_init(T::default)
+    }
+
+    /// Accesses the entry for the current thread with a given cached ID.
+    /// Repeated calls with cached IDs should be faster than reloading the ID
+    /// everytime. If necessary, the entry is initialized with default
+    /// value.
+    #[inline]
+    pub fn with_id_and_default(&self, id: IdCache) -> &T
+    where
+        T: Default,
+    {
+        self.with_id_and_init(id, T::default)
     }
 }
 
@@ -332,17 +350,16 @@ impl<T> Drop for ThreadLocal<T> {
     }
 }
 
-unsafe impl<T> Send for ThreadLocal<T> where T: Send {}
-unsafe impl<T> Sync for ThreadLocal<T> where T: Send {}
-
 impl<T> fmt::Debug for ThreadLocal<T>
 where
     T: fmt::Debug,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(fmtr, "ThreadLocal {} storage: ", '{')?;
-        self.with(|val| write!(fmtr, "Some({:?})", val))
-            .unwrap_or_else(|| write!(fmtr, "None"))?;
+        match self.get() {
+            Some(val) => write!(fmtr, "Some({:?})", val)?,
+            None => write!(fmtr, "None")?,
+        }
         write!(fmtr, "{}", '}')
     }
 }
@@ -353,13 +370,47 @@ impl<T> Default for ThreadLocal<T> {
     }
 }
 
+unsafe impl<T> Send for ThreadLocal<T> where T: Send {}
+unsafe impl<T> Sync for ThreadLocal<T> where T: Send {}
+
+/// A cached thread-id. Repeated calls to [`ThreadLocal`]'s methods with cached
+/// IDs should be faster than reloading the ID everytime.
+#[derive(Debug, Clone, Copy)]
+pub struct IdCache {
+    non_tsafe_bits: *const IdMaker,
+}
+
+impl IdCache {
+    /// Loads the ID for this thread.
+    #[inline]
+    pub fn load() -> Self {
+        let non_tsafe_bits = ID.with(|maker| maker as *const _);
+
+        Self { non_tsafe_bits }
+    }
+
+    #[inline]
+    fn bits(self) -> usize {
+        self.non_tsafe_bits as usize >> align_of::<IdMaker>()
+    }
+}
+
+impl PartialEq for IdCache {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.non_tsafe_bits == other.non_tsafe_bits
+    }
+}
+
+impl Eq for IdCache {}
+
 impl<T> IntoIterator for ThreadLocal<T> {
     type IntoIter = IntoIter<T>;
     type Item = T;
 
     fn into_iter(self) -> Self::IntoIter {
         let raw = self.top.raw();
-        mem::forget(self);
+        forget(self);
         // Safe since this is the allocation we just forgot about.
         let top = unsafe { OwnedAlloc::from_raw(raw) };
 
@@ -410,7 +461,7 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
                     // 2. We only delete stuff when we are behind mutable
                     // references *and* we are the only mutable reference to the
                     // TLS. We are not deleting it.
-                    break Some(unsafe { &mut (*ptr).val });
+                    break Some(unsafe { &mut (*ptr).data });
                 },
 
                 Some(ptr) => {
@@ -477,7 +528,7 @@ impl<T> Iterator for IntoIter<T> {
                     };
                     let (entry, _) = alloc.move_inner();
                     self.curr_table = Some((table, index + 1));
-                    break Some(entry.val);
+                    break Some(entry.data);
                 },
 
                 Some(ptr) => {
@@ -601,8 +652,8 @@ impl<T> fmt::Debug for Table<T> {
 
 #[repr(align(64))]
 struct Entry<T> {
-    val: T,
-    id: usize,
+    data: T,
+    id: IdCache,
 }
 
 enum LazyInit<T, F> {
@@ -622,7 +673,7 @@ where
     }
 
     fn get(&mut self) -> NonNull<T> {
-        let old = mem::replace(self, LazyInit::Done(NonNull::dangling()));
+        let old = replace(self, LazyInit::Done(NonNull::dangling()));
 
         let ptr = match old {
             LazyInit::Done(ptr) => ptr,
@@ -646,21 +697,6 @@ thread_local! {
     };
 }
 
-fn with_thread_id<F, T>(exec: F) -> T
-where
-    F: FnOnce(usize) -> T,
-{
-    ID.with(|tpl| {
-        let word = tpl as *const _ as usize;
-        let align = mem::align_of::<IdMaker>();
-        exec(word >> align.trailing_zeros())
-    })
-}
-
-fn id_eq(a: usize, b: usize) -> bool {
-    a as *const IdMaker == b as *const IdMaker
-}
-
 #[cfg(test)]
 mod test {
     use super::ThreadLocal;
@@ -676,7 +712,7 @@ mod test {
         for i in 0 .. THREADS {
             let tls = tls.clone();
             threads.push(thread::spawn(move || {
-                tls.with_init(|| i, |&x| assert_eq!(x, i));
+                assert_eq!(*tls.with_init(|| i), i)
             }))
         }
 
@@ -695,7 +731,7 @@ mod test {
         for i in 0 .. THREADS {
             let tls = tls.clone();
             threads.push(thread::spawn(move || {
-                tls.with_init(|| i, |_| ());
+                tls.with_init(|| i);
             }))
         }
 

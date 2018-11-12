@@ -3,10 +3,13 @@ extern crate benchsuite;
 extern crate lockfree;
 extern crate thread_local;
 
-use benchsuite::exec::Target;
-use lockfree::tls::ThreadLocal;
+use benchsuite::exec::{Target, TargetData};
+use lockfree::tls::{IdCache, ThreadLocal};
 use std::{cell::Cell, sync::Arc};
-use thread_local::ThreadLocal as LockTls;
+use thread_local::{
+    CachedThreadLocal as CachedLockTls,
+    ThreadLocal as LockTls,
+};
 
 #[derive(Debug, Clone, Default)]
 struct BlockingTarget {
@@ -14,8 +17,24 @@ struct BlockingTarget {
 }
 
 #[derive(Debug, Clone, Default)]
+struct BlkCachedTarget {
+    inner: Arc<CachedLockTls<Cell<u128>>>,
+}
+
+#[derive(Debug, Clone, Default)]
 struct LockfreeTarget {
     inner: Arc<ThreadLocal<Cell<u128>>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct LfCachedData {
+    inner: Arc<ThreadLocal<Cell<u128>>>,
+}
+
+#[derive(Debug)]
+struct LfCachedTarget {
+    shared: LfCachedData,
+    id: IdCache,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -33,13 +52,38 @@ impl Target for BlockingTarget {
     }
 }
 
+impl Target for BlkCachedTarget {
+    #[inline(always)]
+    fn round(&mut self) {
+        let cell = self.inner.get_or(|| Box::new(Cell::new(0)));
+        cell.set(cell.get().wrapping_add(1));
+    }
+}
+
 impl Target for LockfreeTarget {
     #[inline(always)]
     fn round(&mut self) {
-        self.inner.with_init(
-            || Cell::new(0),
-            |cell| cell.set(cell.get().wrapping_add(1)),
-        );
+        let cell = self.inner.with_init(|| Cell::new(0));
+        cell.set(cell.get().wrapping_add(1));
+    }
+}
+
+impl TargetData for LfCachedData {
+    type Target = LfCachedTarget;
+
+    fn init_thread(self) -> Self::Target {
+        LfCachedTarget {
+            shared: self,
+            id: IdCache::load(),
+        }
+    }
+}
+
+impl Target for LfCachedTarget {
+    #[inline(always)]
+    fn round(&mut self) {
+        let cell = self.shared.inner.with_id_and_init(self.id, || Cell::new(0));
+        cell.set(cell.get().wrapping_add(1));
     }
 }
 
@@ -55,6 +99,8 @@ fn main() {
         levels 1, 4, 16, 32, 128;
         "std/global" => StdTarget::default(),
         "blocking" => BlockingTarget::default(),
+        "blocking with cached access" => BlkCachedTarget::default(),
         "lockfree" => LockfreeTarget::default(),
+        "lockfree with cached id" => LfCachedData::default(),
     }
 }

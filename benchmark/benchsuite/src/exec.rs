@@ -10,13 +10,25 @@ use std::{
 
 pub const ITER_PER_TRY: usize = 0x400;
 
-pub trait Target: Clone + Send + 'static {
-    #[inline(always)]
+pub trait TargetData: Clone + Send + 'static {
+    type Target: Target;
+
+    fn init_thread(self) -> Self::Target;
+}
+
+pub trait Target {
     fn round(&mut self);
 }
 
-pub trait TargetSet {
-    fn run(&self, executor: &mut Executor);
+impl<T> TargetData for T
+where
+    T: Target + Clone + Send + 'static,
+{
+    type Target = Self;
+
+    fn init_thread(self) -> Self::Target {
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -85,19 +97,20 @@ impl Executor {
         &self.stats
     }
 
-    pub fn run<T>(&mut self, target: &T)
+    pub fn run<D>(&mut self, shared: &D)
     where
-        T: Target,
+        D: TargetData,
     {
         let mut threads = Vec::new();
         let count = Arc::new(AtomicUsize::new(0));
         let exit = Arc::new(AtomicBool::new(false));
 
         for _ in 0 .. self.threads {
-            let mut target = target.clone();
+            let shared = shared.clone();
             let exit = exit.clone();
             let count = count.clone();
             threads.push(thread::spawn(move || {
+                let mut target = shared.init_thread();
                 while !exit.load(Acquire) {
                     for _ in 0 .. ITER_PER_TRY {
                         target.round();
@@ -122,9 +135,13 @@ impl Executor {
     }
 }
 
-impl<A> TargetSet for A
+pub trait TargetSet {
+    fn run(&self, executor: &mut Executor);
+}
+
+impl<S> TargetSet for S
 where
-    A: Target,
+    S: TargetData,
 {
     fn run(&self, executor: &mut Executor) {
         executor.run(self)
@@ -143,7 +160,7 @@ macro_rules! impl_tuple {
     ($($ty:ident : $field:tt),*) => {
         impl<$($ty),*> TargetSet for ($($ty,)*)
         where
-            $($ty: Target,)*
+            $($ty: TargetData,)*
         {
             fn run(&self, _executor: &mut Executor) {
                 make_field!($(_executor.run(&self.$field)),*);
