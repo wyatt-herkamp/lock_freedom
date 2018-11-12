@@ -391,7 +391,8 @@ impl CachedId {
 
     #[inline]
     fn bits(self) -> usize {
-        self.non_tsafe_bits as usize >> align_of::<IdMaker>()
+        let unused = align_of::<IdMaker>().trailing_zeros();
+        self.non_tsafe_bits as usize >> unused
     }
 }
 
