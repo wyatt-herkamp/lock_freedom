@@ -91,13 +91,13 @@ impl<T> ThreadLocal<T> {
     /// performed.
     #[inline]
     pub fn get(&self) -> Option<&T> {
-        self.get_with_id(IdCache::load())
+        self.get_with_id(CachedId::load())
     }
 
     /// Accesses the entry for the current thread with a given cached ID.
     /// Repeated calls with cached IDs should be faster than reloading the ID
     /// everytime. No initialization is performed.
-    pub fn get_with_id(&self, id: IdCache) -> Option<&T> {
+    pub fn get_with_id(&self, id: CachedId) -> Option<&T> {
         let mut table = &*self.top;
         let mut shifted = id.bits();
 
@@ -161,14 +161,14 @@ impl<T> ThreadLocal<T> {
     where
         F: FnOnce() -> T,
     {
-        self.with_id_and_init(IdCache::load(), init)
+        self.with_id_and_init(CachedId::load(), init)
     }
 
     /// Accesses the entry for the current thread with a given cached ID.
     /// Repeated calls with cached IDs should be faster than reloading the ID
     /// everytime. If necessary, the `init` closure is called to initialize the
     /// entry.
-    pub fn with_id_and_init<F>(&self, id: IdCache, init: F) -> &T
+    pub fn with_id_and_init<F>(&self, id: CachedId, init: F) -> &T
     where
         F: FnOnce() -> T,
     {
@@ -324,7 +324,7 @@ impl<T> ThreadLocal<T> {
     /// everytime. If necessary, the entry is initialized with default
     /// value.
     #[inline]
-    pub fn with_id_and_default(&self, id: IdCache) -> &T
+    pub fn with_id_and_default(&self, id: CachedId) -> &T
     where
         T: Default,
     {
@@ -376,11 +376,11 @@ unsafe impl<T> Sync for ThreadLocal<T> where T: Send {}
 /// A cached thread-id. Repeated calls to [`ThreadLocal`]'s methods with cached
 /// IDs should be faster than reloading the ID everytime.
 #[derive(Debug, Clone, Copy)]
-pub struct IdCache {
+pub struct CachedId {
     non_tsafe_bits: *const IdMaker,
 }
 
-impl IdCache {
+impl CachedId {
     /// Loads the ID for this thread.
     #[inline]
     pub fn load() -> Self {
@@ -395,14 +395,14 @@ impl IdCache {
     }
 }
 
-impl PartialEq for IdCache {
+impl PartialEq for CachedId {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.non_tsafe_bits == other.non_tsafe_bits
     }
 }
 
-impl Eq for IdCache {}
+impl Eq for CachedId {}
 
 impl<T> IntoIterator for ThreadLocal<T> {
     type IntoIter = IntoIter<T>;
@@ -653,7 +653,7 @@ impl<T> fmt::Debug for Table<T> {
 #[repr(align(64))]
 struct Entry<T> {
     data: T,
-    id: IdCache,
+    id: CachedId,
 }
 
 enum LazyInit<T, F> {

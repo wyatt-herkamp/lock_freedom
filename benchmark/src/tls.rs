@@ -4,7 +4,7 @@ extern crate lockfree;
 extern crate thread_local;
 
 use benchsuite::exec::{Target, TargetData};
-use lockfree::tls::{IdCache, ThreadLocal};
+use lockfree::tls::{CachedId, ThreadLocal};
 use std::{cell::Cell, sync::Arc};
 use thread_local::{
     CachedThreadLocal as CachedLockTls,
@@ -34,7 +34,7 @@ struct LfCachedData {
 #[derive(Debug)]
 struct LfCachedTarget {
     shared: LfCachedData,
-    id: IdCache,
+    id: CachedId,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -74,7 +74,7 @@ impl TargetData for LfCachedData {
     fn init_thread(self) -> Self::Target {
         LfCachedTarget {
             shared: self,
-            id: IdCache::load(),
+            id: CachedId::load(),
         }
     }
 }
