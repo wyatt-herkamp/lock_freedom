@@ -4,8 +4,14 @@ extern crate lockfree;
 extern crate thread_local;
 
 use benchsuite::exec::{Target, TargetData};
-use lockfree::tls::{CachedId, ThreadLocal};
-use std::{cell::Cell, sync::Arc};
+use lockfree::tls::{ThreadId, ThreadLocal};
+use std::{
+    cell::Cell,
+    sync::{
+        atomic::{fence, Ordering::*},
+        Arc,
+    },
+};
 use thread_local::{
     CachedThreadLocal as CachedLockTls,
     ThreadLocal as LockTls,
@@ -34,7 +40,7 @@ struct LfCachedData {
 #[derive(Debug)]
 struct LfCachedTarget {
     shared: LfCachedData,
-    id: CachedId,
+    id: ThreadId,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -74,7 +80,7 @@ impl TargetData for LfCachedData {
     fn init_thread(self) -> Self::Target {
         LfCachedTarget {
             shared: self,
-            id: CachedId::load(),
+            id: ThreadId::current(),
         }
     }
 }
@@ -90,7 +96,9 @@ impl Target for LfCachedTarget {
 impl Target for StdTarget {
     #[inline(always)]
     fn round(&mut self) {
-        STATIC.with(|cell| cell.set(cell.get().wrapping_add(1)))
+        fence(Acquire);
+        STATIC.with(|cell| cell.set(cell.get().wrapping_add(1)));
+        fence(Release);
     }
 }
 

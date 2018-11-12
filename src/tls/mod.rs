@@ -1,8 +1,12 @@
+mod tid;
+
+pub use self::tid::ThreadId;
+
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
     fmt,
     marker::PhantomData,
-    mem::{align_of, forget, replace},
+    mem::{forget, replace},
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
@@ -91,13 +95,13 @@ impl<T> ThreadLocal<T> {
     /// performed.
     #[inline]
     pub fn get(&self) -> Option<&T> {
-        self.get_with_id(CachedId::load())
+        self.get_with_id(ThreadId::current())
     }
 
     /// Accesses the entry for the current thread with a given cached ID.
     /// Repeated calls with cached IDs should be faster than reloading the ID
     /// everytime. No initialization is performed.
-    pub fn get_with_id(&self, id: CachedId) -> Option<&T> {
+    pub fn get_with_id(&self, id: ThreadId) -> Option<&T> {
         let mut table = &*self.top;
         let mut shifted = id.bits();
 
@@ -161,14 +165,14 @@ impl<T> ThreadLocal<T> {
     where
         F: FnOnce() -> T,
     {
-        self.with_id_and_init(CachedId::load(), init)
+        self.with_id_and_init(ThreadId::current(), init)
     }
 
     /// Accesses the entry for the current thread with a given cached ID.
     /// Repeated calls with cached IDs should be faster than reloading the ID
     /// everytime. If necessary, the `init` closure is called to initialize the
     /// entry.
-    pub fn with_id_and_init<F>(&self, id: CachedId, init: F) -> &T
+    pub fn with_id_and_init<F>(&self, id: ThreadId, init: F) -> &T
     where
         F: FnOnce() -> T,
     {
@@ -324,7 +328,7 @@ impl<T> ThreadLocal<T> {
     /// everytime. If necessary, the entry is initialized with default
     /// value.
     #[inline]
-    pub fn with_id_and_default(&self, id: CachedId) -> &T
+    pub fn with_id_and_default(&self, id: ThreadId) -> &T
     where
         T: Default,
     {
@@ -372,44 +376,6 @@ impl<T> Default for ThreadLocal<T> {
 
 unsafe impl<T> Send for ThreadLocal<T> where T: Send {}
 unsafe impl<T> Sync for ThreadLocal<T> where T: Send {}
-
-/// A cached thread-id. Repeated calls to [`ThreadLocal`]'s methods with cached
-/// IDs should be faster than reloading the ID everytime.
-#[derive(Debug, Clone, Copy)]
-pub struct CachedId {
-    non_tsafe_bits: *const IdMaker,
-}
-
-impl CachedId {
-    /// Loads the ID for this thread.
-    #[inline]
-    pub fn load() -> Self {
-        let non_tsafe_bits = ID.with(|maker| maker as *const _);
-
-        Self { non_tsafe_bits }
-    }
-
-    #[inline]
-    fn bits(self) -> usize {
-        let unused = align_of::<IdMaker>().trailing_zeros();
-        self.non_tsafe_bits as usize >> unused
-    }
-}
-
-impl PartialEq for CachedId {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.non_tsafe_bits == other.non_tsafe_bits
-    }
-}
-
-impl Eq for CachedId {}
-
-impl Default for CachedId {
-    fn default() -> Self {
-        Self::load()
-    }
-}
 
 impl<T> IntoIterator for ThreadLocal<T> {
     type IntoIter = IntoIter<T>;
@@ -660,7 +626,7 @@ impl<T> fmt::Debug for Table<T> {
 #[repr(align(64))]
 struct Entry<T> {
     data: T,
-    id: CachedId,
+    id: ThreadId,
 }
 
 enum LazyInit<T, F> {
@@ -691,17 +657,6 @@ where
         *self = LazyInit::Done(ptr);
         ptr
     }
-}
-
-union IdMaker {
-    _usize: usize,
-    _f64: f64,
-}
-
-thread_local! {
-    static ID: IdMaker = IdMaker {
-        _usize: 0,
-    };
 }
 
 #[cfg(test)]
