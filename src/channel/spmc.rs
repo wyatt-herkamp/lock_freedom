@@ -83,8 +83,8 @@ impl<T> Sender<T> {
             // If we failed, receiver disconnected. It is safe to dealloc
             // because this is the node we just allocated, and we did not share
             // it with anyone (cas failed).
-            let alloc = unsafe { OwnedAlloc::from_raw(nnptr) };
-            let message = alloc.message.take().unwrap();
+            let mut alloc = unsafe { OwnedAlloc::from_raw(nnptr) };
+            let message = alloc.message.replace(None).unwrap();
             Err(NoRecv { message })
         }
     }
@@ -163,7 +163,7 @@ impl<T> Receiver<T> {
             // Let's remove the node logically first. Safe to derefer this
             // pointer because we paused the incinerator and we only
             // delete nodes via incinerator.
-            match unsafe { front_nnptr.as_ref().message.take() } {
+            match unsafe { front_nnptr.as_ref().message.take(Release) } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -193,7 +193,8 @@ impl<T> Receiver<T> {
         // Safe to derefer this pointer because we paused the incinerator and we
         // only delete nodes via incinerator.
         let front = unsafe { &*self.inner.front.load(Acquire) };
-        front.message.is_present() || front.next.load(Acquire) as usize & 1 == 0
+        front.message.is_present(Acquire)
+            || front.next.load(Acquire) as usize & 1 == 0
     }
 
     /// The shared incinerator used by this [`Receiver`].

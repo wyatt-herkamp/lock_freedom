@@ -55,7 +55,7 @@ impl<T> Queue<T> {
         let alloc = OwnedAlloc::new(node);
         let node_ptr = alloc.into_raw().as_ptr();
         // Swap with the previously stored back.
-        let prev_back = self.back.swap(node_ptr, AcqRel);
+        let prev_back = self.back.swap(node_ptr, Relaxed);
         unsafe {
             // Updates the previous back's next field to our newly allocated
             // node. This may delay the visibility of the insertion.
@@ -72,7 +72,7 @@ impl<T> Queue<T> {
                 // The pointer stored in front and back must never be null. The
                 // queue always have at least one node. Front and back are
                 // always connected.
-                let ptr = self.front.load(Acquire);
+                let ptr = self.front.load(Relaxed);
                 debug_assert!(!ptr.is_null());
                 NonNull::new_unchecked(ptr)
             };
@@ -81,7 +81,7 @@ impl<T> Queue<T> {
             // only delete nodes via incinerator.
             //
             // We first remove the node logically.
-            match unsafe { front_nnptr.as_ref().item.take() } {
+            match unsafe { front_nnptr.as_ref().item.take(Relaxed) } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -128,7 +128,7 @@ impl<T> Queue<T> {
             None
         } else {
             let ptr = expected.as_ptr();
-            let res = self.front.compare_and_swap(ptr, next, Release);
+            let res = self.front.compare_and_swap(ptr, next, Relaxed);
             // We are not oblied to succeed. This is just cleanup and some other
             // thread might do it.
             if res == expected.as_ptr() {
@@ -188,9 +188,10 @@ impl<T> Iterator for Queue<T> {
         // Safe to by-pass it because the queue always have at least one node.
         let mut front_node = unsafe { NonNull::new_unchecked(*front) };
         loop {
+            // Safe because we allocated everything properly.
             let (item, next) = unsafe {
                 let node_ref = front_node.as_mut();
-                (node_ref.item.take(), *node_ref.next.get_mut())
+                (node_ref.item.replace(None), *node_ref.next.get_mut())
             };
 
             match (item, NonNull::new(next)) {

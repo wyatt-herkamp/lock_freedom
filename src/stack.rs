@@ -71,7 +71,7 @@ impl<T> Stack<T> {
         let pause = self.incin.inner.pause();
         loop {
             // First, let's load our top.
-            let top = self.top.load(Acquire);
+            let top = self.top.load(Relaxed);
             // If top is null, we have nothing. Try operator (?) handles it.
             let mut nnptr = NonNull::new(top)?;
             // The replacement for top is its "next". This is only possible
@@ -83,7 +83,7 @@ impl<T> Stack<T> {
             let res = self.top.compare_and_swap(
                 top,
                 unsafe { nnptr.as_ref().next },
-                Release,
+                Relaxed,
             );
 
             // We succeed if top still was the loaded pointer.

@@ -83,8 +83,8 @@ impl<T> Sender<T> {
             if loaded as usize & 1 == 1 {
                 // Safe because we are deallocating the node we just created
                 // without sharing it.
-                let alloc = unsafe { OwnedAlloc::from_raw(node) };
-                let message = alloc.message.take().unwrap();
+                let mut alloc = unsafe { OwnedAlloc::from_raw(node) };
+                let message = alloc.message.replace(None).unwrap();
                 break Err(NoRecv { message });
             }
 
@@ -197,7 +197,7 @@ impl<T> Receiver<T> {
             // Let's remove the node logically first. Safe to derefer this
             // pointer because we paused the incinerator and we only
             // delete nodes via incinerator.
-            match unsafe { front_nnptr.as_ref().message.take() } {
+            match unsafe { front_nnptr.as_ref().message.take(Release) } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -232,7 +232,7 @@ impl<T> Receiver<T> {
         // marking (since it means sender disconnected).
         let back = unsafe { self.inner.back.as_ref() };
         back.ptr.load(Acquire) as usize & 1 == 0
-            || front.message.is_present()
+            || front.message.is_present(Acquire)
             || !front.next.load(Acquire).is_null()
     }
 
