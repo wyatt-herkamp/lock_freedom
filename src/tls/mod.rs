@@ -23,25 +23,19 @@ const BITS: usize = 8;
 /// extern crate lockfree;
 ///
 /// use lockfree::tls::ThreadLocal;
-/// use std::{sync::Arc, thread};
+/// use std::{cell::Cell, sync::Arc, thread};
 ///
-/// let tls = Arc::new(ThreadLocal::new());
+/// let tls = Arc::new(ThreadLocal::<Cell<usize>>::new());
 /// let mut threads = Vec::with_capacity(32);
 ///
 /// for i in 1 ..= 32 {
 ///     let tls = tls.clone();
 ///     threads.push(thread::spawn(move || {
-///         let stored = if i == 32 {
-///             let stored = *tls.with_default();
-///             assert_eq!(stored, 0);
-///             stored
-///         } else {
-///             let stored = *tls.with_init(|| i);
-///             assert_eq!(stored, i);
-///             stored
-///         };
+///         tls.with_default().set(i);
 ///
-///         if tls.get().map(|&x| assert_eq!(x, stored)).is_none() {
+///         if tls.get().map(|c| assert_eq!(c.get(), i)).is_none() {
+///             // Some OSes mis-run the destructors for their TLS
+///             // implementation.
 ///             eprintln!("Warning: OS mis-reset the global thread state")
 ///         }
 ///     }))
@@ -662,7 +656,10 @@ where
 #[cfg(test)]
 mod test {
     use super::ThreadLocal;
-    use std::{sync::Arc, thread};
+    use std::{
+        sync::{Arc, Barrier},
+        thread,
+    };
 
     #[test]
     fn threads_with_their_id() {
@@ -670,11 +667,15 @@ mod test {
 
         let tls = Arc::new(ThreadLocal::new());
         let mut threads = Vec::with_capacity(THREADS);
+        // prevent IDs from being reused.
+        let barrier = Arc::new(Barrier::new(THREADS));
 
         for i in 0 .. THREADS {
             let tls = tls.clone();
+            let barrier = barrier.clone();
             threads.push(thread::spawn(move || {
-                assert_eq!(*tls.with_init(|| i), i)
+                assert_eq!(*tls.with_init(|| i), i);
+                barrier.wait();
             }))
         }
 
@@ -689,11 +690,15 @@ mod test {
 
         let tls = Arc::new(ThreadLocal::new());
         let mut threads = Vec::with_capacity(THREADS);
+        // prevent IDs from being reused.
+        let barrier = Arc::new(Barrier::new(THREADS));
 
         for i in 0 .. THREADS {
             let tls = tls.clone();
+            let barrier = barrier.clone();
             threads.push(thread::spawn(move || {
                 tls.with_init(|| i);
+                barrier.wait();
             }))
         }
 
