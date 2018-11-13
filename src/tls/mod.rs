@@ -77,8 +77,22 @@ impl<T> ThreadLocal<T> {
         }
     }
 
+    /// Creates an iterator over immutable refereces of entries.
+    pub fn iter(&self) -> Iter<T>
+    where
+        T: Sync,
+    {
+        Iter {
+            curr_table: Some((&self.top, 0)),
+            tables: Vec::new(),
+        }
+    }
+
     /// Creates an iterator over mutable refereces of entries.
-    pub fn iter_mut(&mut self) -> IterMut<T> {
+    pub fn iter_mut(&mut self) -> IterMut<T>
+    where
+        T: Send,
+    {
         IterMut {
             curr_table: Some((&mut self.top, 0)),
             tables: Vec::new(),
@@ -368,10 +382,13 @@ impl<T> Default for ThreadLocal<T> {
     }
 }
 
-unsafe impl<T> Send for ThreadLocal<T> where T: Send {}
-unsafe impl<T> Sync for ThreadLocal<T> where T: Send {}
+unsafe impl<T> Send for ThreadLocal<T> {}
+unsafe impl<T> Sync for ThreadLocal<T> {}
 
-impl<T> IntoIterator for ThreadLocal<T> {
+impl<T> IntoIterator for ThreadLocal<T>
+where
+    T: Send,
+{
     type IntoIter = IntoIter<T>;
     type Item = T;
 
@@ -388,12 +405,84 @@ impl<T> IntoIterator for ThreadLocal<T> {
     }
 }
 
-impl<'tls, T> IntoIterator for &'tls mut ThreadLocal<T> {
+impl<'tls, T> IntoIterator for &'tls ThreadLocal<T>
+where
+    T: Sync,
+{
+    type IntoIter = Iter<'tls, T>;
+    type Item = &'tls T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'tls, T> IntoIterator for &'tls mut ThreadLocal<T>
+where
+    T: Send,
+{
     type IntoIter = IterMut<'tls, T>;
     type Item = &'tls mut T;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
+    }
+}
+
+/// An iterator over immutable references to entries of TLS.
+pub struct Iter<'tls, T>
+where
+    T: 'tls,
+{
+    tables: Vec<&'tls Table<T>>,
+    curr_table: Option<(&'tls Table<T>, usize)>,
+}
+
+impl<'tls, T> Iterator for Iter<'tls, T> {
+    type Item = &'tls T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (table, index) = self.curr_table.take()?;
+            match table.nodes.get(index).map(|node| node.atomic.load(Acquire)) {
+                Some(ptr) if ptr.is_null() => {
+                    self.curr_table = Some((table, index + 1))
+                },
+
+                Some(ptr) if ptr as usize & 1 == 0 => {
+                    let ptr = ptr as *mut Entry<T>;
+                    self.curr_table = Some((table, index + 1));
+                    // This is safe since:
+                    //
+                    // 1. We only store nodes with cleared lower bit if it is an
+                    // entry.
+                    //
+                    // 2. We only delete stuff when we are behind mutable
+                    // references *and* there are no mutable references to the
+                    // TLS as we are a shared one.
+                    break Some(unsafe { &(*ptr).data });
+                },
+
+                Some(ptr) => {
+                    let ptr = (ptr as usize & !1) as *mut Table<T>;
+                    // Set it as table for the next iteration.
+                    //
+                    // 1. We only store nodes with marked lower bit if it is an
+                    // table.
+                    //
+                    // 2. We cleared up the bit above so we can get the original
+                    // pointer.
+                    //
+                    // 3. We only delete stuff when we are behind mutable
+                    // references *and* there are no mutable references to the
+                    // TLS as we are a shared one.
+                    self.tables.push(unsafe { &mut *ptr });
+                    self.curr_table = Some((table, index + 1));
+                },
+
+                None => self.curr_table = self.tables.pop().map(|tbl| (tbl, 0)),
+            };
+        }
     }
 }
 
@@ -412,7 +501,11 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let (table, index) = self.curr_table.take()?;
-            match table.nodes.get(index).map(|node| node.atomic.load(Relaxed)) {
+            match table
+                .nodes
+                .get_mut(index)
+                .map(|node| *node.atomic.get_mut())
+            {
                 Some(ptr) if ptr.is_null() => {
                     self.curr_table = Some((table, index + 1))
                 },
@@ -438,7 +531,7 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
                     // 1. We only store nodes with marked lower bit if it is an
                     // table.
                     //
-                    // 2. W cleared up the bit above so we can get the original
+                    // 2. We cleared up the bit above so we can get the original
                     // pointer.
                     //
                     // 3. We only delete stuff when we are behind mutable
@@ -475,8 +568,12 @@ impl<T> Iterator for IntoIter<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let (table, index) = self.curr_table.take()?;
-            match table.nodes.get(index).map(|node| node.atomic.load(Relaxed)) {
+            let (mut table, index) = self.curr_table.take()?;
+            match table
+                .nodes
+                .get_mut(index)
+                .map(|node| *node.atomic.get_mut())
+            {
                 Some(ptr) if ptr.is_null() => {
                     self.curr_table = Some((table, index + 1))
                 },
@@ -592,8 +689,8 @@ impl<T> Table<T> {
     // cause undefined behavior.
     #[inline]
     unsafe fn free_nodes(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
-        for node in &self.nodes as &[Node<_>] {
-            Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
+        for node in &mut self.nodes as &mut [Node<T>] {
+            Node::free_ptr(*node.atomic.get_mut(), tbl_stack);
         }
     }
 
@@ -601,8 +698,10 @@ impl<T> Table<T> {
     // undefined behavior.
     #[inline]
     unsafe fn clear(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
-        for node in &self.nodes as &[Node<_>] {
-            Node::free_ptr(node.atomic.swap(null_mut(), Relaxed), tbl_stack);
+        for node in &mut self.nodes as &mut [Node<T>] {
+            let ptr = node.atomic.get_mut();
+            Node::free_ptr(*ptr, tbl_stack);
+            *ptr = null_mut();
         }
     }
 }
@@ -686,6 +785,29 @@ mod test {
 
     #[test]
     fn iter() {
+        const THREADS: usize = 32;
+
+        let tls = Arc::new(ThreadLocal::new());
+        let mut threads = Vec::with_capacity(THREADS);
+        // prevent IDs from being reused.
+        let barrier = Arc::new(Barrier::new(THREADS));
+
+        for i in 0 .. THREADS {
+            let tls = tls.clone();
+            let barrier = barrier.clone();
+            threads.push(thread::spawn(move || {
+                tls.with_init(|| i);
+                barrier.wait();
+            }))
+        }
+
+        for entry in &*tls {
+            assert!(*entry < THREADS);
+        }
+    }
+
+    #[test]
+    fn iter_mut() {
         const THREADS: usize = 32;
 
         let tls = Arc::new(ThreadLocal::new());

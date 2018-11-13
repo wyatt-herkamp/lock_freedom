@@ -1,6 +1,7 @@
 # 0.5.0 (preview)
 * Introduced `CachedId` for TLS.
 * TLS now lets the reference "escape" (read closure is not required anymore).
+* TLS now has a immutable iterator when `T: Sync`.
 
 # 0.4.1 (release)
 * Improved comparison of TLS's id.
