@@ -4,6 +4,8 @@
 export LSAN_OPTIONS='fast_unwind_on_malloc=0'
 export ASAN_OPTIONS='fast_unwind_on_malloc=0'
 
+echo "============ Starting fuzz $(date) ============" >> fuzz.log
+
 while true
 do
     cargo fuzz run $@ -- \
