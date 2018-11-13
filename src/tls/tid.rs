@@ -1,8 +1,8 @@
-use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
+use owned_alloc::OwnedAlloc;
 use std::{
     marker::PhantomData,
     ptr::null_mut,
-    sync::atomic::{AtomicBool, AtomicPtr, Ordering::*},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*},
 };
 
 /// A cached thread-id. Repeated calls to [`ThreadLocal`](super::ThreadLocal)'s
@@ -34,14 +34,34 @@ impl Default for ThreadId {
     }
 }
 
+static ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
+
 static ID_LIST: Node = Node {
     bits: 0,
     free: AtomicBool::new(true),
     next: AtomicPtr::new(null_mut()),
 };
 
+static ID_LIST_BACK: AtomicPtr<Node> =
+    AtomicPtr::new(&ID_LIST as *const _ as *mut _);
+
 thread_local! {
     static ID: IdGuard = IdGuard::new();
+}
+
+fn create_id() -> &'static Node {
+    let node = Node {
+        bits: ID_COUNTER.fetch_add(1, Relaxed),
+        free: AtomicBool::new(false),
+        next: AtomicPtr::new(null_mut()),
+    };
+    let alloc = OwnedAlloc::new(node);
+    let nnptr = alloc.into_raw();
+    let prev = ID_LIST_BACK.swap(nnptr.as_ptr(), Release);
+    unsafe {
+        (*prev).next.store(nnptr.as_ptr(), Release);
+        &*nnptr.as_ptr()
+    }
 }
 
 struct IdGuard {
@@ -50,44 +70,19 @@ struct IdGuard {
 
 impl IdGuard {
     fn new() -> Self {
-        let mut cache = Cache::new();
         let mut node = &ID_LIST;
+        let back_then = ID_LIST_BACK.load(Acquire);
 
         loop {
-            if node.free.swap(false, Acquire) {
+            if node.free.swap(false, Relaxed) {
                 break Self { node };
             }
 
-            match unsafe { node.next.load(Acquire).as_ref() } {
-                Some(refr) => node = refr,
-                None => {
-                    let alloc = cache.take_or(UninitAlloc::new).init(Node {
-                        bits: node
-                            .bits
-                            .checked_add(1)
-                            .expect("too much threads"),
-                        next: AtomicPtr::new(null_mut()),
-                        free: AtomicBool::new(false),
-                    });
-
-                    let nnptr = alloc.into_raw();
-                    let res = node.next.compare_and_swap(
-                        null_mut(),
-                        nnptr.as_ptr(),
-                        Release,
-                    );
-
-                    if res.is_null() {
-                        break Self {
-                            node: unsafe { &*nnptr.as_ptr() },
-                        };
-                    }
-
-                    let alloc = unsafe { OwnedAlloc::from_raw(nnptr) };
-                    cache.store(alloc.drop_in_place());
-                    node = unsafe { &*res };
-                },
+            if node as *const _ == back_then {
+                break Self { node: create_id() };
             }
+
+            node = unsafe { &*node.next.load(Acquire) };
         }
     }
 }
