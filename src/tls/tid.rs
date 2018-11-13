@@ -2,7 +2,7 @@ use owned_alloc::OwnedAlloc;
 use std::{
     marker::PhantomData,
     ptr::null_mut,
-    sync::atomic::{fence, AtomicBool, AtomicPtr, AtomicUsize, Ordering::*},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*},
 };
 
 /// A cached thread-id. Repeated calls to [`ThreadLocal`](super::ThreadLocal)'s
@@ -59,7 +59,9 @@ fn create_node() -> &'static Node {
     let mut alloc = OwnedAlloc::new(node);
 
     // Let's change the counter after the allocation, so memory will be
-    // exhausted before the counter overflows.
+    // exhausted before the counter overflows. Allocation can be seen as
+    // side-effect, since it may perform a syscall. Therefore, it is not
+    // reordered.
     alloc.bits = ID_COUNTER.fetch_add(1, Relaxed);
 
     let nnptr = alloc.into_raw();
@@ -83,8 +85,7 @@ impl IdGuard {
         // We load the back at a given time so our thread-id can be truly
         // wait-free. We won't go further than this node before creating a new
         // one. Remember nodes are never deleted.
-        let back_then = ID_LIST_BACK.load(Relaxed);
-        fence(Acquire);
+        let back_then = ID_LIST_BACK.load(Acquire);
 
         let mut node = &ID_LIST;
 
@@ -94,20 +95,19 @@ impl IdGuard {
                 break Self { node };
             }
 
+            let next = node.next.load(Acquire);
+
             // Then we check if we reached the limited we loaded previously.
-            if node as *const _ == back_then {
+            if next.is_null() || node as *const _ == back_then {
                 // If so, we create a new node.
                 break Self {
                     node: create_node(),
                 };
             }
 
-            // Ok because we only reach null when the test above is true and the
-            // branch for the test breaks the loop. Also, nodes are either
-            // static variables or heap-allocations turned into
-            // static variables.
-            node = unsafe { &*node.next.load(Relaxed) };
-            fence(Acquire);
+            // Ok because nodes are either static variables or heap-allocations
+            // turned into static variables.
+            node = unsafe { &*next };
         }
     }
 }
