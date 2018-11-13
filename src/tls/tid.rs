@@ -2,7 +2,7 @@ use owned_alloc::OwnedAlloc;
 use std::{
     marker::PhantomData,
     ptr::null_mut,
-    sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*},
+    sync::atomic::{fence, AtomicBool, AtomicPtr, AtomicUsize, Ordering::*},
 };
 
 /// A cached thread-id. Repeated calls to [`ThreadLocal`](super::ThreadLocal)'s
@@ -60,10 +60,12 @@ fn create_node() -> &'static Node {
 
     // Let's change the counter after the allocation, so memory will be
     // exhausted before the counter overflows.
-    alloc.bits = ID_COUNTER.fetch_add(1, AcqRel);
+    alloc.bits = ID_COUNTER.fetch_add(1, Relaxed);
 
     let nnptr = alloc.into_raw();
+
     let prev = ID_LIST_BACK.swap(nnptr.as_ptr(), Release);
+
     // Ok because the list back is never null. Also, nodes are either static
     // variables or heap-allocations turned into static variables.
     unsafe {
@@ -78,11 +80,13 @@ struct IdGuard {
 
 impl IdGuard {
     fn new() -> Self {
-        let mut node = &ID_LIST;
         // We load the back at a given time so our thread-id can be truly
         // wait-free. We won't go further than this node before creating a new
         // one. Remember nodes are never deleted.
-        let back_then = ID_LIST_BACK.load(Acquire);
+        let back_then = ID_LIST_BACK.load(Relaxed);
+        fence(Acquire);
+
+        let mut node = &ID_LIST;
 
         loop {
             // First we try to acquire the current node.
@@ -102,7 +106,8 @@ impl IdGuard {
             // branch for the test breaks the loop. Also, nodes are either
             // static variables or heap-allocations turned into
             // static variables.
-            node = unsafe { &*node.next.load(Acquire) };
+            node = unsafe { &*node.next.load(Relaxed) };
+            fence(Acquire);
         }
     }
 }
