@@ -55,7 +55,7 @@ impl<T> Queue<T> {
         let alloc = OwnedAlloc::new(node);
         let node_ptr = alloc.into_raw().as_ptr();
         // Swap with the previously stored back.
-        let prev_back = self.back.swap(node_ptr, Relaxed);
+        let prev_back = self.back.swap(node_ptr, AcqRel);
         unsafe {
             // Updates the previous back's next field to our newly allocated
             // node. This may delay the visibility of the insertion.

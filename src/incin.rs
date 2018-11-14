@@ -81,10 +81,10 @@ impl<T> Incinerator<T> {
     /// Increments the pause counter and creates a pause associated with this
     /// incinerator. Only after creating the pause you should perform atomic
     /// operations such as `load` and any other operation affected by ABA
-    /// problem.
+    /// problem. This operation performs [`Release`] on the pause counter.
     pub fn pause(&self) -> Pause<T> {
         loop {
-            let init = self.counter.load(Acquire);
+            let init = self.counter.load(Relaxed);
             // Sanity check.
             if init == usize::max_value() {
                 panic!("Too many pauses");
@@ -120,6 +120,7 @@ impl<T> Incinerator<T> {
     /// the counter is zero. If the counter is zero when the method is called,
     /// the value is immediately dropped and the garbage list is cleared. You
     /// must remove the resource from shared context before calling this method.
+    /// This operation performs [`Acquire`] on the pause counter.
     pub fn add(&self, val: T) {
         if self.counter.load(Acquire) == 0 {
             // Safe to drop it all. Note that we check the counter after the
@@ -136,7 +137,8 @@ impl<T> Incinerator<T> {
 
     /// Tries to delete the garbage list associated with this thread. The
     /// garbage list is only cleared if the counter is zero. In case of success,
-    /// `true` is returned.
+    /// `true` is returned. This operation performs [`Acquire`] on the pause
+    /// counter.
     pub fn try_clear(&self) -> bool {
         if self.counter.load(Acquire) == 0 {
             // It is only safe to drop if there are no active pauses. Remember
@@ -182,7 +184,8 @@ impl<'incin, T> Pause<'incin, T> {
 
     /// Adds the given value to the garbage list of the incinerator but if the
     /// counter is `1` (i.e. this is the only active pause) data is immediately
-    /// dropped. See documention for [`Incinerator::add`] for more.
+    /// dropped. See documention for [`Incinerator::add`] for more. This
+    /// operation performs [`Acquire`] on the pause counter.
     pub fn add_to_incin(&self, val: T) {
         if self.incin.counter.load(Acquire) == 1 {
             // We are the only pause active in this case.
@@ -202,7 +205,8 @@ impl<'incin, T> Pause<'incin, T> {
     /// Forces drop and decrements the incinerator counter. If the counter
     /// becomes 0, the list associated with this thread is cleared. This method
     /// does not need to be called because the incinerator counter is
-    /// decremented when the pause is dropped.
+    /// decremented when the pause is dropped. This operation performs
+    /// [`AcqRel`] on the pause counter.
     pub fn resume(self) {}
 }
 
