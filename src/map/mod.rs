@@ -16,7 +16,6 @@ use self::{
     insertion::{InsertNew, Reinsert},
     table::Table,
 };
-use incin::Incinerator;
 use owned_alloc::OwnedAlloc;
 use std::{
     borrow::Borrow,
@@ -24,7 +23,6 @@ use std::{
     hash::{BuildHasher, Hash, Hasher},
     iter::FromIterator,
     mem,
-    sync::Arc,
 };
 
 /// A lock-free map. Implemented using multi-level hash-tables (in a tree

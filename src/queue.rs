@@ -1,14 +1,11 @@
-use incin::{Incinerator, Pause};
+use incin::Pause;
 use owned_alloc::OwnedAlloc;
 use removable::Removable;
 use std::{
     fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
-    sync::{
-        atomic::{AtomicPtr, Ordering::*},
-        Arc,
-    },
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
 
 /// A lock-free general-purpouse queue. FIFO semanthics are fully respected.

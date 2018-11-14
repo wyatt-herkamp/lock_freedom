@@ -1,4 +1,3 @@
-use incin::Incinerator;
 use std::{
     fmt,
     sync::{

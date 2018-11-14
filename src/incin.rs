@@ -292,7 +292,7 @@ macro_rules! make_shared_incin {
                      were used.");
             $(#[$meta])*
             $vis struct $name<$($params),*> {
-                inner: Arc<Incinerator<$garbage>>,
+                inner: ::std::sync::Arc<::incin::Incinerator<$garbage>>,
             }
         }
 
@@ -300,6 +300,8 @@ macro_rules! make_shared_incin {
             doc! {
                 concat!("Creates a new shared incinerator for ", $target, ".");
                 $vis fn new() -> Self {
+                    use std::sync::Arc;
+                    use incin::Incinerator;
                     Self {
                         inner: Arc::new(Incinerator::new()),
                     }
@@ -311,11 +313,28 @@ macro_rules! make_shared_incin {
                          best possible way given the runtime status of this \
                          incinerator.");
                 $vis fn clear(&mut self) {
-                    if let Some(incin) = Arc::get_mut(&mut self.inner) {
-                        incin.clear();
-                        return;
+                    use std::{
+                        mem::{forget, replace, uninitialized},
+                        sync::Arc,
+                    };
+
+                    // I know this sounds weird. This is because Arc::get_mut
+                    // locks stuff. We don't want that.
+                    let arc = unsafe {
+                        replace(&mut self.inner, uninitialized())
+                    };
+
+                    match Arc::try_unwrap(arc) {
+                        Ok(mut incin) => {
+                            incin.clear();
+                            forget(replace(&mut self.inner, Arc::new(incin)));
+                        },
+
+                        Err(arc) => {
+                            arc.try_clear();
+                            forget(replace(&mut self.inner, arc));
+                        }
                     }
-                    self.inner.try_clear();
                 }
             }
         }

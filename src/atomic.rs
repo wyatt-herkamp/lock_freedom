@@ -1,18 +1,14 @@
-use incin::Incinerator;
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 pub use std::sync::atomic::Ordering;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
-    sync::{
-        atomic::{
-            AtomicBool,
-            AtomicIsize,
-            AtomicPtr,
-            AtomicUsize,
-            Ordering::*,
-        },
-        Arc,
+    sync::atomic::{
+        AtomicBool,
+        AtomicIsize,
+        AtomicPtr,
+        AtomicUsize,
+        Ordering::*,
     },
 };
 

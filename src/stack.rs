@@ -1,14 +1,10 @@
-use incin::Incinerator;
 use owned_alloc::OwnedAlloc;
 use std::{
     fmt,
     iter::FromIterator,
     mem::ManuallyDrop,
     ptr::{null_mut, NonNull},
-    sync::{
-        atomic::{AtomicPtr, Ordering::*},
-        Arc,
-    },
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
 
 /// A lock-free stack. LIFO/FILO semanthics are fully respected.

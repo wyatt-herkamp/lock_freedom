@@ -2,7 +2,7 @@ pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
-use incin::{Incinerator, Pause};
+use incin::Pause;
 use owned_alloc::OwnedAlloc;
 use removable::Removable;
 use std::{
