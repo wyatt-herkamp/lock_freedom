@@ -89,15 +89,10 @@ impl Channel for Mutexed {
     type Receiver = MutexedReceiver;
 
     fn create() -> (Self::Sender, Self::Receiver) {
-        let inner = MutexedInner {
-            connected: true,
-            queue: VecDeque::new(),
-        };
+        let inner = MutexedInner { connected: true, queue: VecDeque::new() };
         let inner = Arc::new(Mutex::new(inner));
 
-        let sender = MutexedSender {
-            inner: inner.clone(),
-        };
+        let sender = MutexedSender { inner: inner.clone() };
         let receiver = MutexedReceiver { inner };
         (sender, receiver)
     }

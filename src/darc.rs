@@ -22,17 +22,12 @@ impl<T> Darc<T> {
     /// Creates a new [`Darc`] from the given [`Arc`] and a given shared
     /// incinerator.
     pub fn with_incin(arc: Arc<T>, incin: SharedIncin<T>) -> Self {
-        Self {
-            ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _),
-            incin,
-        }
+        Self { ptr: AtomicPtr::new(Arc::into_raw(arc) as *mut _), incin }
     }
 
     /// The shared incinerator used by this [`Darc`].
     pub fn incin(&self) -> SharedIncin<T> {
-        SharedIncin {
-            inner: self.incin.inner.clone(),
-        }
+        SharedIncin { inner: self.incin.inner.clone() }
     }
 
     /// Loads the [`Darc`] into an [`Arc`].
@@ -315,14 +310,8 @@ mod test {
         let y = Arc::new(6);
         let z = Arc::new(7);
         let darc = Darc::new(x.clone());
-        assert!(!Arc::ptr_eq(
-            &y,
-            &darc.compare_and_swap(y.clone(), z.clone())
-        ));
-        assert!(Arc::ptr_eq(
-            &x,
-            &darc.compare_and_swap(x.clone(), z.clone())
-        ));
+        assert!(!Arc::ptr_eq(&y, &darc.compare_and_swap(y.clone(), z.clone())));
+        assert!(Arc::ptr_eq(&x, &darc.compare_and_swap(x.clone(), z.clone())));
         assert!(Arc::ptr_eq(&z, &darc.load()));
     }
 

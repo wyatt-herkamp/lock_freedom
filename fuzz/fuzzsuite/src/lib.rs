@@ -40,26 +40,14 @@ impl Bytecode {
                 buf.push(i as u8);
                 i += 1;
             }
-            Self {
-                data: buf.into(),
-                ip: 0,
-                sym_size: 1,
-            }
+            Self { data: buf.into(), ip: 0, sym_size: 1 }
         } else {
-            Self {
-                data: fuzz.into(),
-                ip: 0,
-                sym_size: fuzz.len() / 512,
-            }
+            Self { data: fuzz.into(), ip: 0, sym_size: fuzz.len() / 512 }
         }
     }
 
     pub fn no_symbols(fuzz: &[u8]) -> Self {
-        Self {
-            data: fuzz.into(),
-            ip: 0,
-            sym_size: 0,
-        }
+        Self { data: fuzz.into(), ip: 0, sym_size: 0 }
     }
 
     pub fn code_seg(&self) -> &[u8] {
@@ -95,10 +83,7 @@ where
     T: Spawn,
 {
     pub fn new(machine: T) -> Self {
-        Self {
-            machine,
-            threads: Vec::new(),
-        }
+        Self { machine, threads: Vec::new() }
     }
 }
 

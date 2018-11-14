@@ -72,10 +72,7 @@ pub struct Incinerator<T> {
 impl<T> Incinerator<T> {
     /// Creates a new incinerator, with no pauses and empty garbage list.
     pub fn new() -> Self {
-        Self {
-            counter: AtomicUsize::new(0),
-            tls_list: ThreadLocal::new(),
-        }
+        Self { counter: AtomicUsize::new(0), tls_list: ThreadLocal::new() }
     }
 
     /// Increments the pause counter and creates a pause associated with this
@@ -83,20 +80,24 @@ impl<T> Incinerator<T> {
     /// operations such as `load` and any other operation affected by ABA
     /// problem. This operation performs [`Release`] on the pause counter.
     pub fn pause(&self) -> Pause<T> {
+        let mut count = self.counter.load(Relaxed);
         loop {
-            let init = self.counter.load(Relaxed);
             // Sanity check.
-            if init == usize::max_value() {
+            if count == usize::max_value() {
                 panic!("Too many pauses");
             }
             // Simply try to increment it. This will be decremented at
             // `Pause::drop`. Nobody will be able to drop stuff while this is
             // not 0.
-            if self.counter.compare_and_swap(init, init + 1, Release) == init {
-                break Pause {
-                    incin: self,
-                    _unsync: PhantomData,
-                };
+            match self.counter.compare_exchange(
+                count,
+                count + 1,
+                Release,
+                Relaxed,
+            ) {
+                Ok(_) => break Pause { incin: self, _unsync: PhantomData },
+
+                Err(new) => count = new,
             }
         }
     }
@@ -234,9 +235,7 @@ struct GarbageList<T> {
 
 impl<T> GarbageList<T> {
     fn new() -> Self {
-        Self {
-            list: Cell::new(Vec::new()),
-        }
+        Self { list: Cell::new(Vec::new()) }
     }
 
     fn add(&self, val: T) {

@@ -479,10 +479,7 @@ impl<K, V> Node<K, V> {
 
 impl<K, V> Node<K, V> {
     fn new() -> Self {
-        Self {
-            atomic: AtomicPtr::new(null_mut()),
-            _marker: PhantomData,
-        }
+        Self { atomic: AtomicPtr::new(null_mut()), _marker: PhantomData }
     }
 }
 

@@ -182,11 +182,7 @@ where
         let (key, val) = unsafe { self.nnptr.as_mut() };
 
         let preview = {
-            let val = if self.is_val_init {
-                Some(&mut *val)
-            } else {
-                None
-            };
+            let val = if self.is_val_init { Some(&mut *val) } else { None };
             (self.interactive)(key, val, found)
         };
 
@@ -243,11 +239,7 @@ where
     F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
 {
     pub fn new(interactive: F, removed: Removed<K, V>) -> Self {
-        Self {
-            interactive,
-            removed,
-            is_valid: false,
-        }
+        Self { interactive, removed, is_valid: false }
     }
 
     pub fn into_removed(self) -> Removed<K, V> {

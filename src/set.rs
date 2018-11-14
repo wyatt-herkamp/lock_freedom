@@ -32,9 +32,7 @@ impl<T> Set<T> {
 
     /// Creates the [`Set`] using the given shared incinerator.
     pub fn with_incin(incin: SharedIncin<T>) -> Self {
-        Self {
-            inner: Map::with_incin(incin.inner),
-        }
+        Self { inner: Map::with_incin(incin.inner) }
     }
 }
 
@@ -51,24 +49,18 @@ where
 {
     /// Creates a [`Set`] with the given hasher builder.
     pub fn with_hasher(builder: H) -> Self {
-        Self {
-            inner: Map::with_hasher(builder),
-        }
+        Self { inner: Map::with_hasher(builder) }
     }
 
     /// Creates the [`Set`] using the given hasher builder and shared
     /// incinerator.
     pub fn with_hasher_and_incin(builder: H, incin: SharedIncin<T>) -> Self {
-        Self {
-            inner: Map::with_hasher_and_incin(builder, incin.inner),
-        }
+        Self { inner: Map::with_hasher_and_incin(builder, incin.inner) }
     }
 
     /// The shared incinerator used by this `Map`.
     pub fn incin(&self) -> SharedIncin<T> {
-        SharedIncin {
-            inner: self.inner.incin(),
-        }
+        SharedIncin { inner: self.inner.incin() }
     }
 
     /// Returns the hasher builder used by this [`Set`].
@@ -172,9 +164,8 @@ where
     where
         T: Hash + Ord,
     {
-        let result = self
-            .inner
-            .reinsert_with(elem.inner, |_, stored| stored.is_none());
+        let result =
+            self.inner.reinsert_with(elem.inner, |_, stored| stored.is_none());
         match result {
             MapInsertion::Created => Ok(()),
             MapInsertion::Failed(removed) => Err(Removed::new(removed)),
@@ -268,9 +259,7 @@ where
     H: BuildHasher + Default,
 {
     fn default() -> Self {
-        Self {
-            inner: Map::default(),
-        }
+        Self { inner: Map::default() }
     }
 }
 
@@ -289,9 +278,7 @@ impl<T, H> IntoIterator for Set<T, H> {
     type IntoIter = IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        IntoIter {
-            inner: self.inner.into_iter(),
-        }
+        IntoIter { inner: self.inner.into_iter() }
     }
 }
 
@@ -301,9 +288,7 @@ impl<'set, T, H> IntoIterator for &'set Set<T, H> {
     type IntoIter = Iter<'set, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter {
-            inner: self.inner.iter(),
-        }
+        Iter { inner: self.inner.iter() }
     }
 }
 
@@ -601,9 +586,7 @@ pub struct SharedIncin<T> {
 impl<T> SharedIncin<T> {
     /// Creates a new shared incinerator for [`Set`].
     pub fn new() -> Self {
-        Self {
-            inner: MapIncin::new(),
-        }
+        Self { inner: MapIncin::new() }
     }
 }
 
@@ -621,9 +604,7 @@ impl<T> Default for SharedIncin<T> {
 
 impl<T> Clone for SharedIncin<T> {
     fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self { inner: self.inner.clone() }
     }
 }
 
@@ -718,16 +699,10 @@ mod test {
         set.insert(EqI { i: 32, j: 0 }).unwrap();
         set.insert(EqI { i: 34, j: 10 }).unwrap();
         set.insert(EqI { i: 34, j: 6 }).unwrap_err();
-        set.insert_with(EqI { i: 34, j: 6 }, |_, _| true)
-            .updated()
-            .unwrap();
-        set.insert_with(EqI { i: 34, j: 2 }, |_, _| false)
-            .failed()
-            .unwrap();
+        set.insert_with(EqI { i: 34, j: 6 }, |_, _| true).updated().unwrap();
+        set.insert_with(EqI { i: 34, j: 2 }, |_, _| false).failed().unwrap();
         assert!(set.insert_with(EqI { i: 33, j: 2 }, |_, _| true).created());
-        set.insert_with(EqI { i: 32, j: 3 }, |_, _| true)
-            .updated()
-            .unwrap();
+        set.insert_with(EqI { i: 32, j: 3 }, |_, _| true).updated().unwrap();
     }
 
     #[test]

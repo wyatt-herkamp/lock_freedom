@@ -17,10 +17,7 @@ impl ThreadId {
     /// Loads the ID for this thread.
     #[inline]
     pub fn current() -> Self {
-        ID.with(|id| Self {
-            bits: id.node.bits,
-            _non_tsafe: PhantomData,
-        })
+        ID.with(|id| Self { bits: id.node.bits, _non_tsafe: PhantomData })
     }
 
     pub(super) fn bits(self) -> usize {
@@ -100,9 +97,7 @@ impl IdGuard {
             // Then we check if we reached the limited we loaded previously.
             if next.is_null() || node as *const _ == back_then {
                 // If so, we create a new node.
-                break Self {
-                    node: create_node(),
-                };
+                break Self { node: create_node() };
             }
 
             // Ok because nodes are either static variables or heap-allocations

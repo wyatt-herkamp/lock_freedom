@@ -155,10 +155,7 @@ impl<K, V> Removed<K, V> {
         alloc: OwnedAlloc<(K, V)>,
         origin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> Self {
-        Self {
-            nnptr: alloc.into_raw(),
-            origin: Arc::downgrade(origin),
-        }
+        Self { nnptr: alloc.into_raw(), origin: Arc::downgrade(origin) }
     }
 
     pub(super) fn into_alloc(mut this: Self) -> OwnedAlloc<(K, V)> {
@@ -256,9 +253,7 @@ impl<K, V> Drop for Removed<K, V> {
     fn drop(&mut self) {
         // We own the allocation. This must be safe.
         let alloc = unsafe { OwnedAlloc::from_raw(self.nnptr) };
-        self.origin
-            .upgrade()
-            .map(|incin| incin.add(Garbage::Pair(alloc)));
+        self.origin.upgrade().map(|incin| incin.add(Garbage::Pair(alloc)));
     }
 }
 

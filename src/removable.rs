@@ -18,10 +18,7 @@ pub struct Removable<T> {
 impl<T> Removable<T> {
     /// Creates a removable item with the passed argument as a present value.
     pub fn new(val: T) -> Self {
-        Self {
-            item: ManuallyDrop::new(val),
-            present: AtomicBool::new(true),
-        }
+        Self { item: ManuallyDrop::new(val), present: AtomicBool::new(true) }
     }
 
     /// Creates a removable item with no present value.

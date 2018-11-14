@@ -124,11 +124,7 @@ where
     /// Creates the [`Map`] using the given hasher builder and shared
     /// incinerator.
     pub fn with_hasher_and_incin(builder: H, incin: SharedIncin<K, V>) -> Self {
-        Self {
-            top: Table::new_alloc(),
-            incin,
-            builder,
-        }
+        Self { top: Table::new_alloc(), incin, builder }
     }
 
     /// The shared incinerator used by this [`Map`].
@@ -354,8 +350,7 @@ where
         let pause = self.incin.inner.pause();
         // Safe because we paused properly.
         unsafe {
-            self.top
-                .remove(key, interactive, hash, &pause, &self.incin.inner)
+            self.top.remove(key, interactive, hash, &pause, &self.incin.inner)
         }
     }
 

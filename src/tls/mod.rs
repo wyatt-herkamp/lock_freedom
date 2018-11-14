@@ -52,9 +52,7 @@ pub struct ThreadLocal<T> {
 impl<T> ThreadLocal<T> {
     /// Creates an empty thread local storage.
     pub fn new() -> Self {
-        Self {
-            top: Table::new_alloc(),
-        }
+        Self { top: Table::new_alloc() }
     }
 
     /// Removes and drops all entries. The TLS is considered empty then. This
@@ -82,10 +80,7 @@ impl<T> ThreadLocal<T> {
     where
         T: Sync,
     {
-        Iter {
-            curr_table: Some((&self.top, 0)),
-            tables: Vec::new(),
-        }
+        Iter { curr_table: Some((&self.top, 0)), tables: Vec::new() }
     }
 
     /// Creates an iterator over mutable refereces of entries.
@@ -93,10 +88,7 @@ impl<T> ThreadLocal<T> {
     where
         T: Send,
     {
-        IterMut {
-            curr_table: Some((&mut self.top, 0)),
-            tables: Vec::new(),
-        }
+        IterMut { curr_table: Some((&mut self.top, 0)), tables: Vec::new() }
     }
 
     /// Accesses the entry for the current thread. No initialization is
@@ -188,17 +180,15 @@ impl<T> ThreadLocal<T> {
         // The depth of the iterations.
         let mut depth = 1;
         let mut shifted = id.bits();
+        // The pointer stored in place.
+        let mut index = shifted & (1 << BITS) - 1;
+        let mut in_place = table.nodes[index].atomic.load(Acquire);
         // Using `LazyInit` to make sure we only initialize if there is no
         // entry.
         let mut init = LazyInit::Pending(move || Entry { id, data: init() });
         let mut tbl_cache = Cache::<OwnedAlloc<Table<T>>>::new();
 
         loop {
-            // The index of the node for our id.
-            let index = shifted & (1 << BITS) - 1;
-            // First of all, let's check what is stored.
-            let in_place = table.nodes[index].atomic.load(Acquire);
-
             if in_place.is_null() {
                 // Null means we have an empty node and also our thread has
                 // not stored anything. Let's initialize.
@@ -209,20 +199,23 @@ impl<T> ThreadLocal<T> {
                 debug_assert!(nnptr.as_ptr() as usize & 1 == 0);
 
                 // Trying to publish our freshly created entry.
-                let res = table.nodes[index].atomic.compare_and_swap(
+                match table.nodes[index].atomic.compare_exchange(
                     in_place,
                     nnptr.as_ptr() as *mut (),
-                    Release,
-                );
+                    AcqRel,
+                    Acquire,
+                ) {
+                    Ok(_) => {
+                        // If the stored value still was null, we succeeded.
+                        // Let's read the entry.
+                        //
+                        // This is safe since... This is the pointer we just
+                        // allocated and we only delete nodes through mutable
+                        // references to the TLS.
+                        break unsafe { &(*nnptr.as_ptr()).data };
+                    },
 
-                if res.is_null() {
-                    // If the stored value still was null, we succeeded.
-                    // Let's read the entry.
-                    //
-                    // This is safe since... This is the pointer we just
-                    // allocated and we only delete nodes through mutable
-                    // references to the TLS.
-                    break unsafe { &(*nnptr.as_ptr()).data };
+                    Err(new) => in_place = new,
                 }
             } else if in_place as usize & 1 == 0 {
                 // First lower bit set to 0 means we have an entry.
@@ -262,46 +255,55 @@ impl<T> ThreadLocal<T> {
                 let new_tbl_ptr = new_tbl.into_raw();
 
                 // Let's try to publish our work.
-                let res = table.nodes[index].atomic.compare_and_swap(
+                match table.nodes[index].atomic.compare_exchange(
                     in_place,
                     // First lower bit set to 1 means it is a table
                     // pointer.
                     (new_tbl_ptr.as_ptr() as usize | 1) as *mut (),
+                    AcqRel,
                     Release,
-                );
+                ) {
+                    Ok(_) => {
+                        // If the old node was still stored, we succeeded.
+                        // Let's set the new table as the table for the next
+                        // iteration.
+                        //
+                        // This is safe since it is the table we just allocated
+                        // and we only delete it through mutable references to
+                        // the TLS.
+                        table = unsafe { &*new_tbl_ptr.as_ptr() };
+                        // We are going one depth further.
+                        depth += 1;
+                        // Shift our "hash" for the next level.
+                        shifted >>= BITS;
+                        // Load new in place pointer.
+                        index = shifted & (1 << BITS) - 1;
+                        in_place = table.nodes[index].atomic.load(Acquire);
+                    },
 
-                if res == in_place {
-                    // If the old node was still stored, we succeeded.
-                    // Let's set the new table as the table for the next
-                    // iteration.
-                    //
-                    // This is safe since it is the table we just allocated
-                    // and we only delete it through mutable references to
-                    // the TLS.
-                    table = unsafe { &*new_tbl_ptr.as_ptr() };
-                    // We are going one depth further.
-                    depth += 1;
-                    // Shift our "hash" for the next level.
-                    shifted >>= BITS;
-                } else {
-                    // If we failed, let's rebuild the owned allocation.
-                    //
-                    // This is safe since it is the table we just allocated
-                    // and we don't share it.
-                    let new_tbl = unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
-                    // Clear that pre-inserted node.
-                    new_tbl.nodes[other_index]
-                        .atomic
-                        .store(null_mut(), Relaxed);
+                    Err(new) => {
+                        // If we failed, let's rebuild the owned allocation.
+                        //
+                        // This is safe since it is the table we just allocated
+                        // and we don't share it.
+                        let new_tbl =
+                            unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
+                        // Clear that pre-inserted node.
+                        new_tbl.nodes[other_index]
+                            .atomic
+                            .store(null_mut(), Relaxed);
 
-                    // Store it into the cache for later.
-                    tbl_cache.store(new_tbl);
+                        // Store it into the cache for later.
+                        tbl_cache.store(new_tbl);
+                        in_place = new;
+                    },
                 }
             } else {
                 // The remaining case (non-null with first lower bit set to
                 // 1) is a table. Clear the pointer first lower bit so we
                 // can dereference it.
                 let table_ptr = (in_place as usize & !1) as *mut Table<T>;
+
                 // Set it as table for the next iteration.
                 //
                 // 1. We only store nodes with marked lower bit if it is an
@@ -317,6 +319,9 @@ impl<T> ThreadLocal<T> {
                 depth += 1;
                 // Shift our "hash" for the next level.
                 shifted >>= BITS;
+                // Load new in place pointer.
+                index = shifted & (1 << BITS) - 1;
+                in_place = table.nodes[index].atomic.load(Acquire);
             }
         }
     }
@@ -398,10 +403,7 @@ where
         // Safe since this is the allocation we just forgot about.
         let top = unsafe { OwnedAlloc::from_raw(raw) };
 
-        IntoIter {
-            curr_table: Some((top, 0)),
-            tables: Vec::new(),
-        }
+        IntoIter { curr_table: Some((top, 0)), tables: Vec::new() }
     }
 }
 
@@ -501,10 +503,7 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let (table, index) = self.curr_table.take()?;
-            match table
-                .nodes
-                .get_mut(index)
-                .map(|node| *node.atomic.get_mut())
+            match table.nodes.get_mut(index).map(|node| *node.atomic.get_mut())
             {
                 Some(ptr) if ptr.is_null() => {
                     self.curr_table = Some((table, index + 1))
@@ -569,10 +568,7 @@ impl<T> Iterator for IntoIter<T> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let (mut table, index) = self.curr_table.take()?;
-            match table
-                .nodes
-                .get_mut(index)
-                .map(|node| *node.atomic.get_mut())
+            match table.nodes.get_mut(index).map(|node| *node.atomic.get_mut())
             {
                 Some(ptr) if ptr.is_null() => {
                     self.curr_table = Some((table, index + 1))

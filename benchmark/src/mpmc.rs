@@ -94,16 +94,11 @@ impl Channel for Mutexed {
     type Receiver = MutexedReceiver;
 
     fn create() -> (Self::Sender, Self::Receiver) {
-        let inner = MutexedInner {
-            senders: 1,
-            receivers: 1,
-            queue: VecDeque::new(),
-        };
+        let inner =
+            MutexedInner { senders: 1, receivers: 1, queue: VecDeque::new() };
         let inner = Arc::new(Mutex::new(inner));
 
-        let sender = MutexedSender {
-            inner: inner.clone(),
-        };
+        let sender = MutexedSender { inner: inner.clone() };
         let receiver = MutexedReceiver { inner };
         (sender, receiver)
     }
@@ -134,9 +129,7 @@ impl Sender for MutexedSender {
 impl Clone for MutexedSender {
     fn clone(&self) -> Self {
         self.inner.lock().unwrap().senders += 1;
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self { inner: self.inner.clone() }
     }
 }
 
@@ -172,9 +165,7 @@ impl Drop for MutexedReceiver {
 impl Clone for MutexedReceiver {
     fn clone(&self) -> Self {
         self.inner.lock().unwrap().receivers += 1;
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self { inner: self.inner.clone() }
     }
 }
 

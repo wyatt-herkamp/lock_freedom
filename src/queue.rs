@@ -64,16 +64,15 @@ impl<T> Queue<T> {
     pub fn pop(&self) -> Option<T> {
         // Pausing because of ABA problem involving remotion from linked lists.
         let pause = self.incin.inner.pause();
+        let mut front_nnptr = unsafe {
+            // The pointer stored in front and back must never be null. The
+            // queue always have at least one node. Front and back are
+            // always connected.
+            let ptr = self.front.load(Relaxed);
+            debug_assert!(!ptr.is_null());
+            NonNull::new_unchecked(ptr)
+        };
         loop {
-            let front_nnptr = unsafe {
-                // The pointer stored in front and back must never be null. The
-                // queue always have at least one node. Front and back are
-                // always connected.
-                let ptr = self.front.load(Relaxed);
-                debug_assert!(!ptr.is_null());
-                NonNull::new_unchecked(ptr)
-            };
-
             // This dereferral is safe because we paused the incinerator and
             // only delete nodes via incinerator.
             //
@@ -90,7 +89,9 @@ impl<T> Queue<T> {
                 // Safe to call because we passed a pointer from the front
                 // which was loaded during the very same pause we are
                 // passing.
-                None => unsafe { self.try_clear_first(front_nnptr, &pause)? },
+                None => unsafe {
+                    front_nnptr = self.try_clear_first(front_nnptr, &pause)?
+                },
             }
         }
     }
@@ -114,28 +115,33 @@ impl<T> Queue<T> {
         &self,
         expected: NonNull<Node<T>>,
         pause: &Pause<OwnedAlloc<Node<T>>>,
-    ) -> Option<()> {
+    ) -> Option<NonNull<Node<T>>> {
         let next = expected.as_ref().next.load(Acquire);
 
         // If this is the only node, we will not remove it. We want front and
         // back to share the same node rather than having to set both to null
         // when the queue is empty.
-        if next.is_null() {
-            // Then we are sure the queue is empty.
-            None
-        } else {
+        NonNull::new(next).map(|next_nnptr| {
             let ptr = expected.as_ptr();
-            let res = self.front.compare_and_swap(ptr, next, Relaxed);
+
             // We are not oblied to succeed. This is just cleanup and some other
             // thread might do it.
-            if res == expected.as_ptr() {
-                // Only deleting nodes via incinerator due to ABA problem and
-                // use-after-frees.
-                pause.add_to_incin(OwnedAlloc::from_raw(expected));
+            match self.front.compare_exchange(ptr, next, Relaxed, Relaxed) {
+                Ok(_) => {
+                    // Only deleting nodes via incinerator due to ABA problem
+                    // and use-after-frees.
+                    pause.add_to_incin(OwnedAlloc::from_raw(expected));
+                    next_nnptr
+                },
+
+                Err(found) => {
+                    // Safe to by-pass the check since we only store non-null
+                    // pointers on the front.
+                    debug_assert!(!ptr.is_null());
+                    NonNull::new_unchecked(found)
+                },
             }
-            // Then we *might* have some element since we found another node.
-            Some(())
-        }
+        })
     }
 }
 
@@ -271,10 +277,7 @@ struct Node<T> {
 
 impl<T> Node<T> {
     fn new(item: Removable<T>) -> Self {
-        Self {
-            item,
-            next: AtomicPtr::new(null_mut()),
-        }
+        Self { item, next: AtomicPtr::new(null_mut()) }
     }
 }
 

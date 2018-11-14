@@ -102,9 +102,7 @@ where
     }
 
     thread::sleep(Duration::from_millis(sleep2));
-    sender
-        .send(Request::Delete(Arc::from("not in the map")))
-        .unwrap();
+    sender.send(Request::Delete(Arc::from("not in the map"))).unwrap();
 
     drop(sender);
 

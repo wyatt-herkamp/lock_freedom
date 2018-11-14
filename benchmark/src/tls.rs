@@ -78,10 +78,7 @@ impl TargetData for LfCachedData {
     type Target = LfCachedTarget;
 
     fn init_thread(self) -> Self::Target {
-        LfCachedTarget {
-            shared: self,
-            id: ThreadId::current(),
-        }
+        LfCachedTarget { shared: self, id: ThreadId::current() }
     }
 }
 

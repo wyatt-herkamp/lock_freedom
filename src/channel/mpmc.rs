@@ -32,16 +32,12 @@ pub fn with_incin<T>(incin: SharedIncin<T>) -> (Sender<T>, Receiver<T>) {
     let single_node = alloc.into_raw();
 
     // The we put it in a shared back.
-    let shared = SharedBack {
-        ptr: AtomicPtr::new(single_node.as_ptr()),
-    };
+    let shared = SharedBack { ptr: AtomicPtr::new(single_node.as_ptr()) };
     let alloc = OwnedAlloc::new(shared);
     let back = alloc.into_raw();
 
     // Put the shared back in the sender.
-    let sender = Sender {
-        inner: Arc::new(SenderInner { back }),
-    };
+    let sender = Sender { inner: Arc::new(SenderInner { back }) };
 
     // And put the shared back and the single node (again) as front in the
     // receiver.
@@ -157,9 +153,7 @@ unsafe impl<T> Sync for Sender<T> where T: Send {}
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self { inner: self.inner.clone() }
     }
 }
 
@@ -279,9 +273,7 @@ unsafe impl<T> Sync for Receiver<T> where T: Send {}
 
 impl<T> Clone for Receiver<T> {
     fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self { inner: self.inner.clone() }
     }
 }
 

@@ -21,10 +21,7 @@ impl<T> Stack<T> {
 
     /// Creates an empty queue using the passed shared incinerator.
     pub fn with_incin(incin: SharedIncin<T>) -> Self {
-        Self {
-            top: AtomicPtr::new(null_mut()),
-            incin,
-        }
+        Self { top: AtomicPtr::new(null_mut()), incin }
     }
 
     /// Returns the shared incinerator used by this [`Stack`].
@@ -41,22 +38,25 @@ impl<T> Stack<T> {
     /// Pushes a new value onto the top of the stack.
     pub fn push(&self, val: T) {
         // Let's first create a node.
-        let mut target = OwnedAlloc::new(Node::new(val));
-        loop {
-            // Load current top as our "next".
-            let next = self.top.load(Acquire);
-            // Put our "next" into the new top.
-            target.next = next;
+        let mut target =
+            OwnedAlloc::new(Node::new(val, self.top.load(Acquire)));
 
+        loop {
             // Let's try to publish our changes.
             let new_top = target.raw().as_ptr();
-            let inner = self.top.compare_and_swap(next, new_top, Release);
+            match self.top.compare_exchange(
+                target.next,
+                new_top,
+                Release,
+                Relaxed,
+            ) {
+                Ok(_) => {
+                    // Let's be sure we do not deallocate the pointer.
+                    target.into_raw();
+                    break;
+                },
 
-            // We will succeed if our "next" still was the top.
-            if inner == next {
-                // Let's be sure we do not deallocate the pointer.
-                target.into_raw();
-                break;
+                Err(ptr) => target.next = ptr,
             }
         }
     }
@@ -65,9 +65,10 @@ impl<T> Stack<T> {
     pub fn pop(&self) -> Option<T> {
         // We need this because of ABA problem and use-after-free.
         let pause = self.incin.inner.pause();
+        // First, let's load our top.
+        let mut top = self.top.load(Acquire);
+
         loop {
-            // First, let's load our top.
-            let top = self.top.load(Relaxed);
             // If top is null, we have nothing. Try operator (?) handles it.
             let mut nnptr = NonNull::new(top)?;
             // The replacement for top is its "next". This is only possible
@@ -76,26 +77,29 @@ impl<T> Stack<T> {
             //
             // Note this dereferral is safe because we only delete nodes via
             // incinerator and we have a pause now.
-            let res = self.top.compare_and_swap(
+            match self.top.compare_exchange(
                 top,
                 unsafe { nnptr.as_ref().next },
-                Relaxed,
-            );
+                AcqRel,
+                Acquire,
+            ) {
+                Ok(_) => {
+                    // Done with an element. Let's first get the "val" to be
+                    // returned.
+                    //
+                    // This derreferal and read are safe since we drop the
+                    // node via incinerator and we never drop the inner value
+                    // when dropping the node in the incinerator.
+                    let val =
+                        unsafe { (&mut *nnptr.as_mut().val as *mut T).read() };
+                    // Safe because we already removed the node and we are
+                    // adding to the incinerator rather than
+                    // dropping it directly.
+                    pause.add_to_incin(unsafe { OwnedAlloc::from_raw(nnptr) });
+                    break Some(val);
+                },
 
-            // We succeed if top still was the loaded pointer.
-            if res == top {
-                // Done with an element. Let's first get the "val" to be
-                // returned.
-                //
-                // This derreferal and read are safe since we drop the
-                // node via incinerator and we never drop the inner value
-                // when dropping the node in the incinerator.
-                let val =
-                    unsafe { (&mut *nnptr.as_mut().val as *mut T).read() };
-                // Safe because we already removed the node and we are adding to
-                // the incinerator rather than dropping it directly.
-                pause.add_to_incin(unsafe { OwnedAlloc::from_raw(nnptr) });
-                break Some(val);
+                Err(new_top) => top = new_top,
             }
         }
     }
@@ -215,11 +219,8 @@ struct Node<T> {
 }
 
 impl<T> Node<T> {
-    fn new(val: T) -> Self {
-        Self {
-            val: ManuallyDrop::new(val),
-            next: null_mut(),
-        }
+    fn new(val: T, next: *mut Node<T>) -> Self {
+        Self { val: ManuallyDrop::new(val), next }
     }
 }
 

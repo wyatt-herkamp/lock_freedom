@@ -1,7 +1,7 @@
 disable_all_formatting = false
 
 indent_style = "Block"
-use_small_heuristics = "Default"
+use_small_heuristics = "Max"
 binop_separator = "Front"
 combine_control_expr = true
 comment_width = 80

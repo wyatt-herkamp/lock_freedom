@@ -279,9 +279,7 @@ where
     }
 
     fn load(&self, ord: Ordering) -> Self::Inner {
-        self.incin
-            .inner
-            .pause_with(|| unsafe { *self.ptr.load(ord) })
+        self.incin.inner.pause_with(|| unsafe { *self.ptr.load(ord) })
     }
 
     fn store(&self, val: Self::Inner, ord: Ordering) {
@@ -514,10 +512,7 @@ where
     /// Creates the [`AtomicOptionBox`] with an initial value and a given shared
     /// incinerator.
     pub fn with_incin(init: Option<T>, incin: BoxSharedIncin<T>) -> Self {
-        Self {
-            ptr: Self::make_ptr(init).into_atomic(),
-            incin,
-        }
+        Self { ptr: Self::make_ptr(init).into_atomic(), incin }
     }
 
     /// The shared incinerator used by this [`AtomicOptionBox`].
@@ -790,11 +785,7 @@ make_shared_incin! {
 
 impl<T> fmt::Debug for BoxSharedIncin<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmtr,
-            "BoxSharedIncin {} inner: {:?} {}",
-            '{', self.inner, '}'
-        )
+        write!(fmtr, "BoxSharedIncin {} inner: {:?} {}", '{', self.inner, '}')
     }
 }
 

@@ -25,20 +25,13 @@ pub fn create<T>() -> (Sender<T>, Receiver<T>) {
 
     // Also, we share a pointer to an atomic pointer to a node. This is because
     // we mark the atomic pointer.
-    let shared = SharedBack {
-        ptr: AtomicPtr::new(single_node.as_ptr()),
-    };
+    let shared = SharedBack { ptr: AtomicPtr::new(single_node.as_ptr()) };
     let alloc = OwnedAlloc::new(shared);
     let back = alloc.into_raw();
 
     // Sender with an Arc because it is shared.
-    let sender = Sender {
-        inner: Arc::new(SenderInner { back }),
-    };
-    let receiver = Receiver {
-        back,
-        front: single_node,
-    };
+    let sender = Sender { inner: Arc::new(SenderInner { back }) };
+    let receiver = Receiver { back, front: single_node };
 
     (sender, receiver)
 }
@@ -140,9 +133,7 @@ impl<T> Sender<T> {
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self { inner: self.inner.clone() }
     }
 }
 

@@ -21,12 +21,7 @@ struct SubVm {
 impl Spawn for SubVm {
     fn spawn() -> Self {
         let (sender, receiver) = spsc::create();
-        Self {
-            children: Vec::new(),
-            sender: Some(sender),
-            receiver,
-            state: 0,
-        }
+        Self { children: Vec::new(), sender: Some(sender), receiver, state: 0 }
     }
 
     fn fork(&self) -> Self {
@@ -61,11 +56,7 @@ impl Machine for SubVm {
                 let mut bytecode = bytecode.clone();
                 let state = self.state;
                 self.children.push(thread::spawn(move || {
-                    let mut vm = SenderVm {
-                        sender,
-                        state,
-                        end: false,
-                    };
+                    let mut vm = SenderVm { sender, state, end: false };
                     vm.run(&mut bytecode);
                 }))
             },
