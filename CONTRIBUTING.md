@@ -2,6 +2,8 @@ Don't be afraid. If you want to discuss about the design of any structure, feel
 free to open an issue. If you have any doubt on how any structure works, you
 can open an issue as well. I am open to discuss anything :D
 
+But BEWARE! You will face the dark arts of unsafe Rust!
+
 # Documentation
 If you write any method, iterator, data structure or whatever, you are not
 required to write any documentation. However, writing documentation helps me

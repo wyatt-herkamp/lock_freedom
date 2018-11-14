@@ -49,14 +49,15 @@ impl<T> Sender<T> {
             // mark the lower bit of the pointer. In order words, it will be
             // null | 1. We do not need to publish the new node if we receiver
             // disconnected.
-            self.back.as_ref().next.compare_and_swap(
+            self.back.as_ref().next.compare_exchange(
                 null_mut(),
                 nnptr.as_ptr(),
                 Release,
+                Relaxed,
             )
         };
 
-        if res.is_null() {
+        if res.is_ok() {
             // If we succeeded, let's update our back so we respect the rule of
             // having a single node in the back.
             self.back = nnptr;
@@ -76,7 +77,7 @@ impl<T> Sender<T> {
         // Safe because we always have at least one node, which is only dropped
         // in the last side to disconnect's drop.
         let back = unsafe { self.back.as_ref() };
-        back.next.load(Acquire).is_null()
+        back.next.load(Relaxed).is_null()
     }
 }
 
@@ -93,7 +94,7 @@ impl<T> Drop for Sender<T> {
             self.back
                 .as_ref()
                 .next
-                .swap((null_mut::<Node<T>>() as usize | 1) as *mut _, AcqRel)
+                .swap((null_mut::<Node<T>>() as usize | 1) as *mut _, Relaxed)
         };
 
         // If the previously stored value was not null, receiver has already
@@ -129,16 +130,17 @@ impl<T> Receiver<T> {
             // `OwnedAlloc`.
             let node = unsafe { &mut *self.front.as_ptr() };
 
+            // We will try to replace the current node with this.
+            let next = node.next.load(Acquire);
+
             // First we remove a node logically.
             match node.message.take() {
                 Some(message) => {
-                    // Let's replace the front with a new node.
-                    let next = node.next.load(Acquire) as usize;
-
+                    let cleared = (next as usize & !1) as *mut _;
                     // But only if we have a new node. Otherwise we will not
                     // remove the only node of the queue. Also, let's clear the
                     // bit flag so null pointers are not misused.
-                    if let Some(nnptr) = NonNull::new((next & !1) as *mut _) {
+                    if let Some(nnptr) = NonNull::new(cleared) {
                         // This is safe because the node was allocated with
                         // `OwnedAlloc` and we have the only pointer to it (back
                         // is something else).
@@ -150,9 +152,6 @@ impl<T> Receiver<T> {
                 },
 
                 None => {
-                    // If the node was empty, we will try to remove it.
-                    let next = node.next.load(Acquire);
-
                     if next as usize & 1 == 0 {
                         // Lower bit clean. Let's try to remove the next.
                         match NonNull::new(next) {
@@ -188,7 +187,7 @@ impl<T> Receiver<T> {
         // Safe because we always have at least one node, which is only dropped
         // in the last side to disconnect's drop.
         let front = unsafe { self.front.as_ref() };
-        front.message.is_some() || front.next.load(Acquire) as usize & 1 == 0
+        front.message.is_some() || front.next.load(Relaxed) as usize & 1 == 0
     }
 }
 
@@ -205,7 +204,7 @@ impl<T> Drop for Receiver<T> {
                 // will be setting to the same value (null | 1).
                 self.front.as_ref().next.swap(
                     (null_mut::<Node<T>>() as usize | 1) as *mut _,
-                    AcqRel,
+                    Acquire,
                 )
             };
 

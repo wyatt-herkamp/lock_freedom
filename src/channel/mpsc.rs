@@ -52,12 +52,12 @@ impl<T> Sender<T> {
         });
         let node = alloc.into_raw();
 
-        loop {
-            // We first load the back because we need to check it. This is safe
-            // because we only store nodes allocated via `OwnedAlloc`. Also, the
-            // shared back is only deallocated when both sides disconnected.
-            let loaded = unsafe { self.inner.back.as_ref().ptr.load(Acquire) };
+        // We first load the back because we need to check it. This is safe
+        // because we only store nodes allocated via `OwnedAlloc`. Also, the
+        // shared back is only deallocated when both sides disconnected.
+        let mut loaded = unsafe { self.inner.back.as_ref().ptr.load(Acquire) };
 
+        loop {
             // If the lower bit is marked, it means the receiver disconnected.
             if loaded as usize & 1 == 1 {
                 // This is safe because we are only recreating the owned
@@ -73,47 +73,55 @@ impl<T> Sender<T> {
             // both sides disconnected.
             let res = unsafe {
                 // Then we try to update the back.
-                self.inner.back.as_ref().ptr.compare_and_swap(
+                self.inner.back.as_ref().ptr.compare_exchange(
                     loaded,
                     node.as_ptr(),
-                    Release,
+                    AcqRel,
+                    Acquire,
                 )
             };
 
-            if res == loaded {
-                debug_assert!(!loaded.is_null());
-                // This is safe because we never store null on the back.
-                let prev = unsafe { NonNull::new_unchecked(loaded) };
-                // This is safe because, in the receiver's view, this is a node
-                // shared between front and back. The front won't deallocate the
-                // node. Of course, after we update the previous back's next
-                // field, this won't be true anymore.
-                let res = unsafe {
-                    // The next field is expected to be null. If it is not null,
-                    // the receiver marked it (it will be null | 1).
-                    prev.as_ref().next.swap(node.as_ptr(), AcqRel)
-                };
+            match res {
+                Ok(_) => {
+                    debug_assert!(!loaded.is_null());
+                    // This is safe because we never store null on the back.
+                    let prev = unsafe { NonNull::new_unchecked(loaded) };
+                    // This is safe because, in the receiver's view, this is a
+                    // node shared between front and back. The front won't
+                    // deallocate the node. Of course, after we update the
+                    // previous back's next field, this won't be true anymore.
+                    let res = unsafe {
+                        // The next field is expected to be null. If it is not
+                        // null, the receiver marked it
+                        // (it will be null | 1).
+                        prev.as_ref().next.swap(node.as_ptr(), AcqRel)
+                    };
 
-                // If it was not null, then it means the receiver disconnected.
-                // It marks it so we know we need to throw the nodes away. All
-                // nodes except the last, which back holds, need to be deleted.
-                // We might be the last `send` that succeeded.
-                if !res.is_null() {
-                    // This is safe because the receiver will not access this
-                    // node anymore. Also, we are the only sender's thread which
-                    // can access it.
-                    //
-                    // We also don't have a known back (second argument of
-                    // `delete_before_last` is `None`). This is ok because the
-                    // senders are the only ones with access to the back, which
-                    // will be dropped only when all senders disconnect.
-                    unsafe {
-                        OwnedAlloc::from_raw(prev);
-                        delete_before_last(node, None);
+                    // If it was not null, then it means the receiver
+                    // disconnected. It marks it so we know we need to throw the
+                    // nodes away. All nodes except the last, which back holds,
+                    // need to be deleted. We might be the last `send` that
+                    // succeeded.
+                    if !res.is_null() {
+                        // This is safe because the receiver will not access
+                        // this node anymore. Also, we are the only sender's
+                        // thread which can access it.
+                        //
+                        // We also don't have a known back (second argument of
+                        // `delete_before_last` is `None`). This is ok because
+                        // the senders are the only ones with access to the
+                        // back, which will be dropped only when all senders
+                        // disconnect.
+                        unsafe {
+                            OwnedAlloc::from_raw(prev);
+                            delete_before_last(node, None);
+                        }
                     }
-                }
 
-                break Ok(());
+                    break Ok(());
+                },
+
+                Err(new) => loaded = new,
             }
         }
     }
@@ -163,12 +171,12 @@ impl<T> Receiver<T> {
         // also the only receiver.
         let mut node = unsafe { &mut *self.front.as_ptr() };
         loop {
-            // First we remove logicaly.
+            // Let's see what is in the next node of the front.
+            let next = node.next.load(Acquire);
+
+            // Then we remove logicaly.
             match node.message.take() {
                 Some(message) => {
-                    // Loading next for checks.
-                    let next = node.next.load(Acquire);
-
                     // No need to clear the lower bit since the receiver is the
                     // only one that marks next field.
                     if let Some(nnptr) = NonNull::new(next) {
@@ -194,8 +202,6 @@ impl<T> Receiver<T> {
                     let back = unsafe {
                         self.back.as_ref().ptr.load(Acquire) as usize
                     };
-                    // Also, let's see what is in the next node of the front.
-                    let next = node.next.load(Acquire);
 
                     match NonNull::new(next) {
                         // It is null.
@@ -255,11 +261,11 @@ impl<T> Receiver<T> {
 
     // This is unsafe because some conditions need to be met. Senders must have
     // disconnected.
-    unsafe fn delete_all(&self) {
+    unsafe fn delete_all(&mut self) {
         let mut node_ptr = Some(self.front);
 
-        while let Some(node) = node_ptr {
-            node_ptr = NonNull::new(node.as_ref().next.load(Relaxed));
+        while let Some(mut node) = node_ptr {
+            node_ptr = NonNull::new(*node.as_mut().next.get_mut());
             OwnedAlloc::from_raw(node);
         }
     }
@@ -267,14 +273,13 @@ impl<T> Receiver<T> {
 
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
+        // This is safe because when senders disconnect, they won't drop the
+        // back. The shared back is only deleted when both sides disconnect.
+        // And we are the only receiver.
+        //
+        // Let's check if sender disconnected.
+        let mut ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };
         loop {
-            // This is safe because when senders disconnect, they won't drop the
-            // back. The shared back is only deleted when both sides disconnect.
-            // And we are the only receiver.
-            //
-            // Let's check if sender disconnected.
-            let ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };
-
             // Bit is marked, sender disconnected.
             if ptr as usize & 1 == 1 {
                 // Safe to delete all nodes because sender disconnected and we
@@ -296,22 +301,28 @@ impl<T> Drop for Receiver<T> {
                 // Let's try to mark the back. Needs to be a CAS because the
                 // back might change the back to some other pointer it
                 // meanwhile.
-                self.back.as_ref().ptr.compare_and_swap(
+                self.back.as_ref().ptr.compare_exchange(
                     ptr,
                     (ptr as usize | 1) as *mut _,
-                    Release,
+                    AcqRel,
+                    Acquire,
                 )
             };
 
-            // If we succeeded, we need to delete all nodes unreachable by the
-            // senders.
-            if res == ptr {
-                // Safe because we pass a pointer to the loaded back as "last".
-                // We cannot even dereference it. We are also the only ones with
-                // reference to nodes from the front until before last.
-                debug_assert!(!ptr.is_null());
-                unsafe { delete_before_last(self.front, NonNull::new(ptr)) }
-                break;
+            match res {
+                // If we succeeded, we need to delete all nodes unreachable by
+                // the senders.
+                Ok(_) => {
+                    // Safe because we pass a pointer to the loaded back as
+                    // "last". We cannot even dereference
+                    // it. We are also the only ones with
+                    // reference to nodes from the front until before last.
+                    debug_assert!(!ptr.is_null());
+                    unsafe { delete_before_last(self.front, NonNull::new(ptr)) }
+                    break;
+                },
+
+                Err(new) => ptr = new,
             }
         }
     }
@@ -332,12 +343,12 @@ struct SenderInner<T> {
 
 impl<T> Drop for SenderInner<T> {
     fn drop(&mut self) {
-        loop {
-            // This is safe because we only store nodes allocated via
-            // `OwnedAlloc`. Also, the shared back is only deallocated when both
-            // sides disconnected.
-            let ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };
+        // This is safe because we only store nodes allocated via
+        // `OwnedAlloc`. Also, the shared back is only deallocated when both
+        // sides disconnected.
+        let mut ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };
 
+        loop {
             // Let's check for bit marking, which means receiver already
             // disconnected.
             if ptr as usize & 1 == 1 {
@@ -374,6 +385,8 @@ impl<T> Drop for SenderInner<T> {
                 // the receiver.
                 break;
             }
+
+            ptr = res;
         }
     }
 }

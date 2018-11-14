@@ -67,14 +67,15 @@ impl<T> Sender<T> {
             // We try to update the back's next pointer. We want to catch any
             // bit marking here. A marked lower bit means the receiver
             // disconnected.
-            self.back.as_ref().next.compare_and_swap(
+            self.back.as_ref().next.compare_exchange(
                 null_mut(),
                 nnptr.as_ptr(),
                 Release,
+                Relaxed,
             )
         };
 
-        if res.is_null() {
+        if res.is_ok() {
             // If we succeeded, let's update the back so we keep the invariant
             // "the back has a single node".
             self.back = nnptr;
@@ -96,7 +97,7 @@ impl<T> Sender<T> {
         // Safe because we always have at least one node, which is only dropped
         // in the last side to disconnect's drop.
         let back = unsafe { self.back.as_ref() };
-        back.next.load(Acquire).is_null()
+        back.next.load(Relaxed).is_null()
     }
 }
 
@@ -150,20 +151,21 @@ impl<T> Receiver<T> {
         // We have to pause the incinerator due to ABA problem. This channel
         // suffers from it, yeah.
         let pause = self.inner.incin.inner.pause();
-        loop {
-            // Bypassing null check is safe because we never store null in
-            // the front.
-            let front_nnptr = unsafe {
-                // First we load pointer stored in the front.
-                let ptr = self.inner.front.load(Acquire);
-                debug_assert!(!ptr.is_null());
-                NonNull::new_unchecked(ptr)
-            };
 
+        // Bypassing null check is safe because we never store null in
+        // the front.
+        let mut front_nnptr = unsafe {
+            // First we load pointer stored in the front.
+            let ptr = self.inner.front.load(Relaxed);
+            debug_assert!(!ptr.is_null());
+            NonNull::new_unchecked(ptr)
+        };
+
+        loop {
             // Let's remove the node logically first. Safe to derefer this
             // pointer because we paused the incinerator and we only
             // delete nodes via incinerator.
-            match unsafe { front_nnptr.as_ref().message.take(Release) } {
+            match unsafe { front_nnptr.as_ref().message.take(Relaxed) } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -173,9 +175,10 @@ impl<T> Receiver<T> {
                 },
 
                 // Safe to call because we passed a pointer from the front
-                // which was loaded during the very same pause we are
-                // passing.
-                None => unsafe { self.try_clear_first(front_nnptr, &pause)? },
+                // which was loaded during the very same pause we are passing.
+                None => unsafe {
+                    front_nnptr = self.try_clear_first(front_nnptr, &pause)?
+                },
             }
         }
     }
@@ -192,7 +195,7 @@ impl<T> Receiver<T> {
         let _pause = self.inner.incin.inner.pause();
         // Safe to derefer this pointer because we paused the incinerator and we
         // only delete nodes via incinerator.
-        let front = unsafe { &*self.inner.front.load(Acquire) };
+        let front = unsafe { &*self.inner.front.load(Relaxed) };
         front.message.is_present(Acquire)
             || front.next.load(Acquire) as usize & 1 == 0
     }
@@ -209,7 +212,7 @@ impl<T> Receiver<T> {
         &self,
         expected: NonNull<Node<T>>,
         pause: &Pause<OwnedAlloc<Node<T>>>,
-    ) -> Result<(), RecvErr> {
+    ) -> Result<NonNull<Node<T>>, RecvErr> {
         let next = expected.as_ref().next.load(Acquire);
 
         if next as usize & 1 == 1 {
@@ -221,16 +224,30 @@ impl<T> Receiver<T> {
             Err(RecvErr::NoMessage)
         } else {
             let ptr = expected.as_ptr();
-            let res = self.inner.front.compare_and_swap(ptr, next, Release);
+
             // We are not oblied to succeed. This is just cleanup and some other
             // thread might do it.
-            if res == expected.as_ptr() {
-                // Only deleting nodes via incinerator due to ABA problem and
-                // use-after-frees.
-                pause.add_to_incin(OwnedAlloc::from_raw(expected));
-            }
-            // Then we *might* have some message since we found another node.
-            Ok(())
+            let next = match self
+                .inner
+                .front
+                .compare_exchange(ptr, next, Relaxed, Relaxed)
+            {
+                Ok(_) => {
+                    // Only deleting nodes via incinerator due to ABA problem
+                    // and use-after-frees.
+                    pause.add_to_incin(OwnedAlloc::from_raw(expected));
+                    next
+                },
+
+                Err(found) => {
+                    debug_assert!(!ptr.is_null());
+                    found
+                },
+            };
+
+            // Safe to by-pass the check since we only store non-null
+            // pointers on the front.
+            Ok(NonNull::new_unchecked(next))
         }
     }
 }
@@ -258,44 +275,48 @@ struct ReceiverInner<T> {
 
 impl<T> Drop for ReceiverInner<T> {
     fn drop(&mut self) {
+        let front = self.front.get_mut();
         loop {
             // This null-check-by-pass is safe because we never store null in
             // the front.
-            let front =
-                unsafe { NonNull::new_unchecked(self.front.load(Acquire)) };
+            let front_nnptr = unsafe { NonNull::new_unchecked(*front) };
             // This is safe because we are the only receiver left and the list
             // will always have at least one node, even in the drop. Of course,
             // unless we are the last side to drop (then we do drop it all).
-            let next = unsafe {
+            let res = unsafe {
                 // Let's try to mark the next (which means we disconnected). We
                 // might fail because either this is not the last node or the
                 // sender already disconnected and marked this pointer.
-                front.as_ref().next.compare_and_swap(
+                front_nnptr.as_ref().next.compare_exchange(
                     null_mut(),
                     (null_mut::<Node<T>>() as usize | 1) as *mut _,
                     AcqRel,
+                    Acquire,
                 )
             };
 
-            // If the next is null, we are the first side to disconnect and we
-            // must keep at least one node in the queue.
-            if next.is_null() {
-                break;
+            match res {
+                // If the succeeded, we are the first side to disconnect and we
+                // must keep at least one node in the queue.
+                Ok(_) => break,
+
+                Err(next) => {
+                    // Ok, safe to deallocate the front now. We already loaded
+                    // the next field and it is not null.
+                    // Either the queue won't be empty or the
+                    // sender disconnected.
+                    unsafe { OwnedAlloc::from_raw(front_nnptr) };
+
+                    // This means the sender disconnected we reached the end of
+                    // the queue.
+                    if next as usize & 1 == 1 {
+                        break;
+                    }
+
+                    // Now let's keep going until the list is empty.
+                    *front = next;
+                },
             }
-
-            // Ok, safe to deallocate the front now. We already loaded the next
-            // field and it is not null. Either the queue won't be empty or the
-            // sender disconnected.
-            unsafe { OwnedAlloc::from_raw(front) };
-
-            // This means the sender disconnected we reached the end of the
-            // queue.
-            if next as usize & 1 == 1 {
-                break;
-            }
-
-            // Now let's keep going until the list is empty.
-            self.front.store(next, Relaxed);
         }
     }
 }
