@@ -196,8 +196,8 @@ impl<T> Receiver<T> {
         // Safe to derefer this pointer because we paused the incinerator and we
         // only delete nodes via incinerator.
         let front = unsafe { &*self.inner.front.load(Relaxed) };
-        front.message.is_present(Acquire)
-            || front.next.load(Acquire) as usize & 1 == 0
+        front.message.is_present(Relaxed)
+            || front.next.load(Relaxed) as usize & 1 == 0
     }
 
     /// The shared incinerator used by this [`Receiver`].
@@ -232,7 +232,7 @@ impl<T> Receiver<T> {
                 .front
                 .compare_exchange(ptr, next, Relaxed, Relaxed)
             {
-                Ok(_) => {
+                Ok(_val) => {
                     // Only deleting nodes via incinerator due to ABA problem
                     // and use-after-frees.
                     pause.add_to_incin(OwnedAlloc::from_raw(expected));
@@ -240,7 +240,7 @@ impl<T> Receiver<T> {
                 },
 
                 Err(found) => {
-                    debug_assert!(!ptr.is_null());
+                    debug_assert!(!found.is_null());
                     found
                 },
             };

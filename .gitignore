@@ -5,4 +5,5 @@ target
 **/*.rs.bk
 Cargo.lock
 *grind.out*
-fuzz.log
+fuzz*.log
+*.dump

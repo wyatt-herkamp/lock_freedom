@@ -68,10 +68,11 @@ impl<T> Queue<T> {
             // The pointer stored in front and back must never be null. The
             // queue always have at least one node. Front and back are
             // always connected.
-            let ptr = self.front.load(Relaxed);
+            let ptr = self.front.load(Acquire);
             debug_assert!(!ptr.is_null());
             NonNull::new_unchecked(ptr)
         };
+
         loop {
             // This dereferral is safe because we paused the incinerator and
             // only delete nodes via incinerator.
@@ -90,7 +91,9 @@ impl<T> Queue<T> {
                 // which was loaded during the very same pause we are
                 // passing.
                 None => unsafe {
-                    front_nnptr = self.try_clear_first(front_nnptr, &pause)?
+                    let prev = front_nnptr;
+                    front_nnptr = self.try_clear_first(front_nnptr, &pause)?;
+                    debug_assert_ne!(prev, front_nnptr);
                 },
             }
         }
@@ -126,10 +129,14 @@ impl<T> Queue<T> {
 
             // We are not oblied to succeed. This is just cleanup and some other
             // thread might do it.
-            match self.front.compare_exchange(ptr, next, Relaxed, Relaxed) {
+            match self.front.compare_exchange(ptr, next, AcqRel, Acquire) {
                 Ok(_) => {
                     // Only deleting nodes via incinerator due to ABA problem
                     // and use-after-frees.
+                    debug_assert_eq!(
+                        expected.as_ref().next.load(Acquire),
+                        next_nnptr.as_ptr()
+                    );
                     pause.add_to_incin(OwnedAlloc::from_raw(expected));
                     next_nnptr
                 },
@@ -137,7 +144,7 @@ impl<T> Queue<T> {
                 Err(found) => {
                     // Safe to by-pass the check since we only store non-null
                     // pointers on the front.
-                    debug_assert!(!ptr.is_null());
+                    debug_assert!(!found.is_null());
                     NonNull::new_unchecked(found)
                 },
             }

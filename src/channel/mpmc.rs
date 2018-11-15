@@ -254,9 +254,12 @@ impl<T> Receiver<T> {
         let next = expected.as_ref().next.load(Acquire);
 
         if let Some(next_nnptr) = NonNull::new(next) {
-            let ptr = expected.as_ptr();
-            let res =
-                self.inner.front.compare_exchange(ptr, next, Relaxed, Relaxed);
+            let res = self.inner.front.compare_exchange(
+                expected.as_ptr(),
+                next,
+                Relaxed,
+                Relaxed,
+            );
 
             // We are not oblied to succeed. This is just cleanup and some other
             // thread might do it.
