@@ -1,5 +1,6 @@
 use owned_alloc::OwnedAlloc;
 use std::{
+    fmt,
     marker::PhantomData,
     ptr::null_mut,
     sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*},
@@ -7,7 +8,7 @@ use std::{
 
 /// A cached thread-id. Repeated calls to [`ThreadLocal`](super::ThreadLocal)'s
 /// methods with cached IDs should be faster than reloading the ID everytime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ThreadId {
     bits: usize,
     _non_tsafe: PhantomData<*mut ()>,
@@ -28,6 +29,12 @@ impl ThreadId {
 impl Default for ThreadId {
     fn default() -> Self {
         Self::current()
+    }
+}
+
+impl fmt::Debug for ThreadId {
+    fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmtr, "ThreadId({:?})", self.bits)
     }
 }
 

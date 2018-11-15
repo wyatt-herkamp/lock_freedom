@@ -165,7 +165,7 @@ impl<T> Clone for Sender<T> {
 
 impl<T> fmt::Debug for Sender<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("mpmc::Sender")
+        write!(fmtr, "spmc::Sender {} ptr: {:p} {}", '{', self.inner, '}')
     }
 }
 
@@ -295,7 +295,7 @@ impl<T> Clone for Receiver<T> {
 
 impl<T> fmt::Debug for Receiver<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("mpmc::Receiver")
+        write!(fmtr, "spmc::Receiver {} ptr: {:p} {}", '{', self.inner, '}')
     }
 }
 

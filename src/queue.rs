@@ -68,7 +68,7 @@ impl<T> Queue<T> {
             // The pointer stored in front and back must never be null. The
             // queue always have at least one node. Front and back are
             // always connected.
-            let ptr = self.front.load(Acquire);
+            let ptr = self.front.load(Relaxed);
             debug_assert!(!ptr.is_null());
             NonNull::new_unchecked(ptr)
         };
@@ -129,7 +129,7 @@ impl<T> Queue<T> {
 
             // We are not oblied to succeed. This is just cleanup and some other
             // thread might do it.
-            match self.front.compare_exchange(ptr, next, AcqRel, Acquire) {
+            match self.front.compare_exchange(ptr, next, Relaxed, Relaxed) {
                 Ok(_) => {
                     // Only deleting nodes via incinerator due to ABA problem
                     // and use-after-frees.

@@ -150,7 +150,7 @@ unsafe impl<T> Sync for Sender<T> where T: Send {}
 
 impl<T> fmt::Debug for Sender<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("mpsc::Sender")
+        write!(fmtr, "spmc::Sender {} ptr: {:p} {}", '{', self.inner, '}')
     }
 }
 

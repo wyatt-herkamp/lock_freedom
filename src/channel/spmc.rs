@@ -232,7 +232,7 @@ impl<T> Receiver<T> {
                 .front
                 .compare_exchange(ptr, next, Relaxed, Relaxed)
             {
-                Ok(_val) => {
+                Ok(_) => {
                     // Only deleting nodes via incinerator due to ABA problem
                     // and use-after-frees.
                     pause.add_to_incin(OwnedAlloc::from_raw(expected));
@@ -260,7 +260,7 @@ impl<T> Clone for Receiver<T> {
 
 impl<T> fmt::Debug for Receiver<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        fmtr.write_str("spmc::Receiver")
+        write!(fmtr, "spmc::Receiver {} ptr: {:p} {}", '{', self.inner, '}')
     }
 }
 
