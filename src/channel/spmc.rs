@@ -4,6 +4,7 @@ pub use super::{
 };
 use incin::Pause;
 use owned_alloc::OwnedAlloc;
+use ptr::bypass_null;
 use removable::Removable;
 use std::{
     fmt,
@@ -115,7 +116,7 @@ impl<T> Drop for Sender<T> {
             self.back
                 .as_ref()
                 .next
-                .swap((null_mut::<Node<T>>() as usize | 1) as *mut _, AcqRel)
+                .swap((null_mut::<Node<T>>() as usize | 1) as *mut _, Relaxed)
         };
 
         // If the previously stored value was not null, receiver has already
@@ -156,16 +157,14 @@ impl<T> Receiver<T> {
         // the front.
         let mut front_nnptr = unsafe {
             // First we load pointer stored in the front.
-            let ptr = self.inner.front.load(Relaxed);
-            debug_assert!(!ptr.is_null());
-            NonNull::new_unchecked(ptr)
+            bypass_null(self.inner.front.load(Relaxed))
         };
 
         loop {
             // Let's remove the node logically first. Safe to derefer this
             // pointer because we paused the incinerator and we only
             // delete nodes via incinerator.
-            match unsafe { front_nnptr.as_ref().message.take(Relaxed) } {
+            match unsafe { front_nnptr.as_ref().message.take() } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -177,7 +176,7 @@ impl<T> Receiver<T> {
                 // Safe to call because we passed a pointer from the front
                 // which was loaded during the very same pause we are passing.
                 None => unsafe {
-                    front_nnptr = self.try_clear_first(front_nnptr, &pause)?
+                    front_nnptr = self.try_clear_first(front_nnptr, &pause)?;
                 },
             }
         }
@@ -196,8 +195,7 @@ impl<T> Receiver<T> {
         // Safe to derefer this pointer because we paused the incinerator and we
         // only delete nodes via incinerator.
         let front = unsafe { &*self.inner.front.load(Relaxed) };
-        front.message.is_present(Relaxed)
-            || front.next.load(Relaxed) as usize & 1 == 0
+        front.message.is_present() || front.next.load(Relaxed) as usize & 1 == 0
     }
 
     /// The shared incinerator used by this [`Receiver`].
@@ -233,21 +231,18 @@ impl<T> Receiver<T> {
                 .compare_exchange(ptr, next, Relaxed, Relaxed)
             {
                 Ok(_) => {
-                    // Only deleting nodes via incinerator due to ABA problem
-                    // and use-after-frees.
+                    // Only deleting nodes via incinerator due to ABA
+                    // problem and use-after-frees.
                     pause.add_to_incin(OwnedAlloc::from_raw(expected));
                     next
                 },
 
-                Err(found) => {
-                    debug_assert!(!found.is_null());
-                    found
-                },
+                Err(found) => found,
             };
 
             // Safe to by-pass the check since we only store non-null
             // pointers on the front.
-            Ok(NonNull::new_unchecked(next))
+            Ok(bypass_null(next))
         }
     }
 }
@@ -279,7 +274,7 @@ impl<T> Drop for ReceiverInner<T> {
         loop {
             // This null-check-by-pass is safe because we never store null in
             // the front.
-            let front_nnptr = unsafe { NonNull::new_unchecked(*front) };
+            let front_nnptr = unsafe { bypass_null(*front) };
             // This is safe because we are the only receiver left and the list
             // will always have at least one node, even in the drop. Of course,
             // unless we are the last side to drop (then we do drop it all).

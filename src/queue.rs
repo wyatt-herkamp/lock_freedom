@@ -1,5 +1,6 @@
 use incin::Pause;
 use owned_alloc::OwnedAlloc;
+use ptr::bypass_null;
 use removable::Removable;
 use std::{
     fmt,
@@ -68,9 +69,7 @@ impl<T> Queue<T> {
             // The pointer stored in front and back must never be null. The
             // queue always have at least one node. Front and back are
             // always connected.
-            let ptr = self.front.load(Relaxed);
-            debug_assert!(!ptr.is_null());
-            NonNull::new_unchecked(ptr)
+            bypass_null(self.front.load(Relaxed))
         };
 
         loop {
@@ -78,7 +77,7 @@ impl<T> Queue<T> {
             // only delete nodes via incinerator.
             //
             // We first remove the node logically.
-            match unsafe { front_nnptr.as_ref().item.take(Relaxed) } {
+            match unsafe { front_nnptr.as_ref().item.take() } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -91,9 +90,7 @@ impl<T> Queue<T> {
                 // which was loaded during the very same pause we are
                 // passing.
                 None => unsafe {
-                    let prev = front_nnptr;
                     front_nnptr = self.try_clear_first(front_nnptr, &pause)?;
-                    debug_assert_ne!(prev, front_nnptr);
                 },
             }
         }
@@ -133,10 +130,6 @@ impl<T> Queue<T> {
                 Ok(_) => {
                     // Only deleting nodes via incinerator due to ABA problem
                     // and use-after-frees.
-                    debug_assert_eq!(
-                        expected.as_ref().next.load(Acquire),
-                        next_nnptr.as_ptr()
-                    );
                     pause.add_to_incin(OwnedAlloc::from_raw(expected));
                     next_nnptr
                 },
@@ -144,8 +137,7 @@ impl<T> Queue<T> {
                 Err(found) => {
                     // Safe to by-pass the check since we only store non-null
                     // pointers on the front.
-                    debug_assert!(!found.is_null());
-                    NonNull::new_unchecked(found)
+                    bypass_null(found)
                 },
             }
         })

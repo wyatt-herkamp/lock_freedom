@@ -78,7 +78,7 @@ impl<T> Incinerator<T> {
     /// Increments the pause counter and creates a pause associated with this
     /// incinerator. Only after creating the pause you should perform atomic
     /// operations such as `load` and any other operation affected by ABA
-    /// problem. This operation performs [`Release`] on the pause counter.
+    /// problem. This operation performs [`AcqRel`] on the pause counter.
     pub fn pause(&self) -> Pause<T> {
         let mut count = self.counter.load(Relaxed);
         loop {
@@ -92,7 +92,7 @@ impl<T> Incinerator<T> {
             match self.counter.compare_exchange(
                 count,
                 count + 1,
-                Release,
+                AcqRel,
                 Relaxed,
             ) {
                 Ok(_) => break Pause { incin: self, _unsync: PhantomData },
@@ -195,7 +195,7 @@ impl<'incin, T> Pause<'incin, T> {
             // resource was removed from shared context. Since we use Thread
             // Local Storage, nobody can add something to the list meanwhile
             // besides us.
-            self.incin.tls_list.get().map(GarbageList::clear);
+            // self.incin.tls_list.get().map(GarbageList::clear);
             drop(val);
         } else {
             // Not safe to drop. We have to save the value in the garbage list.

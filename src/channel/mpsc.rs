@@ -3,6 +3,7 @@ pub use super::{
     RecvErr::{self, *},
 };
 use owned_alloc::OwnedAlloc;
+use ptr::bypass_null;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
@@ -55,7 +56,7 @@ impl<T> Sender<T> {
         // We first load the back because we need to check it. This is safe
         // because we only store nodes allocated via `OwnedAlloc`. Also, the
         // shared back is only deallocated when both sides disconnected.
-        let mut loaded = unsafe { self.inner.back.as_ref().ptr.load(Acquire) };
+        let mut loaded = unsafe { self.inner.back.as_ref().ptr.load(Relaxed) };
 
         loop {
             // If the lower bit is marked, it means the receiver disconnected.
@@ -77,7 +78,7 @@ impl<T> Sender<T> {
                     loaded,
                     node.as_ptr(),
                     AcqRel,
-                    Acquire,
+                    Relaxed,
                 )
             };
 
@@ -94,7 +95,7 @@ impl<T> Sender<T> {
                         // The next field is expected to be null. If it is not
                         // null, the receiver marked it
                         // (it will be null | 1).
-                        prev.as_ref().next.swap(node.as_ptr(), AcqRel)
+                        prev.as_ref().next.swap(node.as_ptr(), Release)
                     };
 
                     // If it was not null, then it means the receiver
@@ -135,7 +136,7 @@ impl<T> Sender<T> {
         // when both sides disconnected. We load it to check for bit
         // marking (since it means sender disconnected).
         let back = unsafe { self.inner.back.as_ref() };
-        back.ptr.load(Acquire) as usize & 1 == 0
+        back.ptr.load(Relaxed) as usize & 1 == 0
     }
 }
 
@@ -195,17 +196,20 @@ impl<T> Receiver<T> {
                 },
 
                 None => {
-                    // This is safe because we only store nodes allocated via
-                    // `OwnedAlloc`. Also, the shared back is only deallocated
-                    // when both sides disconnected. We load it to check for bit
-                    // marking (since it means sender disconnected).
-                    let back = unsafe {
-                        self.back.as_ref().ptr.load(Acquire) as usize
-                    };
-
                     match NonNull::new(next) {
                         // It is null.
                         None => {
+                            // This is safe because we only store nodes
+                            // allocated via
+                            // `OwnedAlloc`. Also, the shared back is only
+                            // deallocated
+                            // when both sides disconnected. We load it to check
+                            // for bit
+                            // marking (since it means sender disconnected).
+                            let back = unsafe {
+                                self.back.as_ref().ptr.load(Relaxed) as usize
+                            };
+
                             break if back & 1 == 0 {
                                 // If back is not marked, we just don't have
                                 // messages.
@@ -265,7 +269,7 @@ impl<T> Receiver<T> {
         let mut node_ptr = Some(self.front);
 
         while let Some(mut node) = node_ptr {
-            node_ptr = NonNull::new(*node.as_mut().next.get_mut());
+            node_ptr = NonNull::new(node.as_mut().next.load(Acquire));
             OwnedAlloc::from_raw(node);
         }
     }
@@ -278,7 +282,7 @@ impl<T> Drop for Receiver<T> {
         // And we are the only receiver.
         //
         // Let's check if sender disconnected.
-        let mut ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };
+        let mut ptr = unsafe { self.back.as_ref().ptr.load(Relaxed) };
         loop {
             // Bit is marked, sender disconnected.
             if ptr as usize & 1 == 1 {
@@ -304,8 +308,8 @@ impl<T> Drop for Receiver<T> {
                 self.back.as_ref().ptr.compare_exchange(
                     ptr,
                     (ptr as usize | 1) as *mut _,
-                    AcqRel,
-                    Acquire,
+                    Relaxed,
+                    Relaxed,
                 )
             };
 
@@ -317,8 +321,9 @@ impl<T> Drop for Receiver<T> {
                     // "last". We cannot even dereference
                     // it. We are also the only ones with
                     // reference to nodes from the front until before last.
-                    debug_assert!(!ptr.is_null());
-                    unsafe { delete_before_last(self.front, NonNull::new(ptr)) }
+                    unsafe {
+                        delete_before_last(self.front, Some(bypass_null(ptr)))
+                    }
                     break;
                 },
 
@@ -346,24 +351,11 @@ impl<T> Drop for SenderInner<T> {
         // This is safe because we only store nodes allocated via
         // `OwnedAlloc`. Also, the shared back is only deallocated when both
         // sides disconnected.
-        let mut ptr = unsafe { self.back.as_ref().ptr.load(Acquire) };
+        let ptr = unsafe { self.back.as_ref().ptr.load(Relaxed) };
 
-        loop {
-            // Let's check for bit marking, which means receiver already
-            // disconnected.
-            if ptr as usize & 1 == 1 {
-                let ptr = (ptr as usize & !1) as *mut Node<T>;
-                debug_assert!(!ptr.is_null());
-                // This is safe because the pointer stored in the back will
-                // never be null. Also, the sender disconnected and we are the
-                // only sender left.
-                unsafe {
-                    OwnedAlloc::from_raw(NonNull::new_unchecked(ptr));
-                    OwnedAlloc::from_raw(self.back);
-                };
-                break;
-            }
-
+        // Let's check for bit marking. If 1 the receiver is already
+        // disconnected. If 0, nobody disconnected yet.
+        if ptr as usize & 1 == 0 {
             // This is safe because we only store nodes allocated via
             // `OwnedAlloc`. Also, the shared back is only deallocated when both
             // sides disconnected.
@@ -377,17 +369,25 @@ impl<T> Drop for SenderInner<T> {
                 self.back
                     .as_ref()
                     .ptr
-                    .swap((ptr as usize | 1) as *mut _, AcqRel)
+                    .swap((ptr as usize | 1) as *mut _, Relaxed)
             };
 
             if res == ptr {
                 // If we succeeded, we will left everything to be deallocated by
                 // the receiver.
-                break;
+                return;
             }
-
-            ptr = res;
         }
+
+        // Falling here means sender disconnected.
+        let ptr = (ptr as usize & !1) as *mut Node<T>;
+        // This is safe because the pointer stored in the back will
+        // never be null. Also, the sender disconnected and we are the
+        // only sender left.
+        unsafe {
+            OwnedAlloc::from_raw(bypass_null(ptr));
+            OwnedAlloc::from_raw(self.back);
+        };
     }
 }
 
@@ -421,7 +421,7 @@ unsafe fn delete_before_last<T>(
         let next = curr
             .as_ref()
             .next
-            .swap((null_mut::<Node<T>>() as usize | 1) as *mut _, AcqRel);
+            .swap((null_mut::<Node<T>>() as usize | 1) as *mut _, Acquire);
 
         match NonNull::new(next) {
             // Failure. The node was not null. It was a plain node. We need to
