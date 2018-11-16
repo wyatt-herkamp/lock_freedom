@@ -210,7 +210,9 @@ impl<T> Receiver<T> {
                                 self.back.as_ref().ptr.load(Relaxed) as usize
                             };
 
-                            break if back & 1 == 0 {
+                            break if back & 1 == 0
+                                || (back & !1) as *mut _ != self.front.as_ptr()
+                            {
                                 // If back is not marked, we just don't have
                                 // messages.
                                 Err(RecvErr::NoMessage)
