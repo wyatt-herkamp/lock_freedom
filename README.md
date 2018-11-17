@@ -9,7 +9,7 @@ We currently have:
 * Stack
 * SPSC, MPSC, SPMC and MPMC channels
 
-# Documentation for Latest Commit
+# Documentation for the Lastest Commit
 <https://bzim.gitlab.io/lockfree/lockfree/>
 
 # Changelog

@@ -13,7 +13,7 @@ pages:
   - cargo check
   - cd ..
   - ./test.sh
-  - cargo doc
+  - cargo doc --no-deps
   - cp -r target/doc public
   artifacts:
     paths:

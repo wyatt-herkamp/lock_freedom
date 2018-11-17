@@ -59,8 +59,8 @@ pub mod set;
 /// and their receivers do not provide any sort of `wait-for-message` operation.
 /// It would be blocking otherwise, thus not lock-free. If you need such a
 /// mechanism, consider using this channel with a
-/// [`Condvar`](std::sync::Condvar) or using things like [`thread::sleep`](std::
-/// thread::sleep) (not lock-free).
+/// [`Condvar`](std::sync::Condvar) or using things like
+/// [`thread::park`](std::thread::park) (not lock-free).
 pub mod channel;
 
 /// A shared removable value. No extra allocation is necessary.
