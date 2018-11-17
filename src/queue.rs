@@ -6,7 +6,7 @@ use std::{
     fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
-    sync::atomic::{fence, AtomicPtr, Ordering::*},
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
 
 /// A lock-free general-purpouse queue. FIFO semanthics are fully respected.
@@ -77,7 +77,7 @@ impl<T> Queue<T> {
             // only delete nodes via incinerator.
             //
             // We first remove the node logically.
-            match unsafe { front_nnptr.as_ref().item.take(Release) } {
+            match unsafe { front_nnptr.as_ref().item.take(AcqRel) } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -277,13 +277,6 @@ struct Node<T> {
 impl<T> Node<T> {
     fn new(item: Removable<T>) -> Self {
         Self { item, next: AtomicPtr::new(null_mut()) }
-    }
-}
-
-impl<T> Drop for Node<T> {
-    fn drop(&mut self) {
-        // So that Removable::Drop synchronizes
-        fence(Acquire);
     }
 }
 
