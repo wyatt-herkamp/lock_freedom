@@ -25,7 +25,7 @@ use tls::ThreadLocal;
 /// ```rust
 /// extern crate lockfree;
 ///
-/// use lockfree::prelude::*;
+/// use lockfree::incin::Incinerator;
 /// use std::{
 ///     ptr::{null_mut, NonNull},
 ///     sync::{
