@@ -119,7 +119,6 @@ impl Drop for IdGuard {
     }
 }
 
-#[repr(align(/* at least */ 2))]
 struct Node {
     // Set to usize::max_value() when not free.
     free: AtomicUsize,
