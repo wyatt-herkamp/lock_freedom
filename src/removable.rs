@@ -73,15 +73,13 @@ impl<T> Removable<T> {
 
     /// Tests if the stored value is present. Note that there are no guarantees
     /// that `take` will be successful if this method returns `true` because
-    /// some other thread could take the value meanwhile. In terms of memory
-    /// ordering, this function synchronizes with [`take`] via [`Acquire`].
+    /// some other thread could take the value meanwhile.
     pub fn is_present(&self, ordering: Ordering) -> bool {
         self.present.load(ordering)
     }
 
     /// Tries to take the value. If no value was present in first place, `None`
-    /// is returned. In terms of memory ordering, this function synchronizes
-    /// with [`is_present`] and [`drop`] via [`Release`].
+    /// is returned. In terms of memory ordering, `AcqRel` should be enough.
     pub fn take(&self, ordering: Ordering) -> Option<T> {
         if self.present.swap(false, ordering) {
             // Safe because if present was true, the memory was initialized. All
