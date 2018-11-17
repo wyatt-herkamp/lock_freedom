@@ -1,7 +1,10 @@
 use std::{
     fmt,
     mem::{replace, uninitialized, ManuallyDrop},
-    sync::atomic::{AtomicBool, Ordering::*},
+    sync::atomic::{
+        AtomicBool,
+        Ordering::{self, *},
+    },
 };
 
 /// A shared removable value. You can only take values from this type (no
@@ -72,15 +75,15 @@ impl<T> Removable<T> {
     /// that `take` will be successful if this method returns `true` because
     /// some other thread could take the value meanwhile. In terms of memory
     /// ordering, this function synchronizes with [`take`] via [`Acquire`].
-    pub fn is_present(&self) -> bool {
-        self.present.load(Acquire)
+    pub fn is_present(&self, ordering: Ordering) -> bool {
+        self.present.load(ordering)
     }
 
     /// Tries to take the value. If no value was present in first place, `None`
     /// is returned. In terms of memory ordering, this function synchronizes
     /// with [`is_present`] and [`drop`] via [`Release`].
-    pub fn take(&self) -> Option<T> {
-        if self.present.swap(false, Release) {
+    pub fn take(&self, ordering: Ordering) -> Option<T> {
+        if self.present.swap(false, ordering) {
             // Safe because if present was true, the memory was initialized. All
             // other reads won't happen because we set present to false.
             Some(unsafe { (&*self.item as *const T).read() })
@@ -96,7 +99,7 @@ impl<T> fmt::Debug for Removable<T> {
             fmtr,
             "Removable {} present: {:?} {}",
             '{',
-            self.is_present(),
+            self.is_present(Relaxed),
             '}'
         )
     }
@@ -110,7 +113,7 @@ impl<T> Default for Removable<T> {
 
 impl<T> Drop for Removable<T> {
     fn drop(&mut self) {
-        if self.is_present() {
+        if *self.present.get_mut() {
             // Safe because present will only be true when the memory is
             // initialized. And now we are at drop.
             unsafe { ManuallyDrop::drop(&mut self.item) }

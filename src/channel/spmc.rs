@@ -10,7 +10,7 @@ use std::{
     fmt,
     ptr::{null_mut, NonNull},
     sync::{
-        atomic::{AtomicPtr, Ordering::*},
+        atomic::{fence, AtomicPtr, Ordering::*},
         Arc,
     },
 };
@@ -164,7 +164,7 @@ impl<T> Receiver<T> {
             // Let's remove the node logically first. Safe to derefer this
             // pointer because we paused the incinerator and we only
             // delete nodes via incinerator.
-            match unsafe { front_nnptr.as_ref().message.take() } {
+            match unsafe { front_nnptr.as_ref().message.take(Release) } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -195,7 +195,8 @@ impl<T> Receiver<T> {
         // Safe to derefer this pointer because we paused the incinerator and we
         // only delete nodes via incinerator.
         let front = unsafe { &*self.inner.front.load(Relaxed) };
-        front.message.is_present() || front.next.load(Relaxed) as usize & 1 == 0
+        front.message.is_present(Relaxed)
+            || front.next.load(Relaxed) as usize & 1 == 0
     }
 
     /// The shared incinerator used by this [`Receiver`].
@@ -321,6 +322,13 @@ struct Node<T> {
     message: Removable<T>,
     // lower bit is 1 if the other side disconnected, 0 means nothing
     next: AtomicPtr<Node<T>>,
+}
+
+impl<T> Drop for Node<T> {
+    fn drop(&mut self) {
+        // Because of removable.
+        fence(Acquire);
+    }
 }
 
 make_shared_incin! {

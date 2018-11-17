@@ -10,7 +10,7 @@ use std::{
     fmt,
     ptr::{null_mut, NonNull},
     sync::{
-        atomic::{AtomicPtr, Ordering::*},
+        atomic::{fence, AtomicPtr, Ordering::*},
         Arc,
     },
 };
@@ -196,7 +196,7 @@ impl<T> Receiver<T> {
             // Let's remove the node logically first. Safe to derefer this
             // pointer because we paused the incinerator and we only
             // delete nodes via incinerator.
-            match unsafe { front_nnptr.as_ref().message.take() } {
+            match unsafe { front_nnptr.as_ref().message.take(Release) } {
                 Some(val) => {
                     // Safe to call because we passed a pointer from the front
                     // which was loaded during the very same pause we are
@@ -232,7 +232,7 @@ impl<T> Receiver<T> {
         // marking (since it means sender disconnected).
         let back = unsafe { self.inner.back.as_ref() };
         back.ptr.load(Relaxed) as usize & 1 == 0
-            || front.message.is_present()
+            || front.message.is_present(Relaxed)
             || !front.next.load(Relaxed).is_null()
     }
 
@@ -476,6 +476,13 @@ unsafe fn delete_before_last<T>(
             // Success. We have nothing more to do.
             None => break,
         }
+    }
+}
+
+impl<T> Drop for Node<T> {
+    fn drop(&mut self) {
+        // Because of removable.
+        fence(Acquire);
     }
 }
 
