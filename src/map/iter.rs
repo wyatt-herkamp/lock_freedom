@@ -5,7 +5,7 @@ use super::{
 };
 use incin::Pause;
 use owned_alloc::OwnedAlloc;
-use std::{fmt, mem::replace, ptr::NonNull};
+use std::{fmt, mem::replace, ptr::NonNull, sync::atomic::Ordering::*};
 
 /// An iterator over key-vaue entries of a [`Map`](super::Map). The `Item` of
 /// this iterator is a [`ReadGuard`]. This iterator may be inconsistent, but
@@ -52,7 +52,7 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
             // If the iterator was empty, let's try to get a new one from
             // another bucket.
             let (table, index) = self.curr_table?;
-            self.curr_table = match table.load_index(index) {
+            self.curr_table = match table.load_index(index, Acquire) {
                 // If the pointer is null, simply go to the next element.
                 Some(ptr) if ptr.is_null() => Some((table, index + 1)),
 
@@ -145,7 +145,7 @@ impl<K, V> Iterator for IntoIter<K, V> {
             // If the iterator was empty, let's try to get a new one from
             // another bucket.
             let (table, index) = self.curr_table.take()?;
-            self.curr_table = match table.load_index(index) {
+            self.curr_table = match table.load_index(index, Relaxed) {
                 // If the pointer is null, simply go to the next element.
                 Some(ptr) if ptr.is_null() => Some((table, index + 1)),
 
@@ -261,7 +261,7 @@ impl<'map, K, V> Iterator for IterMut<'map, K, V> {
             // If the iterator was empty, let's try to get a new one from
             // another bucket.
             let (table, index) = self.curr_table.take()?;
-            self.curr_table = match table.load_index(index) {
+            self.curr_table = match table.load_index(index, Relaxed) {
                 // If the pointer is null, simply go to the next element.
                 Some(ptr) if ptr.is_null() => Some((table, index + 1)),
 

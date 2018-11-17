@@ -2,6 +2,8 @@
 * Introduced `CachedId` for TLS.
 * TLS now lets the reference "escape" (read closure is not required anymore).
 * TLS now has a immutable iterator when `T: Sync`.
+* Removable accepts `Ordering` now.
+* Removed `atomic` and `Darc`.
 
 # 0.4.1 (release)
 * Improved comparison of TLS's id.

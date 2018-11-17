@@ -45,7 +45,7 @@ use tls::ThreadLocal;
 ///     let state = dummy_state.clone();
 ///     let incin = incin.clone();
 ///     threads.push(thread::spawn(move || {
-///         let ptr = incin.pause_with(|| {
+///         let ptr = incin.pause_with(|_| {
 ///             let loaded = state.load(SeqCst);
 ///             let new = unsafe { *loaded + i };
 ///             state.swap(Box::into_raw(Box::new(new)), SeqCst)
@@ -109,10 +109,10 @@ impl<T> Incinerator<T> {
     /// `Pause::resume` for more details.
     pub fn pause_with<F, A>(&self, exec: F) -> A
     where
-        F: FnOnce() -> A,
+        F: FnOnce(&Pause<T>) -> A,
     {
         let pause = self.pause();
-        let ret = exec();
+        let ret = exec(&pause);
         pause.resume();
         ret
     }

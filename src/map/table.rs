@@ -11,7 +11,10 @@ use std::{
     marker::PhantomData,
     ptr::{null_mut, NonNull},
     sync::{
-        atomic::{AtomicPtr, Ordering::*},
+        atomic::{
+            AtomicPtr,
+            Ordering::{self, *},
+        },
         Arc,
     },
 };
@@ -54,13 +57,12 @@ impl<K, V> Table<K, V> {
         Q: ?Sized + Ord,
         K: Borrow<Q>,
     {
-        let mut table = self;
         let mut shifted = hash;
+        let mut table = self;
 
         loop {
             // Compute the index from the shifted hash's lower bits.
             let index = shifted as usize & (1 << BITS) - 1;
-            // Load what is in the index.
             let loaded = table.nodes[index].atomic.load(Acquire);
 
             // Null means we have nothing.
@@ -86,13 +88,14 @@ impl<K, V> Table<K, V> {
 
                     // Delete the bucket completely.
                     GetRes::Delete(pause) => {
-                        let res = self.nodes[index].atomic.compare_and_swap(
+                        let res = table.nodes[index].atomic.compare_exchange(
                             loaded,
                             null_mut(),
-                            Release,
+                            Relaxed,
+                            Relaxed,
                         );
 
-                        if res == loaded {
+                        if res.is_ok() {
                             let alloc = OwnedAlloc::from_raw(
                                 NonNull::new_unchecked(loaded as *mut _),
                             );
@@ -134,12 +137,12 @@ impl<K, V> Table<K, V> {
         let mut depth = 1;
         let mut tbl_cache = Cache::<OwnedAlloc<Self>>::new();
 
-        loop {
-            // Compute the index from the shifted hash's lower bits.
-            let index = shifted as usize & (1 << BITS) - 1;
-            // Load what is in the index before trying to insert.
-            let loaded = table.nodes[index].atomic.load(Acquire);
+        // Compute the index from the shifted hash's lower bits.
+        let mut index = shifted as usize & (1 << BITS) - 1;
+        // Load what is in the index before trying to insert.
+        let mut loaded = table.nodes[index].atomic.load(Acquire);
 
+        loop {
             if loaded.is_null() {
                 // Let's test the found conditions.
                 inserter.input(None);
@@ -155,22 +158,28 @@ impl<K, V> Table<K, V> {
                 let bucket_nnptr = OwnedAlloc::new(bucket).into_raw();
 
                 // We try to put it in the index.
-                let res = table.nodes[index].atomic.compare_and_swap(
+                let res = table.nodes[index].atomic.compare_exchange(
                     loaded,
                     bucket_nnptr.as_ptr() as *mut (),
-                    Release,
+                    AcqRel,
+                    Acquire,
                 );
 
-                if res.is_null() {
-                    // Let's not forget to prevent the inserter from
-                    // deallocating the pointer.
-                    inserter.take_pointer();
-                    break Insertion::Created;
-                }
+                match res {
+                    Ok(_) => {
+                        // Let's not forget to prevent the inserter from
+                        // deallocating the pointer.
+                        inserter.take_pointer();
+                        break Insertion::Created;
+                    },
 
-                // If we failed this try, we have to clean up.
-                let mut bucket = OwnedAlloc::from_raw(bucket_nnptr);
-                bucket.take_first();
+                    Err(new) => {
+                        // If we failed this try, we have to clean up.
+                        let mut bucket = OwnedAlloc::from_raw(bucket_nnptr);
+                        bucket.take_first();
+                        loaded = new;
+                    },
+                }
             } else if loaded as usize & 1 == 0 {
                 // We keep pointers to Buckets with the lower bit cleared.
                 let bucket = &*(loaded as *mut Bucket<K, V>);
@@ -193,15 +202,28 @@ impl<K, V> Table<K, V> {
                         // This means we must delete the bucket entirely. And
                         // try again, obviously.
                         InsertRes::Delete(returned) => {
-                            let res = table.nodes[index]
-                                .atomic
-                                .compare_and_swap(loaded, null_mut(), Release);
+                            let ptr = &table.nodes[index].atomic;
+                            let res = ptr.compare_exchange(
+                                loaded,
+                                null_mut(),
+                                AcqRel,
+                                Acquire,
+                            );
 
-                            if res == loaded {
-                                let alloc = OwnedAlloc::from_raw(
-                                    NonNull::new_unchecked(loaded as *mut _),
-                                );
-                                incin.add(Garbage::Bucket(alloc));
+                            match res {
+                                Ok(_) => {
+                                    let alloc = OwnedAlloc::from_raw(
+                                        NonNull::new_unchecked(
+                                            loaded as *mut _,
+                                        ),
+                                    );
+                                    incin.add(Garbage::Bucket(alloc));
+                                    loaded = null_mut()
+                                },
+
+                                Err(new) => {
+                                    loaded = new;
+                                },
                             }
 
                             inserter = returned;
@@ -217,28 +239,43 @@ impl<K, V> Table<K, V> {
                     new_table.nodes[other_index].atomic.store(loaded, Relaxed);
 
                     let new_table_nnptr = new_table.into_raw();
-                    let res = table.nodes[index].atomic.compare_and_swap(
+                    let res = table.nodes[index].atomic.compare_exchange(
                         loaded,
                         // Note we mark the lower bit!
                         (new_table_nnptr.as_ptr() as usize | 1) as *mut (),
-                        Release,
+                        AcqRel,
+                        Acquire,
                     );
 
-                    if res == loaded {
-                        // If we succeeded, let's act like we found another
-                        // table in this index.
-                        depth += 1;
-                        table = &*new_table_nnptr.as_ptr();
-                        shifted >>= BITS;
-                    } else {
-                        // If we failed -> clean up! And store the allocation in
-                        // some cache, since allocating a table can be really
-                        // expensive due to it's size.
-                        let new_table = OwnedAlloc::from_raw(new_table_nnptr);
-                        new_table.nodes[other_index]
-                            .atomic
-                            .store(null_mut(), Relaxed);
-                        tbl_cache.store(new_table);
+                    match res {
+                        Ok(_) => {
+                            // If we succeeded, let's act like we found another
+                            // table in this index.
+                            depth += 1;
+                            table = &*new_table_nnptr.as_ptr();
+                            shifted >>= BITS;
+                            // Compute the index from the shifted hash's lower
+                            // bits.
+                            index = shifted as usize & (1 << BITS) - 1;
+                            // Load what is in the index before trying to
+                            // insert.
+                            loaded = table.nodes[index].atomic.load(Acquire);
+                        },
+
+                        Err(new) => {
+                            // If we failed -> clean up! And store the
+                            // allocation in
+                            // some cache, since allocating a table can be
+                            // really expensive due
+                            // to it's size.
+                            let new_table =
+                                OwnedAlloc::from_raw(new_table_nnptr);
+                            new_table.nodes[other_index]
+                                .atomic
+                                .store(null_mut(), Relaxed);
+                            tbl_cache.store(new_table);
+                            loaded = new;
+                        },
                     }
                 }
             } else {
@@ -248,6 +285,13 @@ impl<K, V> Table<K, V> {
                 depth += 1;
                 table = &*((loaded as usize & !1) as *mut Self);
                 shifted >>= BITS;
+
+                // Compute the index from the shifted hash's lower
+                // bits.
+                index = shifted as usize & (1 << BITS) - 1;
+                // Load what is in the index before trying to
+                // insert.
+                loaded = table.nodes[index].atomic.load(Acquire);
             }
         }
     }
@@ -296,13 +340,14 @@ impl<K, V> Table<K, V> {
                 // If this field is true it means the whole bucket must be
                 // removed. Regardless of failure or success.
                 if res.delete {
-                    let res = self.nodes[index].atomic.compare_and_swap(
+                    let res = table.nodes[index].atomic.compare_exchange(
                         loaded,
                         null_mut(),
-                        Release,
+                        Relaxed,
+                        Relaxed,
                     );
 
-                    if res == loaded {
+                    if res.is_ok() {
                         let alloc = OwnedAlloc::from_raw(
                             NonNull::new_unchecked(loaded as *mut _),
                         );
@@ -431,8 +476,12 @@ impl<K, V> Table<K, V> {
         }
     }
 
-    pub fn load_index(&self, index: usize) -> Option<*mut ()> {
-        self.nodes.get(index).map(|node| node.atomic.load(Acquire))
+    pub fn load_index(
+        &self,
+        index: usize,
+        ordering: Ordering,
+    ) -> Option<*mut ()> {
+        self.nodes.get(index).map(|node| node.atomic.load(ordering))
     }
 }
 

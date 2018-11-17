@@ -43,10 +43,6 @@ pub mod incin;
 /// A wait-free per-object Thread Local Storage (TLS).
 pub mod tls;
 
-/// Atomic abstractions, such an atomic trait and atomic boxes.
-#[deprecated(note = "Bad performance and little benefits for structures.")]
-pub mod atomic;
-
 /// A lock-free queue.
 pub mod queue;
 
@@ -69,10 +65,6 @@ pub mod channel;
 
 /// A shared removable value. No extra allocation is necessary.
 pub mod removable;
-
-/// Provides a doubly atomic reference counter.
-#[deprecated(note = "Bad performance and little benefits for structures.")]
-pub mod darc;
 
 #[allow(dead_code)]
 mod ptr;
