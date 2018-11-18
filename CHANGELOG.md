@@ -1,3 +1,7 @@
+# 0.5.1 (release)
+* Performance improvement.
+* Sanity checks added.
+
 # 0.5.0 (release)
 * Introduced `CachedId` for TLS.
 * TLS now lets the reference "escape" (read closure is not required anymore).

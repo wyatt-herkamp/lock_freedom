@@ -1,6 +1,6 @@
 use incin::Pause;
 use owned_alloc::OwnedAlloc;
-use ptr::bypass_null;
+use ptr::{bypass_null, check_null_align};
 use removable::Removable;
 use std::{
     fmt,
@@ -20,6 +20,7 @@ pub struct Queue<T> {
 impl<T> Queue<T> {
     /// Creates a new empty queue.
     pub fn new() -> Self {
+        check_null_align::<Node<T>>();
         Self::with_incin(SharedIncin::new())
     }
 

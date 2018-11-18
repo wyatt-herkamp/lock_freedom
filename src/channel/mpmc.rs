@@ -4,7 +4,7 @@ pub use super::{
 };
 use incin::Pause;
 use owned_alloc::OwnedAlloc;
-use ptr::bypass_null;
+use ptr::{bypass_null, check_null_align};
 use removable::Removable;
 use std::{
     fmt,
@@ -25,6 +25,8 @@ pub fn create<T>() -> (Sender<T>, Receiver<T>) {
 /// Same as [`create`], but use a passed incinerator instead of creating a new
 /// one.
 pub fn with_incin<T>(incin: SharedIncin<T>) -> (Sender<T>, Receiver<T>) {
+    check_null_align::<Node<T>>();
+
     // First we allocate this single node.
     let alloc = OwnedAlloc::new(Node {
         message: Removable::empty(),

@@ -12,11 +12,12 @@ pub use self::{
 pub use std::collections::hash_map::RandomState;
 
 use self::{
-    bucket::Garbage,
+    bucket::{Bucket, Garbage},
     insertion::{InsertNew, Reinsert},
     table::Table,
 };
 use owned_alloc::OwnedAlloc;
+use ptr::check_null_align;
 use std::{
     borrow::Borrow,
     fmt,
@@ -68,6 +69,8 @@ pub struct Map<K, V, H = RandomState> {
 impl<K, V> Map<K, V> {
     /// Creates a new [`Map`] with the default hasher builder.
     pub fn new() -> Self {
+        check_null_align::<Table<K, V>>();
+        check_null_align::<Bucket<K, V>>();
         Self::default()
     }
 

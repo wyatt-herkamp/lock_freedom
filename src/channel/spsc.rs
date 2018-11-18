@@ -3,6 +3,7 @@ pub use super::{
     RecvErr::{self, *},
 };
 use owned_alloc::OwnedAlloc;
+use ptr::check_null_align;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
@@ -12,6 +13,8 @@ use std::{
 /// Creates an asynchronous lock-free Single-Producer-Single-Consumer (SPSC)
 /// channel.
 pub fn create<T>() -> (Sender<T>, Receiver<T>) {
+    check_null_align::<Node<T>>();
+
     // A single empty node shared between two ends.
     let alloc = OwnedAlloc::new(Node {
         message: None,

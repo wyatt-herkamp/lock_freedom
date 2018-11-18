@@ -3,6 +3,7 @@ mod tid;
 pub use self::tid::ThreadId;
 
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
+use ptr::check_null_align;
 use std::{
     fmt,
     marker::PhantomData,
@@ -52,6 +53,8 @@ pub struct ThreadLocal<T> {
 impl<T> ThreadLocal<T> {
     /// Creates an empty thread local storage.
     pub fn new() -> Self {
+        check_null_align::<Table<T>>();
+        check_null_align::<Entry<T>>();
         Self { top: Table::new_alloc() }
     }
 

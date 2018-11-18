@@ -1,4 +1,7 @@
-use std::ptr::NonNull;
+use std::{
+    mem::align_of,
+    ptr::{null_mut, NonNull},
+};
 
 static _NON_NULL: u8 = /* dummy value */ 1;
 
@@ -12,4 +15,9 @@ pub fn non_zero_null<T>() -> NonNull<T> {
 pub unsafe fn bypass_null<T>(ptr: *mut T) -> NonNull<T> {
     debug_assert!(!ptr.is_null());
     NonNull::new_unchecked(ptr)
+}
+
+#[inline(always)]
+pub fn check_null_align<T>() {
+    debug_assert!(null_mut::<T>() as usize % align_of::<T>() == 0);
 }
