@@ -45,3 +45,6 @@ path = "fuzz_targets/spmc.rs"
 [[bin]]
 name = "mpmc"
 path = "fuzz_targets/mpmc.rs"
+
+[profile.release]
+lto = "off"

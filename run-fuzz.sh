@@ -2,6 +2,7 @@
 
 run () {
     cargo fuzz run \
+          --release \
           $@ -- \
           -trace_malloc=[12] \
           -max_len=268435456 \
