@@ -192,11 +192,11 @@ impl<K, V> Table<K, V> {
                         InsertRes::Created => break Insertion::Created,
 
                         InsertRes::Updated(old) => {
-                            break Insertion::Updated(old)
+                            break Insertion::Updated(old);
                         },
 
                         InsertRes::Failed(inserter) => {
-                            break Insertion::Failed(inserter)
+                            break Insertion::Failed(inserter);
                         },
 
                         // This means we must delete the bucket entirely. And

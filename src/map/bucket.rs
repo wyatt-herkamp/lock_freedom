@@ -239,7 +239,7 @@ impl<K, V> Bucket<K, V> {
 
                 // This means the entry was not found.
                 FindRes::After { .. } => {
-                    break RemoveRes { pair: None, delete: false }
+                    break RemoveRes { pair: None, delete: false };
                 },
             }
         }
@@ -342,12 +342,12 @@ impl<K, V> Bucket<K, V> {
                                 break 'retry FindRes::Exact {
                                     curr_list: &*list.as_ptr(),
                                     curr: entry,
-                                }
+                                };
                             },
 
                             // The previous is the point of insertion.
                             Ordering::Less => {
-                                break 'retry FindRes::After { prev_list, prev }
+                                break 'retry FindRes::After { prev_list, prev };
                             },
 
                             // Let's keep looking.

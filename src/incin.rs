@@ -100,7 +100,7 @@ impl<T> Incinerator<T> {
                         incin: self,
                         had_list: self.tls_list.get().is_some(),
                         _unsync: PhantomData,
-                    }
+                    };
                 },
 
                 Err(new) => count = new,
