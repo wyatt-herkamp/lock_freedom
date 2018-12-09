@@ -1,4 +1,11 @@
-use std::{sync::Arc, thread};
+#[macro_use]
+extern crate lazy_static;
+extern crate lockfree;
+extern crate owned_alloc;
+
+pub mod thread;
+
+use std::sync::Arc;
 
 pub trait Spawn: Machine {
     fn spawn() -> Self;
@@ -6,7 +13,7 @@ pub trait Spawn: Machine {
     fn fork(&self) -> Self;
 }
 
-pub trait Machine: Sized + Send + Sync + 'static {
+pub trait Machine: Send + Sync + 'static {
     fn interpret(&mut self, byte: u8, bytecode: &mut Bytecode);
 
     fn run(&mut self, bytecode: &mut Bytecode) {

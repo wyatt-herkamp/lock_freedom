@@ -5,3 +5,6 @@ authors = ["Bruno Zimmermann <brunoczim@gmail.com>"]
 publish = false
 
 [dependencies]
+lazy_static = "1"
+lockfree = { path = "../../" }
+owned-alloc = "0.2"

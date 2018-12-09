@@ -6,7 +6,6 @@ extern crate lockfree;
 
 use fuzzsuite::*;
 use lockfree::prelude::*;
-use std::thread;
 
 const MAX_THREADS_PER_SUB_VM: usize = 64;
 
