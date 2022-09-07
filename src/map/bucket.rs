@@ -2,9 +2,11 @@ use super::{
     guard::{ReadGuard, Removed},
     insertion::Inserter,
 };
-use crate::incin::{Incinerator, Pause};
+use crate::{
+    incin::{Incinerator, Pause},
+    ptr::non_zero_null,
+};
 use owned_alloc::OwnedAlloc;
-use crate::ptr::non_zero_null;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -81,9 +83,9 @@ impl<K, V> Bucket<K, V> {
         key: &Q,
         pause: Pause<'map, Garbage<K, V>>,
     ) -> GetRes<'map, K, V>
-    where
-        Q: ?Sized + Ord,
-        K: Borrow<Q>,
+        where
+            Q: ?Sized + Ord,
+            K: Borrow<Q>,
     {
         match self.find(key, &pause) {
             // The table must delete the whole bucket.
@@ -110,9 +112,9 @@ impl<K, V> Bucket<K, V> {
         pause: &Pause<Garbage<K, V>>,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> InsertRes<I, K, V>
-    where
-        I: Inserter<K, V>,
-        K: Ord,
+        where
+            I: Inserter<K, V>,
+            K: Ord,
     {
         loop {
             match self.find(inserter.key(), pause) {
@@ -147,7 +149,7 @@ impl<K, V> Bucket<K, V> {
                         let removed = Removed::new(pair, incin);
                         break InsertRes::Updated(removed);
                     }
-                },
+                }
 
                 // We found a spot to insert at.
                 FindRes::After { prev_list, prev } => {
@@ -185,7 +187,7 @@ impl<K, V> Bucket<K, V> {
                     // Clean-up in case of failure.
                     OwnedAlloc::from_raw(curr_nnptr.as_ref().load());
                     OwnedAlloc::from_raw(curr_nnptr);
-                },
+                }
             }
         }
     }
@@ -200,15 +202,17 @@ impl<K, V> Bucket<K, V> {
         pause: &Pause<Garbage<K, V>>,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> RemoveRes<K, V>
-    where
-        Q: ?Sized + Ord,
-        K: Borrow<Q>,
-        F: FnMut(&(K, V)) -> bool,
+        where
+            Q: ?Sized + Ord,
+            K: Borrow<Q>,
+            F: FnMut(&(K, V)) -> bool,
     {
         loop {
             match self.find(key, pause) {
                 // The table must delete the whole bucket.
-                FindRes::Delete => break RemoveRes { pair: None, delete: true },
+                FindRes::Delete => {
+                    break RemoveRes { pair: None, delete: true };
+                }
 
                 // We found an entry whose key matches the input.
                 FindRes::Exact { curr_list, curr } => {
@@ -235,12 +239,12 @@ impl<K, V> Bucket<K, V> {
                             delete: self.try_clear_first(pause),
                         };
                     }
-                },
+                }
 
                 // This means the entry was not found.
                 FindRes::After { .. } => {
                     break RemoveRes { pair: None, delete: false };
-                },
+                }
             }
         }
     }
@@ -274,7 +278,7 @@ impl<K, V> Bucket<K, V> {
                         ));
                         prev_list = &*list.as_ptr();
                         prev = entry;
-                    },
+                    }
                 }
             }
         }
@@ -304,9 +308,9 @@ impl<K, V> Bucket<K, V> {
         key: &Q,
         pause: &Pause<Garbage<K, V>>,
     ) -> FindRes<'map, K, V>
-    where
-        Q: ?Sized + Ord,
-        K: Borrow<Q>,
+        where
+            Q: ?Sized + Ord,
+            K: Borrow<Q>,
     {
         'retry: loop {
             let mut prev_list = &self.list;
@@ -326,7 +330,7 @@ impl<K, V> Bucket<K, V> {
                             // after the previous.
                             FindRes::After { prev_list, prev }
                         };
-                    },
+                    }
 
                     LoadNextRes::Cleared { new_prev } => prev = new_prev,
 
@@ -343,20 +347,23 @@ impl<K, V> Bucket<K, V> {
                                     curr_list: &*list.as_ptr(),
                                     curr: entry,
                                 };
-                            },
+                            }
 
                             // The previous is the point of insertion.
                             Ordering::Less => {
-                                break 'retry FindRes::After { prev_list, prev };
-                            },
+                                break 'retry FindRes::After {
+                                    prev_list,
+                                    prev,
+                                };
+                            }
 
                             // Let's keep looking.
                             Ordering::Greater => {
                                 prev_list = &*list.as_ptr();
                                 prev = entry;
-                            },
+                            }
                         }
-                    },
+                    }
                 }
             }
         }
@@ -461,7 +468,7 @@ impl<K, V> Entry<K, V> {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.is_root() && self.next == null_mut()
+        self.is_root() && self.next.is_null()
     }
 }
 
@@ -552,12 +559,21 @@ impl<K, V> List<K, V> {
         new: NonNull<Entry<K, V>>,
         pause: &Pause<Garbage<K, V>>,
     ) -> bool {
-        let res = self.atomic.compare_and_swap(
+        let res = self.atomic.compare_exchange_weak(
             loaded.as_ptr(),
             new.as_ptr(),
             Release,
+            Relaxed,
         );
 
+        let res = match res {
+            Ok(res) => {
+                res
+            }
+            Err(err) => {
+                err
+            }
+        };
         if res == loaded.as_ptr() {
             // Clean-up of the old pointer.
             let alloc = OwnedAlloc::from_raw(loaded);
@@ -590,9 +606,9 @@ impl<K, V> fmt::Debug for Garbage<K, V> {
 }
 
 pub enum GetRes<'map, K, V>
-where
-    K: 'map,
-    V: 'map,
+    where
+        K: 'map,
+        V: 'map,
 {
     Found(ReadGuard<'map, K, V>),
     NotFound,
@@ -612,9 +628,9 @@ pub struct RemoveRes<K, V> {
 }
 
 enum FindRes<'map, K, V>
-where
-    K: 'map,
-    V: 'map,
+    where
+        K: 'map,
+        V: 'map,
 {
     Delete,
 
@@ -668,7 +684,7 @@ impl<K, V> Iterator for IntoIter<K, V> {
 
 impl<K, V> Drop for IntoIter<K, V> {
     fn drop(&mut self) {
-        while let Some(_) = self.next() {}
+        for _ in self.by_ref() {}
     }
 }
 
@@ -679,9 +695,9 @@ impl<K, V> fmt::Debug for IntoIter<K, V> {
 }
 
 pub struct IterMut<'map, K, V>
-where
-    K: 'map,
-    V: 'map,
+    where
+        K: 'map,
+        V: 'map,
 {
     curr: Option<&'map mut List<K, V>>,
 }

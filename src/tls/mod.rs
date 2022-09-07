@@ -2,8 +2,8 @@ mod tid;
 
 pub use self::tid::ThreadId;
 
-use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use crate::ptr::check_null_align;
+use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
     fmt,
     marker::PhantomData,
@@ -21,9 +21,8 @@ const BITS: usize = 8;
 ///
 /// # Example
 /// ```
-/// extern crate lockfree;
-///
-/// use lockfree::tls::ThreadLocal;
+/// ///
+/// use tux_lockfree::tls::ThreadLocal;
 /// use std::{cell::Cell, sync::Arc, thread};
 ///
 /// let tls = Arc::new(ThreadLocal::<Cell<usize>>::new());
@@ -110,7 +109,7 @@ impl<T> ThreadLocal<T> {
 
         loop {
             // The index of the node for our id.
-            let index = shifted & (1 << BITS) - 1;
+            let index = shifted & ((1 << BITS) - 1);
 
             // Load what is in there.
             let in_place = table.nodes[index].atomic.load(Acquire);
@@ -184,7 +183,7 @@ impl<T> ThreadLocal<T> {
         let mut depth = 1;
         let mut shifted = id.bits();
         // The pointer stored in place.
-        let mut index = shifted & (1 << BITS) - 1;
+        let mut index = shifted & ((1 << BITS) - 1);
         let mut in_place = table.nodes[index].atomic.load(Acquire);
         // Using `LazyInit` to make sure we only initialize if there is no
         // entry.
@@ -247,8 +246,8 @@ impl<T> ThreadLocal<T> {
                 let new_tbl = tbl_cache.take_or(Table::new_alloc);
 
                 // Calculate index for the collided entry.
-                let other_shifted = entry.id.bits() >> depth * BITS;
-                let other_index = other_shifted & (1 << BITS) - 1;
+                let other_shifted = entry.id.bits() >> (depth * BITS);
+                let other_index = other_shifted & ((1 << BITS) - 1);
 
                 // Pre-insert it in the table from the cache.
                 new_tbl.nodes[other_index].atomic.store(in_place, Relaxed);
@@ -280,7 +279,7 @@ impl<T> ThreadLocal<T> {
                         // Shift our "hash" for the next level.
                         shifted >>= BITS;
                         // Load new in place pointer.
-                        index = shifted & (1 << BITS) - 1;
+                        index = shifted & ((1 << BITS) - 1);
                         in_place = table.nodes[index].atomic.load(Acquire);
                     },
 
@@ -323,7 +322,7 @@ impl<T> ThreadLocal<T> {
                 // Shift our "hash" for the next level.
                 shifted >>= BITS;
                 // Load new in place pointer.
-                index = shifted & (1 << BITS) - 1;
+                index = shifted & ((1 << BITS) - 1);
                 in_place = table.nodes[index].atomic.load(Acquire);
             }
         }
@@ -375,12 +374,12 @@ where
     T: fmt::Debug,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "ThreadLocal {} storage: ", '{')?;
+        write!(fmtr, "ThreadLocal {{ storage: ")?;
         match self.get() {
             Some(val) => write!(fmtr, "Some({:?})", val)?,
             None => write!(fmtr, "None")?,
         }
-        write!(fmtr, "{}", '}')
+        write!(fmtr, "}}")
     }
 }
 
@@ -391,6 +390,7 @@ impl<T> Default for ThreadLocal<T> {
 }
 
 unsafe impl<T> Send for ThreadLocal<T> {}
+
 unsafe impl<T> Sync for ThreadLocal<T> {}
 
 impl<T> IntoIterator for ThreadLocal<T>
@@ -553,8 +553,8 @@ impl<'tls, T> fmt::Debug for IterMut<'tls, T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "IterMut {} tables: {:?}, curr_table: {:?} {}",
-            '{', self.tables, self.curr_table, '}'
+            "IterMut {{ tables: {:?}, curr_table: {:?} }}",
+            self.tables, self.curr_table
         )
     }
 }
@@ -619,8 +619,8 @@ impl<T> fmt::Debug for IntoIter<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "IterMut {} tables: {:?}, curr_table: {:?} {}",
-            '{', self.tables, self.curr_table, '}'
+            "IterMut {{ tables: {:?}, curr_table: {:?} }}",
+            self.tables, self.curr_table
         )
     }
 }
@@ -656,7 +656,7 @@ impl<T> Node<T> {
 
 impl<T> fmt::Debug for Node<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "Node {} pointer: {:?} {}", '{', self.atomic, '}')
+        write!(fmtr, "Node {{ pointer: {:?} }}", self.atomic)
     }
 }
 
@@ -707,11 +707,7 @@ impl<T> Table<T> {
 
 impl<T> fmt::Debug for Table<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmtr,
-            "Table {} nodes: {:?} {}",
-            '{', &self.nodes as &[Node<T>], '}'
-        )
+        write!(fmtr, "Table {{ nodes: {:?} }}", &self.nodes as &[Node<T>])
     }
 }
 
@@ -731,10 +727,7 @@ where
     F: FnOnce() -> T,
 {
     fn is_pending(&self) -> bool {
-        match self {
-            LazyInit::Pending(_) => true,
-            _ => false,
-        }
+        matches!(self, LazyInit::Pending(_))
     }
 
     fn get(&mut self) -> NonNull<T> {

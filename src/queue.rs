@@ -1,7 +1,9 @@
-use crate::incin::Pause;
+use crate::{
+    incin::Pause,
+    ptr::{bypass_null, check_null_align},
+    removable::Removable,
+};
 use owned_alloc::OwnedAlloc;
-use crate::ptr::{bypass_null, check_null_align};
-use crate::removable::Removable;
 use std::{
     fmt,
     iter::FromIterator,
@@ -42,7 +44,7 @@ impl<T> Queue<T> {
 
     /// Creates an iterator over `T`s, based on [`pop`](Queue::pop) operation of
     /// the [`Queue`].
-    pub fn pop_iter<'queue>(&'queue self) -> PopIter<'queue, T> {
+    pub fn pop_iter(&self) -> PopIter<'_, T> {
         PopIter { queue: self }
     }
 
@@ -179,7 +181,7 @@ impl<T> Extend<T> for Queue<T> {
     where
         I: IntoIterator<Item = T>,
     {
-        (&*self).extend(iterable)
+        (*self).extend(iterable)
     }
 }
 
@@ -227,13 +229,14 @@ impl<T> fmt::Debug for Queue<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "Queue {} front: {:?}, back: {:?}, incin: {:?} {}",
-            '{', self.front, self.back, self.incin, '}'
+            "Queue {{ front: {:?}, back: {:?}, incin: {:?} }}",
+            self.front, self.back, self.incin
         )
     }
 }
 
 unsafe impl<T> Send for Queue<T> where T: Send {}
+
 unsafe impl<T> Sync for Queue<T> where T: Send {}
 
 /// An iterator based on [`pop`](Queue::pop) operation of the [`Queue`].
@@ -254,7 +257,7 @@ impl<'queue, T> Iterator for PopIter<'queue, T> {
 
 impl<'queue, T> fmt::Debug for PopIter<'queue, T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "PopIter {} queue: {:?} {}", '{', self.queue, '}')
+        write!(fmtr, "PopIter {{ queue: {:?} }}", self.queue)
     }
 }
 
@@ -265,7 +268,7 @@ make_shared_incin! {
 
 impl<T> fmt::Debug for SharedIncin<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "SharedIncin {} inner: {:?} {}", '{', self.inner, '}')
+        write!(fmtr, "SharedIncin {{ inner: {:?} }}", self.inner)
     }
 }
 

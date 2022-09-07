@@ -268,7 +268,7 @@ where
     H: fmt::Debug,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "Set {} inner_map: {:?} {}", '{', self.inner, '}')
+        write!(fmtr, "Set {{ inner_map: {:?} }}", self.inner)
     }
 }
 
@@ -316,7 +316,7 @@ where
     where
         I: IntoIterator<Item = T>,
     {
-        (&*self).extend(iterable)
+        (*self).extend(iterable)
     }
 }
 
@@ -337,10 +337,7 @@ pub enum Insertion<T, E> {
 impl<T, E> Insertion<T, E> {
     /// Returns whether the insertion created an element.
     pub fn created(&self) -> bool {
-        match self {
-            Insertion::Created => true,
-            _ => false,
-        }
+        matches!(self, Insertion::Created)
     }
 
     /// Returns whether the insertion updated an element.
@@ -571,7 +568,7 @@ impl<T> Iterator for IntoIter<T> {
 
 impl<T> fmt::Debug for IntoIter<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "IntoIter {} inner: {:?} {}", '{', self.inner, '}')
+        write!(fmtr, "IntoIter {{ inner: {:?} }}", self.inner)
     }
 }
 

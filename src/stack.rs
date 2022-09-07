@@ -31,7 +31,7 @@ impl<T> Stack<T> {
 
     /// Creates an iterator over `T`s, based on [`pop`](Stack::pop) operation of
     /// the [`Stack`].
-    pub fn pop_iter<'stack>(&'stack self) -> PopIter<'stack, T> {
+    pub fn pop_iter(&self) -> PopIter<'_, T> {
         PopIter { stack: self }
     }
 
@@ -124,7 +124,7 @@ impl<T> Default for Stack<T> {
 
 impl<T> Drop for Stack<T> {
     fn drop(&mut self) {
-        while let Some(_) = self.next() {}
+        for _ in self.by_ref() {}
     }
 }
 
@@ -151,7 +151,7 @@ impl<T> Extend<T> for Stack<T> {
     where
         I: IntoIterator<Item = T>,
     {
-        (&*self).extend(iterable)
+        (*self).extend(iterable)
     }
 }
 
@@ -168,15 +168,12 @@ impl<T> FromIterator<T> for Stack<T> {
 
 impl<T> fmt::Debug for Stack<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmtr,
-            "Stack {} top: {:?}, incin: {:?} {}",
-            '{', self.top, self.incin, '}'
-        )
+        write!(fmtr, "Stack {{ top: {:?}, incin: {:?} }}", self.top, self.incin)
     }
 }
 
 unsafe impl<T> Send for Stack<T> where T: Send {}
+
 unsafe impl<T> Sync for Stack<T> where T: Send {}
 
 /// An iterator based on [`pop`](Stack::pop) operation of the [`Stack`].
@@ -197,7 +194,7 @@ impl<'stack, T> Iterator for PopIter<'stack, T> {
 
 impl<'stack, T> fmt::Debug for PopIter<'stack, T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "PopIter {} stack: {:?} {}", '{', self.stack, '}')
+        write!(fmtr, "PopIter {{ stack: {:?} }}", self.stack)
     }
 }
 
@@ -208,7 +205,7 @@ make_shared_incin! {
 
 impl<T> fmt::Debug for SharedIncin<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "SharedIncin {} inner: {:?} {}", '{', self.inner, '}')
+        write!(fmtr, "SharedIncin {{ inner: {:?} }}", self.inner)
     }
 }
 

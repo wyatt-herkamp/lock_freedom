@@ -1,10 +1,10 @@
+use crate::tls::ThreadLocal;
 use std::{
     cell::Cell,
     fmt,
     marker::PhantomData,
     sync::atomic::{AtomicUsize, Ordering::*},
 };
-use crate::tls::ThreadLocal;
 
 /// The incinerator. It is an API used to solve the infamous ABA problem. It
 /// basically consists of a counter and a list of garbage. Before a thread
@@ -23,9 +23,8 @@ use crate::tls::ThreadLocal;
 ///
 /// # Example
 /// ```rust
-/// extern crate lockfree;
-///
-/// use lockfree::incin::Incinerator;
+/// ///
+/// use tux_lockfree::incin::Incinerator;
 /// use std::{
 ///     ptr::{null_mut, NonNull},
 ///     sync::{
@@ -101,7 +100,7 @@ impl<T> Incinerator<T> {
                         had_list: self.tls_list.get().is_some(),
                         _unsync: PhantomData,
                     };
-                }
+                },
 
                 Err(new) => count = new,
             }
@@ -114,8 +113,8 @@ impl<T> Incinerator<T> {
     /// inside the closure. See documentation for [`Incinerator::pause`] and
     /// `Pause::resume` for more details.
     pub fn pause_with<F, A>(&self, exec: F) -> A
-        where
-            F: FnOnce(&Pause<T>) -> A,
+    where
+        F: FnOnce(&Pause<T>) -> A,
     {
         let pause = self.pause();
         let ret = exec(&pause);
@@ -176,8 +175,8 @@ impl<T> Default for Incinerator<T> {
 /// dropped, the incinerator counter is decremented.
 #[derive(Debug)]
 pub struct Pause<'incin, T>
-    where
-        T: 'incin,
+where
+    T: 'incin,
 {
     incin: &'incin Incinerator<T>,
     had_list: bool,
@@ -259,8 +258,8 @@ impl<T> GarbageList<T> {
 }
 
 impl<T> fmt::Debug for GarbageList<T>
-    where
-        T: fmt::Debug,
+where
+    T: fmt::Debug,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         let list = self.list.replace(Vec::new());
@@ -269,7 +268,7 @@ impl<T> fmt::Debug for GarbageList<T>
         let mut tmp = self.list.replace(list);
 
         // A totally weird corner case, but we have to handle it.
-        if tmp.len() > 0 {
+        if !tmp.is_empty() {
             let mut list = self.list.replace(Vec::new());
             list.append(&mut tmp);
             self.list.replace(list);
@@ -327,7 +326,6 @@ macro_rules! make_shared_incin {
                          incinerator.");
                 $vis fn clear(&mut self) {
                     use std::{
-                        mem::{forget, replace, uninitialized},
                         sync::Arc,
                     };
 

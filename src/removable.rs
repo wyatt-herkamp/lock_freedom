@@ -1,24 +1,25 @@
 use std::{
     fmt,
-    mem::{replace, uninitialized, ManuallyDrop},
+    mem::{ManuallyDrop},
     sync::atomic::{
         AtomicBool,
         Ordering::{self, *},
     },
 };
+use std::mem::MaybeUninit;
 
 /// A shared removable value. You can only take values from this type (no
 /// insertion allowed). No extra allocation is necessary. It may be useful for
 /// things like shared `thread::JoinHandle`s.
 pub struct Removable<T> {
-    item: ManuallyDrop<T>,
+    item: ManuallyDrop<MaybeUninit<T>>,
     present: AtomicBool,
 }
 
 impl<T> Removable<T> {
     /// Creates a removable item with the passed argument as a present value.
     pub fn new(val: T) -> Self {
-        Self { item: ManuallyDrop::new(val), present: AtomicBool::new(true) }
+        Self { item: ManuallyDrop::new(MaybeUninit::new(val)), present: AtomicBool::new(true) }
     }
 
     /// Creates a removable item with no present value.
@@ -26,7 +27,7 @@ impl<T> Removable<T> {
         Self {
             // This is safe because we will only read from the item if present
             // is true. Present will only be true if we write to it.
-            item: ManuallyDrop::new(unsafe { uninitialized() }),
+            item: ManuallyDrop::new(MaybeUninit::uninit() ),
             present: AtomicBool::new(false),
         }
     }
@@ -40,22 +41,26 @@ impl<T> Removable<T> {
         match val {
             Some(val) => {
                 if *present {
-                    Some(replace(&mut *self.item, val))
+                    let t = unsafe {
+                        self.item.assume_init_read()
+                    };
+                    self.item.write(val);
+                    Some(t)
                 } else {
                     // Safe because we get the pointer from a valid reference
                     // and present will only be false if item is uninitialized.
                     *present = true;
-                    unsafe { (&mut *self.item as *mut T).write(val) };
+                    unsafe { (self.item.assume_init_mut() as *mut T).write(val) };
                     None
                 }
-            },
+            }
 
             None if *present => {
                 // Safe because we get the pointer from a valid reference
                 // and present will only be false if item is uninitialized.
                 *present = false;
-                Some(unsafe { (&*self.item as *const T).read() })
-            },
+                Some(unsafe { (self.item.assume_init_ref() as *const T).read() })
+            }
 
             None => None,
         }
@@ -65,7 +70,9 @@ impl<T> Removable<T> {
     /// not present, `None` is returned.
     pub fn get_mut(&mut self) -> Option<&mut T> {
         if *self.present.get_mut() {
-            Some(&mut *self.item)
+            unsafe {
+                Some(self.item.assume_init_mut())
+            }
         } else {
             None
         }
@@ -84,7 +91,7 @@ impl<T> Removable<T> {
         if self.present.swap(false, ordering) {
             // Safe because if present was true, the memory was initialized. All
             // other reads won't happen because we set present to false.
-            Some(unsafe { (&*self.item as *const T).read() })
+            Some(unsafe { (self.item.assume_init_ref() as *const T).read() })
         } else {
             None
         }
@@ -93,13 +100,7 @@ impl<T> Removable<T> {
 
 impl<T> fmt::Debug for Removable<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmtr,
-            "Removable {} present: {:?} {}",
-            '{',
-            self.is_present(Relaxed),
-            '}'
-        )
+        write!(fmtr, "Removable {{ present: {:?} }}", self.is_present(Relaxed))
     }
 }
 
@@ -129,4 +130,5 @@ impl<T> From<Option<T>> for Removable<T> {
 }
 
 unsafe impl<T> Send for Removable<T> where T: Send {}
+
 unsafe impl<T> Sync for Removable<T> where T: Send {}

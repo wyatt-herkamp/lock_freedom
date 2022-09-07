@@ -2,7 +2,6 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 extern crate fuzzsuite;
-extern crate lockfree;
 
 use fuzzsuite::*;
 use lockfree::prelude::*;

@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate benchsuite;
-extern crate lockfree;
 
 use benchsuite::exec::Target;
 use lockfree::queue::Queue;

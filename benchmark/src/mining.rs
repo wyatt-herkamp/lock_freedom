@@ -1,9 +1,4 @@
-extern crate lockfree;
 
-use lockfree::{
-    map::{Map as LfMap, Preview},
-    stack::Stack as LfStack,
-};
 use std::{
     collections::{hash_map::RandomState, HashMap},
     hash::{BuildHasher, Hash, Hasher},
@@ -11,6 +6,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use tux_lockfree::map::Preview;
 
 fn hash_of(data: &[u8], state: &RandomState) -> u64 {
     let mut hasher = state.build_hasher();

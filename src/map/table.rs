@@ -62,7 +62,7 @@ impl<K, V> Table<K, V> {
 
         loop {
             // Compute the index from the shifted hash's lower bits.
-            let index = shifted as usize & (1 << BITS) - 1;
+            let index = shifted as usize & ((1 << BITS) - 1);
             let loaded = table.nodes[index].atomic.load(Acquire);
 
             // Null means we have nothing.
@@ -138,7 +138,7 @@ impl<K, V> Table<K, V> {
         let mut tbl_cache = Cache::<OwnedAlloc<Self>>::new();
 
         // Compute the index from the shifted hash's lower bits.
-        let mut index = shifted as usize & (1 << BITS) - 1;
+        let mut index = shifted as usize & ((1 << BITS) - 1);
         // Load what is in the index before trying to insert.
         let mut loaded = table.nodes[index].atomic.load(Acquire);
 
@@ -233,7 +233,8 @@ impl<K, V> Table<K, V> {
                     // In the case hashes aren't equal, we will branch!
                     let new_table = tbl_cache.take_or(|| Self::new_alloc());
                     let other_shifted = bucket.hash() >> (depth * BITS);
-                    let other_index = other_shifted as usize & (1 << BITS) - 1;
+                    let other_index =
+                        other_shifted as usize & ((1 << BITS) - 1);
 
                     // Placing the found bucket into the new table first.
                     new_table.nodes[other_index].atomic.store(loaded, Relaxed);
@@ -256,7 +257,7 @@ impl<K, V> Table<K, V> {
                             shifted >>= BITS;
                             // Compute the index from the shifted hash's lower
                             // bits.
-                            index = shifted as usize & (1 << BITS) - 1;
+                            index = shifted as usize & ((1 << BITS) - 1);
                             // Load what is in the index before trying to
                             // insert.
                             loaded = table.nodes[index].atomic.load(Acquire);
@@ -288,7 +289,7 @@ impl<K, V> Table<K, V> {
 
                 // Compute the index from the shifted hash's lower
                 // bits.
-                index = shifted as usize & (1 << BITS) - 1;
+                index = shifted as usize & ((1 << BITS) - 1);
                 // Load what is in the index before trying to
                 // insert.
                 loaded = table.nodes[index].atomic.load(Acquire);
@@ -317,7 +318,7 @@ impl<K, V> Table<K, V> {
 
         loop {
             // Compute the index from the shifted hash's lower bits.
-            let index = shifted as usize & (1 << BITS) - 1;
+            let index = shifted as usize & ((1 << BITS) - 1);
             // Let's load to see what is in there.
             let loaded = table.nodes[index].atomic.load(Acquire);
 
@@ -487,11 +488,7 @@ impl<K, V> Table<K, V> {
 
 impl<K, V> fmt::Debug for Table<K, V> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            fmtr,
-            "Table {} nodes: {:?} {}",
-            '{', &self.nodes as &[Node<K, V>], '}'
-        )
+        write!(fmtr, "Table {{ nodes: {:?} }}", &self.nodes as &[Node<K, V>])
     }
 }
 
@@ -534,7 +531,7 @@ impl<K, V> Node<K, V> {
 
 impl<K, V> fmt::Debug for Node<K, V> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "Node {} pointer: {:?} {}", '{', self.atomic, '}')
+        write!(fmtr, "Node {{ pointer: {:?} }}", self.atomic)
     }
 }
 

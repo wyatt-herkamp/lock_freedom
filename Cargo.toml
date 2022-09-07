@@ -1,5 +1,5 @@
 [package]
-name = "tux_lockfreec"
+name = "tux_lockfree"
 version = "0.5.1"
 authors = ["Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
 description = "This crate provides concurrent data structures and a solution to the ABA problem as an alternative of hazard pointers"
@@ -9,5 +9,6 @@ categories = ["concurrency", "data-structures", "algorithms"]
 license = "MIT"
 readme = "README.md"
 edition = "2021"
+rust-version = "1.60.0"
 [dependencies]
-owned-alloc = "0.2"
+owned-alloc = { git = "https://github.com/wyatt-herkamp/tux-owned-alloc.git" }

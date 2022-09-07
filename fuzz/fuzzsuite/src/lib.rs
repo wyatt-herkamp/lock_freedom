@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate lazy_static;
-extern crate lockfree;
 extern crate owned_alloc;
 
 pub mod thread;

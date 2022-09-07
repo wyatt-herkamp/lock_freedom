@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate benchsuite;
-extern crate lockfree;
 extern crate thread_local;
 
 use benchsuite::exec::{Target, TargetData};

@@ -2,8 +2,8 @@ pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
-use owned_alloc::OwnedAlloc;
 use crate::ptr::check_null_align;
+use owned_alloc::OwnedAlloc;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},

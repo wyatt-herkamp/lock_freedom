@@ -2,8 +2,8 @@ pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
-use owned_alloc::OwnedAlloc;
 use crate::ptr::{bypass_null, check_null_align};
+use owned_alloc::OwnedAlloc;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
@@ -153,7 +153,7 @@ unsafe impl<T> Sync for Sender<T> where T: Send {}
 
 impl<T> fmt::Debug for Sender<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "spmc::Sender {} ptr: {:p} {}", '{', self.inner, '}')
+        write!(fmtr, "spmc::Sender {{ ptr: {:p} }}", self.inner)
     }
 }
 

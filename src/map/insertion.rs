@@ -19,10 +19,7 @@ pub enum Insertion<K, V, E> {
 impl<K, V, E> Insertion<K, V, E> {
     /// Returns whether the insertion created an entry.
     pub fn created(&self) -> bool {
-        match self {
-            Insertion::Created => true,
-            _ => false,
-        }
+        matches!(self, Insertion::Created)
     }
 
     /// Returns whether the insertion updated an entry.
@@ -252,7 +249,7 @@ where
     F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
 {
     fn input(&mut self, found: Option<&(K, V)>) {
-        self.is_valid = (self.interactive)(&*self.removed, found);
+        self.is_valid = (self.interactive)(&self.removed, found);
     }
 
     fn pointer(&self) -> Option<NonNull<(K, V)>> {

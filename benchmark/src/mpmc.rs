@@ -1,4 +1,3 @@
-extern crate lockfree;
 
 use lockfree::channel::mpmc;
 use std::{
@@ -7,6 +6,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use tux_lockfree::channel::mpmc;
 
 fn measure<C>(nthread: usize, niter: u128) -> Duration
 where

@@ -15,6 +15,7 @@ use std::{
 /// A read-operation guard. This ensures no entry allocation is
 /// mutated or freed while potential reads are performed.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ReadGuard<'map, K, V>
 where
     K: 'map,
@@ -116,13 +117,13 @@ where
 
 impl<'map, K, V> AsRef<(K, V)> for ReadGuard<'map, K, V> {
     fn as_ref(&self) -> &(K, V) {
-        &**self
+        self
     }
 }
 
 impl<'map, K, V> Borrow<(K, V)> for ReadGuard<'map, K, V> {
     fn borrow(&self) -> &(K, V) {
-        &**self
+        self
     }
 }
 
@@ -253,7 +254,9 @@ impl<K, V> Drop for Removed<K, V> {
     fn drop(&mut self) {
         // We own the allocation. This must be safe.
         let alloc = unsafe { OwnedAlloc::from_raw(self.nnptr) };
-        self.origin.upgrade().map(|incin| incin.add(Garbage::Pair(alloc)));
+        if let Some(incin) = self.origin.upgrade() {
+            incin.add(Garbage::Pair(alloc))
+        }
     }
 }
 
@@ -336,13 +339,13 @@ where
 
 impl<K, V> AsRef<(K, V)> for Removed<K, V> {
     fn as_ref(&self) -> &(K, V) {
-        &**self
+        self
     }
 }
 
 impl<K, V> Borrow<(K, V)> for Removed<K, V> {
     fn borrow(&self) -> &(K, V) {
-        &**self
+        self
     }
 }
 

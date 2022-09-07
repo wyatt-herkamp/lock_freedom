@@ -1,15 +1,14 @@
 #[macro_use]
 extern crate benchsuite;
-extern crate lockfree;
 
 use benchsuite::exec::Target;
-use lockfree::map::Map;
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
     mem,
     sync::{Arc, Mutex},
 };
+use tux_lockfree::map::Map;
 
 type MutexInner = Arc<Mutex<HashMap<BadHash, usize>>>;
 type LockfreeInner = Arc<Map<BadHash, usize>>;
@@ -31,8 +30,8 @@ struct BadHash(u128);
 
 impl Hash for BadHash {
     fn hash<H>(&self, hasher: &mut H)
-    where
-        H: Hasher,
+        where
+            H: Hasher,
     {
         hasher.write_u8(self.0 as u8);
         hasher.write_u8((self.0 >> 16) as u8);
@@ -159,10 +158,10 @@ impl Target for MutexMixed {
             Some(&j) => {
                 map.insert(key, i.wrapping_add(j));
                 map.remove(&make_key(j));
-            },
+            }
             None => {
                 map.insert(key, i);
-            },
+            }
         }
     }
 }
@@ -183,10 +182,10 @@ impl Target for LockfreeMixed {
             Some(j) => {
                 self.inner.insert(key, i.wrapping_add(j));
                 self.inner.remove(&make_key(j));
-            },
+            }
             None => {
                 self.inner.insert(key, i);
-            },
+            }
         }
     }
 }
@@ -195,7 +194,7 @@ fn main() {
     let mutex = MutexInner::default();
     let lockfree = LockfreeInner::default();
 
-    bench! {
+    benchsuite::bench! {
         levels 1, 2, 4, 8;
         "mutex insert" => MutexInsert {
             inner: mutex.clone(),
@@ -207,7 +206,7 @@ fn main() {
         },
     }
 
-    bench! {
+    benchsuite::bench! {
         levels 1, 2, 4, 8;
         "mutex get" => MutexGet {
             inner: mutex.clone(),
@@ -219,7 +218,7 @@ fn main() {
         },
     }
 
-    bench! {
+    benchsuite::bench! {
         levels 1, 2, 4, 8;
         "mutex remove" => MutexRemove {
             inner: mutex.clone(),
@@ -231,7 +230,7 @@ fn main() {
         },
     }
 
-    bench! {
+    benchsuite::bench! {
         levels 1, 2, 4, 8;
         "mutex mixed" => MutexMixed {
             inner: mutex,

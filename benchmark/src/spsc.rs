@@ -1,4 +1,3 @@
-extern crate lockfree;
 
 use lockfree::channel::spsc;
 use std::{

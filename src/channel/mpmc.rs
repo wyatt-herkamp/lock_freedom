@@ -2,10 +2,12 @@ pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
-use crate::incin::Pause;
+use crate::{
+    incin::Pause,
+    ptr::{bypass_null, check_null_align},
+    removable::Removable,
+};
 use owned_alloc::OwnedAlloc;
-use crate::ptr::{bypass_null, check_null_align};
-use crate::removable::Removable;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
@@ -167,7 +169,7 @@ impl<T> Clone for Sender<T> {
 
 impl<T> fmt::Debug for Sender<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "spmc::Sender {} ptr: {:p} {}", '{', self.inner, '}')
+        write!(fmtr, "spmc::Sender {{ ptr: {:p} }}", self.inner)
     }
 }
 
@@ -295,7 +297,7 @@ impl<T> Clone for Receiver<T> {
 
 impl<T> fmt::Debug for Receiver<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "spmc::Receiver {} ptr: {:p} {}", '{', self.inner, '}')
+        write!(fmtr, "spmc::Receiver {{ ptr: {:p} }}", self.inner)
     }
 }
 

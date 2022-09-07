@@ -16,8 +16,8 @@ use self::{
     insertion::{InsertNew, Reinsert},
     table::Table,
 };
-use owned_alloc::OwnedAlloc;
 use crate::ptr::check_null_align;
+use owned_alloc::OwnedAlloc;
 use std::{
     borrow::Borrow,
     fmt,
@@ -172,7 +172,7 @@ where
                 InsertNew::with_pair(|_, _, _| Preview::Keep, (key, val)),
                 hash,
                 &pause,
-                &self.incin.get_unchecked(),
+                self.incin.get_unchecked(),
             )
         };
 
@@ -212,7 +212,7 @@ where
                 InsertNew::with_key(interactive, key),
                 hash,
                 &pause,
-                &self.incin.get_unchecked(),
+                self.incin.get_unchecked(),
             )
         };
 
@@ -241,7 +241,7 @@ where
     where
         K: Hash + Ord,
     {
-        if !Removed::is_usable_by(&mut removed, &self.incin.get_unchecked()) {
+        if !Removed::is_usable_by(&mut removed, self.incin.get_unchecked()) {
             return Insertion::Failed(removed);
         }
 
@@ -254,7 +254,7 @@ where
                 Reinsert::new(|_, _| true, removed),
                 hash,
                 &pause,
-                &self.incin.get_unchecked(),
+                self.incin.get_unchecked(),
             )
         };
 
@@ -293,7 +293,7 @@ where
         K: Hash + Ord,
         F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
     {
-        if !Removed::is_usable_by(&mut removed, &self.incin.get_unchecked()) {
+        if !Removed::is_usable_by(&mut removed, self.incin.get_unchecked()) {
             return Insertion::Failed(removed);
         }
 
@@ -306,7 +306,7 @@ where
                 Reinsert::new(interactive, removed),
                 hash,
                 &pause,
-                &self.incin.get_unchecked(),
+                self.incin.get_unchecked(),
             )
         };
 
@@ -353,7 +353,13 @@ where
         let pause = self.incin.get_unchecked().pause();
         // Safe because we paused properly.
         unsafe {
-            self.top.remove(key, interactive, hash, &pause, &self.incin.get_unchecked())
+            self.top.remove(
+                key,
+                interactive,
+                hash,
+                &pause,
+                self.incin.get_unchecked(),
+            )
         }
     }
 
@@ -394,8 +400,10 @@ where
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "Map {} top_table: {:?}, incin: {:?}, build_hasher: {:?}  {}",
-            '{', self.top, self.incin.get_unchecked(), self.builder, '}'
+            "Map {{ top_table: {:?}, incin: {:?}, build_hasher: {:?} }}",
+            self.top,
+            self.incin.get_unchecked(),
+            self.builder
         )
     }
 }
@@ -463,7 +471,7 @@ where
     where
         I: IntoIterator<Item = (K, V)>,
     {
-        (&*self).extend(iterable)
+        (*self).extend(iterable)
     }
 }
 
@@ -505,7 +513,7 @@ make_shared_incin! {
 
 impl<K, V> fmt::Debug for SharedIncin<K, V> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "SharedIncin {} inner: {:?} {}", '{', self.inner, '}')
+        write!(fmtr, "SharedIncin {{ inner: {:?} }}", self.inner)
     }
 }
 
@@ -539,7 +547,7 @@ mod test {
                     Preview::New(5)
                 } else {
                     Preview::Discard
-                }
+                },
             )
             .created());
         assert_eq!(*map.get("five").unwrap().val(), 5);
@@ -550,7 +558,7 @@ mod test {
                     Preview::New(500)
                 } else {
                     Preview::Discard
-                }
+                },
             )
             .failed()
             .is_some());

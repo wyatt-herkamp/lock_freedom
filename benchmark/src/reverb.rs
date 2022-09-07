@@ -1,4 +1,3 @@
-extern crate lockfree;
 
 use lockfree::queue::Queue as LfQueue;
 use std::{

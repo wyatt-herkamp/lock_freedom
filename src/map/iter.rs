@@ -5,7 +5,7 @@ use super::{
 };
 use crate::incin::Pause;
 use owned_alloc::OwnedAlloc;
-use std::{fmt, mem::replace, ptr::NonNull, sync::atomic::Ordering::*};
+use std::{fmt, ptr::NonNull, sync::atomic::Ordering::*};
 
 /// An iterator over key-vaue entries of a [`Map`](super::Map). The `Item` of
 /// this iterator is a [`ReadGuard`]. This iterator may be inconsistent, but
@@ -60,7 +60,7 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
                 // cache.
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Bucket<K, V>;
-                    let mut cache = replace(&mut self.cache, Vec::new());
+                    let mut cache = std::mem::take(&mut self.cache);
 
                     // This is safe because:
                     //
@@ -197,7 +197,7 @@ impl<K, V> Iterator for IntoIter<K, V> {
 
 impl<K, V> Drop for IntoIter<K, V> {
     fn drop(&mut self) {
-        while let Some(_) = self.next() {}
+        for _ in self.by_ref() {}
     }
 }
 
@@ -205,8 +205,8 @@ impl<K, V> fmt::Debug for IntoIter<K, V> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "IntoIter {} tables: {:?}, curr_table: {:?}, entries: {:?} {}",
-            '{', self.tables, self.curr_table, self.entries, '}'
+            "IntoIter {{ tables: {:?}, curr_table: {:?}, entries: {:?} }}",
+            self.tables, self.curr_table, self.entries
         )
     }
 }
@@ -323,8 +323,8 @@ impl<'map, K, V> fmt::Debug for IterMut<'map, K, V> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(
             fmtr,
-            "IntoIter {} tables: {:?}, curr_table: {:?}, entries: {:?} {}",
-            '{', self.tables, self.curr_table, self.entries, '}'
+            "IntoIter {{ tables: {:?}, curr_table: {:?}, entries: {:?} }}",
+            self.tables, self.curr_table, self.entries
         )
     }
 }

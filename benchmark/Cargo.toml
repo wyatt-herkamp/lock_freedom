@@ -3,14 +3,12 @@ name = "lockfree-benchmark"
 version = "0.1.0"
 authors = ["Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
 publish = false
-
+edition = "2021"
 [dependencies]
-lockfree = { path = "../" }
+tux_lockfree = { path = ".." }
 benchsuite = { path = "benchsuite" }
 thread_local = "*"
 
-[workspace]
-members = ["benchsuite", "."]
 
 [[bin]]
 name = "stack"
