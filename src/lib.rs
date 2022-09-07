@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 //! A crate providing lock-free data structures and a solution for the "ABA
 //! problem" related to pointers.
@@ -30,6 +31,7 @@
 //! recommended to avoid global locking stuff like heap allocation.
 
 extern crate owned_alloc;
+extern crate alloc;
 
 /// Provides convenient re-exports.
 pub mod prelude;
@@ -38,21 +40,27 @@ pub mod prelude;
 /// related to pointers while still being lock-free. See documentation of the
 /// inner type for more details.
 #[macro_use]
+#[cfg(feature = "std")]
 pub mod incin;
 
 /// A wait-free per-object Thread Local Storage (TLS).
+#[cfg(feature = "std")]
 pub mod tls;
 
 /// A lock-free queue.
+#[cfg(feature = "std")]
 pub mod queue;
 
 /// A lock-free stack.
+#[cfg(feature = "std")]
 pub mod stack;
 
 /// A lock-free map.
+#[cfg(feature = "std")]
 pub mod map;
 
 /// A lock-free set.
+#[cfg(feature = "std")]
 pub mod set;
 
 /// Collection of lock-free FIFO channels. These channels are fully asynchronous
@@ -61,6 +69,7 @@ pub mod set;
 /// mechanism, consider using this channel with a
 /// [`Condvar`](std::sync::Condvar) or using things like
 /// [`thread::park`](std::thread::park) (not lock-free).
+#[cfg(feature = "std")]
 pub mod channel;
 
 /// A shared removable value. No extra allocation is necessary.

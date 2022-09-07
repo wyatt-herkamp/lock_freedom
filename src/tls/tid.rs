@@ -1,5 +1,5 @@
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     fmt,
     marker::PhantomData,
     ptr::null_mut,
@@ -67,7 +67,7 @@ impl IdGuard {
         loop {
             // First we try to acquire the current node.
             let bits = node.free.swap(usize::max_value(), Relaxed);
-            if bits != usize::max_value() {
+            if bits != usize::MAX {
                 break Self { node, bits };
             }
 

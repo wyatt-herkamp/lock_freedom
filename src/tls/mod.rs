@@ -1,10 +1,11 @@
 mod tid;
 
+use alloc::vec::Vec;
 pub use self::tid::ThreadId;
 
 use crate::ptr::check_null_align;
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
-use std::{
+use core::{
     fmt,
     marker::PhantomData,
     mem::{forget, replace},
@@ -79,16 +80,16 @@ impl<T> ThreadLocal<T> {
 
     /// Creates an iterator over immutable refereces of entries.
     pub fn iter(&self) -> Iter<T>
-    where
-        T: Sync,
+        where
+            T: Sync,
     {
         Iter { curr_table: Some((&self.top, 0)), tables: Vec::new() }
     }
 
     /// Creates an iterator over mutable refereces of entries.
     pub fn iter_mut(&mut self) -> IterMut<T>
-    where
-        T: Send,
+        where
+            T: Send,
     {
         IterMut { curr_table: Some((&mut self.top, 0)), tables: Vec::new() }
     }
@@ -164,8 +165,8 @@ impl<T> ThreadLocal<T> {
     /// closure is called to initialize the entry.
     #[inline]
     pub fn with_init<F>(&self, init: F) -> &T
-    where
-        F: FnOnce() -> T,
+        where
+            F: FnOnce() -> T,
     {
         self.with_id_and_init(ThreadId::current(), init)
     }
@@ -175,8 +176,8 @@ impl<T> ThreadLocal<T> {
     /// everytime. If necessary, the `init` closure is called to initialize the
     /// entry.
     pub fn with_id_and_init<F>(&self, id: ThreadId, init: F) -> &T
-    where
-        F: FnOnce() -> T,
+        where
+            F: FnOnce() -> T,
     {
         let mut table = &*self.top;
         // The depth of the iterations.
@@ -215,7 +216,7 @@ impl<T> ThreadLocal<T> {
                         // allocated and we only delete nodes through mutable
                         // references to the TLS.
                         break unsafe { &(*nnptr.as_ptr()).data };
-                    },
+                    }
 
                     Err(new) => in_place = new,
                 }
@@ -281,7 +282,7 @@ impl<T> ThreadLocal<T> {
                         // Load new in place pointer.
                         index = shifted & ((1 << BITS) - 1);
                         in_place = table.nodes[index].atomic.load(Acquire);
-                    },
+                    }
 
                     Err(new) => {
                         // If we failed, let's rebuild the owned allocation.
@@ -298,7 +299,7 @@ impl<T> ThreadLocal<T> {
                         // Store it into the cache for later.
                         tbl_cache.store(new_tbl);
                         in_place = new;
-                    },
+                    }
                 }
             } else {
                 // The remaining case (non-null with first lower bit set to
@@ -332,8 +333,8 @@ impl<T> ThreadLocal<T> {
     /// initialized with default value.
     #[inline]
     pub fn with_default(&self) -> &T
-    where
-        T: Default,
+        where
+            T: Default,
     {
         self.with_init(T::default)
     }
@@ -344,8 +345,8 @@ impl<T> ThreadLocal<T> {
     /// value.
     #[inline]
     pub fn with_id_and_default(&self, id: ThreadId) -> &T
-    where
-        T: Default,
+        where
+            T: Default,
     {
         self.with_id_and_init(id, T::default)
     }
@@ -370,8 +371,8 @@ impl<T> Drop for ThreadLocal<T> {
 }
 
 impl<T> fmt::Debug for ThreadLocal<T>
-where
-    T: fmt::Debug,
+    where
+        T: fmt::Debug,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(fmtr, "ThreadLocal {{ storage: ")?;
@@ -394,8 +395,8 @@ unsafe impl<T> Send for ThreadLocal<T> {}
 unsafe impl<T> Sync for ThreadLocal<T> {}
 
 impl<T> IntoIterator for ThreadLocal<T>
-where
-    T: Send,
+    where
+        T: Send,
 {
     type IntoIter = IntoIter<T>;
     type Item = T;
@@ -411,8 +412,8 @@ where
 }
 
 impl<'tls, T> IntoIterator for &'tls ThreadLocal<T>
-where
-    T: Sync,
+    where
+        T: Sync,
 {
     type IntoIter = Iter<'tls, T>;
     type Item = &'tls T;
@@ -423,8 +424,8 @@ where
 }
 
 impl<'tls, T> IntoIterator for &'tls mut ThreadLocal<T>
-where
-    T: Send,
+    where
+        T: Send,
 {
     type IntoIter = IterMut<'tls, T>;
     type Item = &'tls mut T;
@@ -436,8 +437,8 @@ where
 
 /// An iterator over immutable references to entries of TLS.
 pub struct Iter<'tls, T>
-where
-    T: 'tls,
+    where
+        T: 'tls,
 {
     tables: Vec<&'tls Table<T>>,
     curr_table: Option<(&'tls Table<T>, usize)>,
@@ -452,7 +453,7 @@ impl<'tls, T> Iterator for Iter<'tls, T> {
             match table.nodes.get(index).map(|node| node.atomic.load(Acquire)) {
                 Some(ptr) if ptr.is_null() => {
                     self.curr_table = Some((table, index + 1))
-                },
+                }
 
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Entry<T>;
@@ -466,7 +467,7 @@ impl<'tls, T> Iterator for Iter<'tls, T> {
                     // references *and* there are no mutable references to the
                     // TLS as we are a shared one.
                     break Some(unsafe { &(*ptr).data });
-                },
+                }
 
                 Some(ptr) => {
                     let ptr = (ptr as usize & !1) as *mut Table<T>;
@@ -483,7 +484,7 @@ impl<'tls, T> Iterator for Iter<'tls, T> {
                     // TLS as we are a shared one.
                     self.tables.push(unsafe { &mut *ptr });
                     self.curr_table = Some((table, index + 1));
-                },
+                }
 
                 None => self.curr_table = self.tables.pop().map(|tbl| (tbl, 0)),
             };
@@ -493,8 +494,8 @@ impl<'tls, T> Iterator for Iter<'tls, T> {
 
 /// An iterator over mutable references to entries of TLS.
 pub struct IterMut<'tls, T>
-where
-    T: 'tls,
+    where
+        T: 'tls,
 {
     tables: Vec<&'tls mut Table<T>>,
     curr_table: Option<(&'tls mut Table<T>, usize)>,
@@ -510,7 +511,7 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
             {
                 Some(ptr) if ptr.is_null() => {
                     self.curr_table = Some((table, index + 1))
-                },
+                }
 
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Entry<T>;
@@ -524,7 +525,7 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
                     // references *and* we are the only mutable reference to the
                     // TLS. We are not deleting it.
                     break Some(unsafe { &mut (*ptr).data });
-                },
+                }
 
                 Some(ptr) => {
                     let ptr = (ptr as usize & !1) as *mut Table<T>;
@@ -541,7 +542,7 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
                     // TLS. We are not deleting it.
                     self.tables.push(unsafe { &mut *ptr });
                     self.curr_table = Some((table, index + 1));
-                },
+                }
 
                 None => self.curr_table = self.tables.pop().map(|tbl| (tbl, 0)),
             };
@@ -575,7 +576,7 @@ impl<T> Iterator for IntoIter<T> {
             {
                 Some(ptr) if ptr.is_null() => {
                     self.curr_table = Some((table, index + 1))
-                },
+                }
 
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Entry<T>;
@@ -592,7 +593,7 @@ impl<T> Iterator for IntoIter<T> {
                     let (entry, _) = alloc.move_inner();
                     self.curr_table = Some((table, index + 1));
                     break Some(entry.data);
-                },
+                }
 
                 Some(ptr) => {
                     let ptr = (ptr as usize & !1) as *mut Table<T>;
@@ -607,7 +608,7 @@ impl<T> Iterator for IntoIter<T> {
                         OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
                     });
                     self.curr_table = Some((table, index + 1));
-                },
+                }
 
                 None => self.curr_table = self.tables.pop().map(|tbl| (tbl, 0)),
             };
@@ -723,8 +724,8 @@ enum LazyInit<T, F> {
 }
 
 impl<T, F> LazyInit<T, F>
-where
-    F: FnOnce() -> T,
+    where
+        F: FnOnce() -> T,
 {
     fn is_pending(&self) -> bool {
         matches!(self, LazyInit::Pending(_))
@@ -743,14 +744,13 @@ where
         ptr
     }
 }
-
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod test {
+    use alloc::sync::Arc;
+    use alloc::vec::Vec;
     use super::ThreadLocal;
-    use std::{
-        sync::{Arc, Barrier},
-        thread,
-    };
+    use std::sync::Barrier;
+    use std::thread;
 
     #[test]
     fn threads_with_their_id() {
@@ -761,7 +761,7 @@ mod test {
         // prevent IDs from being reused.
         let barrier = Arc::new(Barrier::new(THREADS));
 
-        for i in 0 .. THREADS {
+        for i in 0..THREADS {
             let tls = tls.clone();
             let barrier = barrier.clone();
             threads.push(thread::spawn(move || {
@@ -784,7 +784,7 @@ mod test {
         // prevent IDs from being reused.
         let barrier = Arc::new(Barrier::new(THREADS));
 
-        for i in 0 .. THREADS {
+        for i in 0..THREADS {
             let tls = tls.clone();
             let barrier = barrier.clone();
             threads.push(thread::spawn(move || {
@@ -807,7 +807,7 @@ mod test {
         // prevent IDs from being reused.
         let barrier = Arc::new(Barrier::new(THREADS));
 
-        for i in 0 .. THREADS {
+        for i in 0..THREADS {
             let tls = tls.clone();
             let barrier = barrier.clone();
             threads.push(thread::spawn(move || {

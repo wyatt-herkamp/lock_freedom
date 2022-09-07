@@ -1,3 +1,4 @@
+use alloc::sync::Arc;
 pub use super::{
     NoRecv,
     RecvErr::{self, *},
@@ -8,12 +9,11 @@ use crate::{
     removable::Removable,
 };
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     fmt,
     ptr::{null_mut, NonNull},
     sync::{
         atomic::{AtomicPtr, Ordering::*},
-        Arc,
     },
 };
 
@@ -485,14 +485,12 @@ unsafe fn delete_before_last<T>(
 
 #[cfg(test)]
 mod test {
+    use alloc::sync::Arc;
+    use alloc::vec::Vec;
+    use core::sync::atomic::AtomicBool;
+    use core::sync::atomic::Ordering::{AcqRel, Relaxed};
+    use std::thread;
     use crate::channel::mpmc;
-    use std::{
-        sync::{
-            atomic::{AtomicBool, Ordering::*},
-            Arc,
-        },
-        thread,
-    };
 
     #[test]
     fn correct_numbers() {

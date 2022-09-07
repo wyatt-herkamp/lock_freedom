@@ -1,3 +1,4 @@
+#[cfg(feature = "std")]
 pub use crate::{
     channel::{mpmc, mpsc, spmc, spsc},
     map::Map,

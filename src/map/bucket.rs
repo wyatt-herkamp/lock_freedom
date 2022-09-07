@@ -1,3 +1,5 @@
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use super::{
     guard::{ReadGuard, Removed},
     insertion::Inserter,
@@ -7,7 +9,7 @@ use crate::{
     ptr::non_zero_null,
 };
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     borrow::Borrow,
     cmp::Ordering,
     fmt,
@@ -15,7 +17,6 @@ use std::{
     ptr::{null_mut, NonNull},
     sync::{
         atomic::{AtomicPtr, Ordering::*},
-        Arc,
     },
 };
 

@@ -12,3 +12,6 @@ edition = "2021"
 rust-version = "1.60.0"
 [dependencies]
 owned-alloc = { git = "https://github.com/wyatt-herkamp/tux-owned-alloc.git" }
+[features]
+default = ["std"]
+std = []

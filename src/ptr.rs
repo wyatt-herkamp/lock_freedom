@@ -1,4 +1,4 @@
-use std::{
+use core::{
     mem::align_of,
     ptr::{null_mut, NonNull},
 };

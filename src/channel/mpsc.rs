@@ -1,15 +1,15 @@
+use alloc::sync::Arc;
 pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
 use crate::ptr::{bypass_null, check_null_align};
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     fmt,
     ptr::{null_mut, NonNull},
     sync::{
         atomic::{AtomicPtr, Ordering::*},
-        Arc,
     },
 };
 

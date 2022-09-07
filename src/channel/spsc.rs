@@ -4,7 +4,7 @@ pub use super::{
 };
 use crate::ptr::check_null_align;
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     fmt,
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},

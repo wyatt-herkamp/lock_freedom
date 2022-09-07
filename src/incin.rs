@@ -1,5 +1,6 @@
+use alloc::vec::Vec;
 use crate::tls::ThreadLocal;
-use std::{
+use core::{
     cell::Cell,
     fmt,
     marker::PhantomData,
@@ -82,7 +83,7 @@ impl<T> Incinerator<T> {
         let mut count = self.counter.load(Relaxed);
         loop {
             // Sanity check.
-            if count == usize::max_value() {
+            if count == usize::MAX {
                 panic!("Too many pauses");
             }
             // Simply try to increment it. This will be decremented at
@@ -299,11 +300,11 @@ macro_rules! make_shared_incin {
                      were used.");
             $(#[$meta])*
             $vis struct $name<$($params),*> {
-                inner: ::std::mem::MaybeUninit<::std::sync::Arc<crate::incin::Incinerator<$garbage>>>,
+                inner: core::mem::MaybeUninit<alloc::sync::Arc<crate::incin::Incinerator<$garbage>>>,
             }
         }
         impl<$($params),*> $name<$($params),*> {
-            fn get_unchecked(&self) -> &std::sync::Arc<crate::incin::Incinerator<$garbage>> {
+            fn get_unchecked(&self) -> &alloc::sync::Arc<crate::incin::Incinerator<$garbage>> {
                 unsafe{
                         self.inner.assume_init_ref()
                 }
@@ -311,12 +312,11 @@ macro_rules! make_shared_incin {
             doc! {
                 concat!("Creates a new shared incinerator for ", $target, ".");
                 $vis fn new() -> Self {
-                    use std::sync::Arc;
                     use crate::incin::Incinerator;
-                    use std::mem::MaybeUninit;
+                    use core::mem::MaybeUninit;
 
                     Self {
-                        inner: MaybeUninit::new(Arc::new(Incinerator::new())),
+                        inner: MaybeUninit::new(alloc::sync::Arc::new(Incinerator::new())),
                     }
                 }
             }
@@ -325,10 +325,7 @@ macro_rules! make_shared_incin {
                          best possible way given the runtime status of this \
                          incinerator.");
                 $vis fn clear(&mut self) {
-                    use std::{
-                        sync::Arc,
-                    };
-
+                    use alloc::sync::Arc;
                     // I know this sounds weird. This is because Arc::get_mut
                     // locks stuff. We don't want that.
                     let arc = unsafe {
@@ -359,7 +356,7 @@ macro_rules! make_shared_incin {
         impl<$($params),*> Clone for $name<$($params),*> {
             fn clone(&self) -> Self {
                 let inner =unsafe{
-                        std::mem::MaybeUninit::new(self.inner.assume_init_ref().clone())
+                        core::mem::MaybeUninit::new(self.inner.assume_init_ref().clone())
                     };
                 Self {
                     inner

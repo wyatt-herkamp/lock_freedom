@@ -1,4 +1,3 @@
-pub use crate::map::RandomState;
 use crate::map::{
     Insertion as MapInsertion,
     IntoIter as MapIntoIter,
@@ -9,7 +8,7 @@ use crate::map::{
     Removed as MapRemoved,
     SharedIncin as MapIncin,
 };
-use std::{
+use core::{
     borrow::Borrow,
     cmp::Ordering,
     fmt,
@@ -17,6 +16,7 @@ use std::{
     iter::FromIterator,
     ops::Deref,
 };
+use std::collections::hash_map::RandomState;
 
 /// A lock-free set. This is currently implemented on top of
 /// [`Map`](::map::Map). To check more details about it, please see `Map` docs.
@@ -606,6 +606,7 @@ impl<T> Clone for SharedIncin<T> {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod test {
     use super::*;
     use std::{

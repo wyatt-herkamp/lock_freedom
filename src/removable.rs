@@ -1,4 +1,4 @@
-use std::{
+use core::{
     fmt,
     mem::{ManuallyDrop},
     sync::atomic::{
@@ -6,7 +6,7 @@ use std::{
         Ordering::{self, *},
     },
 };
-use std::mem::MaybeUninit;
+use core::mem::MaybeUninit;
 
 /// A shared removable value. You can only take values from this type (no
 /// insertion allowed). No extra allocation is necessary. It may be useful for

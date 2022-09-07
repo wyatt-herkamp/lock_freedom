@@ -4,12 +4,12 @@ mod insertion;
 mod guard;
 mod iter;
 
+use alloc::vec::Vec;
 pub use self::{
     guard::{ReadGuard, Removed},
     insertion::{Insertion, Preview},
     iter::{IntoIter, Iter, IterMut},
 };
-pub use std::collections::hash_map::RandomState;
 
 use self::{
     bucket::{Bucket, Garbage},
@@ -18,13 +18,14 @@ use self::{
 };
 use crate::ptr::check_null_align;
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     borrow::Borrow,
     fmt,
     hash::{BuildHasher, Hash, Hasher},
     iter::FromIterator,
     mem,
 };
+use std::collections::hash_map::RandomState;
 
 /// A lock-free map. Implemented using multi-level hash-tables (in a tree
 /// fashion) with ordered buckets.
@@ -519,8 +520,10 @@ impl<K, V> fmt::Debug for SharedIncin<K, V> {
 
 #[cfg(test)]
 mod test {
+    use alloc::format;
+    use alloc::sync::Arc;
     use super::*;
-    use std::{collections::HashMap, sync::Arc, thread};
+    use std::{collections::HashMap,  thread};
 
     #[test]
     fn inserts_and_gets() {

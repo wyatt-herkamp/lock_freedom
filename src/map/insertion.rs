@@ -1,6 +1,6 @@
 use super::Removed;
 use owned_alloc::{OwnedAlloc, UninitAlloc};
-use std::{mem::forget, ptr::NonNull};
+use core::{mem::forget, ptr::NonNull};
 
 /// A [`insert_with`](super::Map::insert_with) operation result.
 #[derive(Debug, PartialEq, Eq)]

@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use super::{
     bucket::{self, Bucket, Garbage},
     guard::ReadGuard,
@@ -5,7 +6,7 @@ use super::{
 };
 use crate::incin::Pause;
 use owned_alloc::OwnedAlloc;
-use std::{fmt, ptr::NonNull, sync::atomic::Ordering::*};
+use core::{fmt, ptr::NonNull, sync::atomic::Ordering::*};
 
 /// An iterator over key-vaue entries of a [`Map`](super::Map). The `Item` of
 /// this iterator is a [`ReadGuard`]. This iterator may be inconsistent, but
@@ -60,7 +61,7 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
                 // cache.
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Bucket<K, V>;
-                    let mut cache = std::mem::take(&mut self.cache);
+                    let mut cache = core::mem::take(&mut self.cache);
 
                     // This is safe because:
                     //

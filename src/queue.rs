@@ -4,7 +4,7 @@ use crate::{
     removable::Removable,
 };
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
@@ -87,7 +87,7 @@ impl<T> Queue<T> {
                     // passing.
                     unsafe { self.try_clear_first(front_nnptr, &pause) };
                     break Some(val);
-                },
+                }
 
                 // Safe to call because we passed a pointer from the front
                 // which was loaded during the very same pause we are
@@ -102,8 +102,8 @@ impl<T> Queue<T> {
     /// Pushes elements from the given iterable. Acts just like
     /// [`Extend::extend`] but does not require mutability.
     pub fn extend<I>(&self, iterable: I)
-    where
-        I: IntoIterator<Item = T>,
+        where
+            I: IntoIterator<Item=T>,
     {
         for elem in iterable {
             self.push(elem);
@@ -135,13 +135,13 @@ impl<T> Queue<T> {
                     // and use-after-frees.
                     pause.add_to_incin(OwnedAlloc::from_raw(expected));
                     next_nnptr
-                },
+                }
 
                 Err(found) => {
                     // Safe to by-pass the check since we only store non-null
                     // pointers on the front.
                     bypass_null(found)
-                },
+                }
             }
         })
     }
@@ -167,8 +167,8 @@ impl<T> Drop for Queue<T> {
 
 impl<T> FromIterator<T> for Queue<T> {
     fn from_iter<I>(iterable: I) -> Self
-    where
-        I: IntoIterator<Item = T>,
+        where
+            I: IntoIterator<Item=T>,
     {
         let this = Self::new();
         this.extend(iterable);
@@ -178,8 +178,8 @@ impl<T> FromIterator<T> for Queue<T> {
 
 impl<T> Extend<T> for Queue<T> {
     fn extend<I>(&mut self, iterable: I)
-    where
-        I: IntoIterator<Item = T>,
+        where
+            I: IntoIterator<Item=T>,
     {
         (*self).extend(iterable)
     }
@@ -209,7 +209,7 @@ impl<T> Iterator for Queue<T> {
                     }
 
                     break Some(item);
-                },
+                }
 
                 (None, None) => break None,
 
@@ -219,7 +219,7 @@ impl<T> Iterator for Queue<T> {
                     unsafe { OwnedAlloc::from_raw(front_node) };
                     *front = next.as_ptr();
                     front_node = next;
-                },
+                }
             }
         }
     }
@@ -241,8 +241,8 @@ unsafe impl<T> Sync for Queue<T> where T: Send {}
 
 /// An iterator based on [`pop`](Queue::pop) operation of the [`Queue`].
 pub struct PopIter<'queue, T>
-where
-    T: 'queue,
+    where
+        T: 'queue,
 {
     queue: &'queue Queue<T>,
 }
@@ -288,10 +288,11 @@ impl<T> Node<T> {
 // via fuzzing
 #[cfg(test)]
 mod test {
+    use alloc::sync::Arc;
+    use alloc::vec::Vec;
     use super::*;
-    use std::{
-        sync::{atomic::AtomicUsize, Arc},
-        thread,
+    use core::{
+        sync::{atomic::AtomicUsize},
     };
 
     #[test]
@@ -333,8 +334,10 @@ mod test {
         assert_eq!(queue.next(), None);
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn no_data_corruption() {
+        use std::thread;
         const NTHREAD: usize = 20;
         const NITER: usize = 800;
         const NMOD: usize = 55;
@@ -343,11 +346,11 @@ mod test {
         let mut handles = Vec::with_capacity(NTHREAD);
         let removed = Arc::new(AtomicUsize::new(0));
 
-        for i in 0 .. NTHREAD {
+        for i in 0..NTHREAD {
             let removed = removed.clone();
             let queue = queue.clone();
             handles.push(thread::spawn(move || {
-                for j in 0 .. NITER {
+                for j in 0..NITER {
                     let val = (i * NITER) + j;
                     queue.push(val);
                     if (val + 1) % NMOD == 0 {

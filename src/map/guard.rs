@@ -1,7 +1,8 @@
+use alloc::sync::{Arc, Weak};
 use super::bucket::Garbage;
 use crate::incin::{Incinerator, Pause};
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     borrow::Borrow,
     cmp::Ordering,
     fmt,
@@ -9,7 +10,6 @@ use std::{
     mem::forget,
     ops::Deref,
     ptr::NonNull,
-    sync::{Arc, Weak},
 };
 
 /// A read-operation guard. This ensures no entry allocation is

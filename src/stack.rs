@@ -1,5 +1,5 @@
 use owned_alloc::OwnedAlloc;
-use std::{
+use core::{
     fmt,
     iter::FromIterator,
     mem::ManuallyDrop,
@@ -54,7 +54,7 @@ impl<T> Stack<T> {
                     // Let's be sure we do not deallocate the pointer.
                     target.into_raw();
                     break;
-                },
+                }
 
                 Err(ptr) => target.next = ptr,
             }
@@ -97,7 +97,7 @@ impl<T> Stack<T> {
                     // dropping it directly.
                     pause.add_to_incin(unsafe { OwnedAlloc::from_raw(nnptr) });
                     break Some(val);
-                },
+                }
 
                 Err(new_top) => top = new_top,
             }
@@ -107,8 +107,8 @@ impl<T> Stack<T> {
     /// Pushes elements from the given iterable. Acts just like
     /// [`Extend::extend`] but does not require mutability.
     pub fn extend<I>(&self, iterable: I)
-    where
-        I: IntoIterator<Item = T>,
+        where
+            I: IntoIterator<Item=T>,
     {
         for elem in iterable {
             self.push(elem);
@@ -148,8 +148,8 @@ impl<T> Iterator for Stack<T> {
 
 impl<T> Extend<T> for Stack<T> {
     fn extend<I>(&mut self, iterable: I)
-    where
-        I: IntoIterator<Item = T>,
+        where
+            I: IntoIterator<Item=T>,
     {
         (*self).extend(iterable)
     }
@@ -157,8 +157,8 @@ impl<T> Extend<T> for Stack<T> {
 
 impl<T> FromIterator<T> for Stack<T> {
     fn from_iter<I>(iterable: I) -> Self
-    where
-        I: IntoIterator<Item = T>,
+        where
+            I: IntoIterator<Item=T>,
     {
         let this = Self::new();
         this.extend(iterable);
@@ -178,8 +178,8 @@ unsafe impl<T> Sync for Stack<T> where T: Send {}
 
 /// An iterator based on [`pop`](Stack::pop) operation of the [`Stack`].
 pub struct PopIter<'stack, T>
-where
-    T: 'stack,
+    where
+        T: 'stack,
 {
     stack: &'stack Stack<T>,
 }
@@ -226,7 +226,6 @@ impl<T> Node<T> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::{sync::Arc, thread};
 
     #[test]
     fn on_empty_first_pop_is_none() {
@@ -256,8 +255,11 @@ mod test {
         assert_eq!(stack.pop(), Some(3));
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn no_data_corruption() {
+        use std::{thread, sync::Arc};
+
         const NTHREAD: usize = 20;
         const NITER: usize = 800;
         const NMOD: usize = 55;
@@ -265,10 +267,10 @@ mod test {
         let stack = Arc::new(Stack::new());
         let mut handles = Vec::with_capacity(NTHREAD);
 
-        for i in 0 .. NTHREAD {
+        for i in 0..NTHREAD {
             let stack = stack.clone();
             handles.push(thread::spawn(move || {
-                for j in 0 .. NITER {
+                for j in 0..NITER {
                     let val = (i * NITER) + j;
                     stack.push(val);
                     if (val + 1) % NMOD == 0 {

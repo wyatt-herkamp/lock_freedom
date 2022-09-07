@@ -1,3 +1,5 @@
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use super::{
     bucket::{Bucket, Garbage, GetRes, InsertRes},
     guard::{ReadGuard, Removed},
@@ -5,7 +7,7 @@ use super::{
 };
 use crate::incin::{Incinerator, Pause};
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
-use std::{
+use core::{
     borrow::Borrow,
     fmt,
     marker::PhantomData,
@@ -15,7 +17,6 @@ use std::{
             AtomicPtr,
             Ordering::{self, *},
         },
-        Arc,
     },
 };
 
