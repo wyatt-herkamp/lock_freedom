@@ -3,7 +3,7 @@ mod tid;
 pub use self::tid::ThreadId;
 
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
-use ptr::check_null_align;
+use crate::ptr::check_null_align;
 use std::{
     fmt,
     marker::PhantomData,
@@ -264,7 +264,7 @@ impl<T> ThreadLocal<T> {
                     // pointer.
                     (new_tbl_ptr.as_ptr() as usize | 1) as *mut (),
                     AcqRel,
-                    Release,
+                    Acquire,
                 ) {
                     Ok(_) => {
                         // If the old node was still stored, we succeeded.

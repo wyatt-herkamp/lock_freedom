@@ -1,4 +1,7 @@
-# lockfree
+# tux_lockfree
+
+A fork of the [lockfree](https://gitlab.com/bzim/lockfree/)
+
 Lockfree data structures for Rust.
 
 We currently have:

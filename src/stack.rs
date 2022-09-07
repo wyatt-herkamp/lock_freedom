@@ -64,7 +64,7 @@ impl<T> Stack<T> {
     /// Pops a single element from the top of the stack.
     pub fn pop(&self) -> Option<T> {
         // We need this because of ABA problem and use-after-free.
-        let pause = self.incin.inner.pause();
+        let pause = self.incin.get_unchecked().pause();
         // First, let's load our top.
         let mut top = self.top.load(Acquire);
 

@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
     sync::atomic::{AtomicUsize, Ordering::*},
 };
-use tls::ThreadLocal;
+use crate::tls::ThreadLocal;
 
 /// The incinerator. It is an API used to solve the infamous ABA problem. It
 /// basically consists of a counter and a list of garbage. Before a thread
@@ -101,7 +101,7 @@ impl<T> Incinerator<T> {
                         had_list: self.tls_list.get().is_some(),
                         _unsync: PhantomData,
                     };
-                },
+                }
 
                 Err(new) => count = new,
             }
@@ -114,8 +114,8 @@ impl<T> Incinerator<T> {
     /// inside the closure. See documentation for [`Incinerator::pause`] and
     /// `Pause::resume` for more details.
     pub fn pause_with<F, A>(&self, exec: F) -> A
-    where
-        F: FnOnce(&Pause<T>) -> A,
+        where
+            F: FnOnce(&Pause<T>) -> A,
     {
         let pause = self.pause();
         let ret = exec(&pause);
@@ -176,8 +176,8 @@ impl<T> Default for Incinerator<T> {
 /// dropped, the incinerator counter is decremented.
 #[derive(Debug)]
 pub struct Pause<'incin, T>
-where
-    T: 'incin,
+    where
+        T: 'incin,
 {
     incin: &'incin Incinerator<T>,
     had_list: bool,
@@ -259,8 +259,8 @@ impl<T> GarbageList<T> {
 }
 
 impl<T> fmt::Debug for GarbageList<T>
-where
-    T: fmt::Debug,
+    where
+        T: fmt::Debug,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         let list = self.list.replace(Vec::new());
@@ -300,22 +300,27 @@ macro_rules! make_shared_incin {
                      were used.");
             $(#[$meta])*
             $vis struct $name<$($params),*> {
-                inner: ::std::sync::Arc<::incin::Incinerator<$garbage>>,
+                inner: ::std::mem::MaybeUninit<::std::sync::Arc<crate::incin::Incinerator<$garbage>>>,
             }
         }
-
         impl<$($params),*> $name<$($params),*> {
+            fn get_unchecked(&self) -> &std::sync::Arc<crate::incin::Incinerator<$garbage>> {
+                unsafe{
+                        self.inner.assume_init_ref()
+                }
+            }
             doc! {
                 concat!("Creates a new shared incinerator for ", $target, ".");
                 $vis fn new() -> Self {
                     use std::sync::Arc;
-                    use incin::Incinerator;
+                    use crate::incin::Incinerator;
+                    use std::mem::MaybeUninit;
+
                     Self {
-                        inner: Arc::new(Incinerator::new()),
+                        inner: MaybeUninit::new(Arc::new(Incinerator::new())),
                     }
                 }
             }
-
             doc! {
                 concat!("Tries to clear the incinerator garbage list in the \
                          best possible way given the runtime status of this \
@@ -329,18 +334,18 @@ macro_rules! make_shared_incin {
                     // I know this sounds weird. This is because Arc::get_mut
                     // locks stuff. We don't want that.
                     let arc = unsafe {
-                        replace(&mut self.inner, uninitialized())
+                        self.inner.assume_init_read()
                     };
 
                     match Arc::try_unwrap(arc) {
                         Ok(mut incin) => {
                             incin.clear();
-                            forget(replace(&mut self.inner, Arc::new(incin)));
+                            self.inner.write(Arc::new(incin));
                         },
 
                         Err(arc) => {
                             arc.try_clear();
-                            forget(replace(&mut self.inner, arc));
+                            self.inner.write(arc);
                         }
                     }
                 }
@@ -355,8 +360,11 @@ macro_rules! make_shared_incin {
 
         impl<$($params),*> Clone for $name<$($params),*> {
             fn clone(&self) -> Self {
+                let inner =unsafe{
+                        std::mem::MaybeUninit::new(self.inner.assume_init_ref().clone())
+                    };
                 Self {
-                    inner: self.inner.clone(),
+                    inner
                 }
             }
         }

@@ -1,5 +1,5 @@
 use super::bucket::Garbage;
-use incin::{Incinerator, Pause};
+use crate::incin::{Incinerator, Pause};
 use owned_alloc::OwnedAlloc;
 use std::{
     borrow::Borrow,

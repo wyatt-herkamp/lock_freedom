@@ -1,7 +1,7 @@
-use incin::Pause;
+use crate::incin::Pause;
 use owned_alloc::OwnedAlloc;
-use ptr::{bypass_null, check_null_align};
-use removable::Removable;
+use crate::ptr::{bypass_null, check_null_align};
+use crate::removable::Removable;
 use std::{
     fmt,
     iter::FromIterator,
@@ -65,7 +65,7 @@ impl<T> Queue<T> {
     /// Takes a value from the front of the queue, if it is avaible.
     pub fn pop(&self) -> Option<T> {
         // Pausing because of ABA problem involving remotion from linked lists.
-        let pause = self.incin.inner.pause();
+        let pause = self.incin.get_unchecked().pause();
         let mut front_nnptr = unsafe {
             // The pointer stored in front and back must never be null. The
             // queue always have at least one node. Front and back are

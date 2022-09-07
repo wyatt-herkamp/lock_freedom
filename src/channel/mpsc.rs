@@ -3,7 +3,7 @@ pub use super::{
     RecvErr::{self, *},
 };
 use owned_alloc::OwnedAlloc;
-use ptr::{bypass_null, check_null_align};
+use crate::ptr::{bypass_null, check_null_align};
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
@@ -444,7 +444,7 @@ unsafe fn delete_before_last<T>(
 
 #[cfg(test)]
 mod test {
-    use channel::mpsc;
+    use crate::channel::mpsc;
     use std::thread;
 
     #[test]

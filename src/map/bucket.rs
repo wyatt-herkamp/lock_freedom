@@ -2,9 +2,9 @@ use super::{
     guard::{ReadGuard, Removed},
     insertion::Inserter,
 };
-use incin::{Incinerator, Pause};
+use crate::incin::{Incinerator, Pause};
 use owned_alloc::OwnedAlloc;
-use ptr::non_zero_null;
+use crate::ptr::non_zero_null;
 use std::{
     borrow::Borrow,
     cmp::Ordering,

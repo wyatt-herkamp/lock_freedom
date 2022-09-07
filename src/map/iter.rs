@@ -3,7 +3,7 @@ use super::{
     guard::ReadGuard,
     table::Table,
 };
-use incin::Pause;
+use crate::incin::Pause;
 use owned_alloc::OwnedAlloc;
 use std::{fmt, mem::replace, ptr::NonNull, sync::atomic::Ordering::*};
 

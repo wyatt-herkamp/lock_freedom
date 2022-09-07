@@ -1,6 +1,6 @@
-pub use channel::{mpmc, mpsc, spmc, spsc};
-pub use map::Map;
-pub use queue::Queue;
-pub use set::Set;
-pub use stack::Stack;
-pub use tls::ThreadLocal;
+pub use crate::channel::{mpmc, mpsc, spmc, spsc};
+pub use crate::map::Map;
+pub use crate::queue::Queue;
+pub use crate::set::Set;
+pub use crate::stack::Stack;
+pub use crate::tls::ThreadLocal;

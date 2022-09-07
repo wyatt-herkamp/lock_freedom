@@ -3,7 +3,7 @@ use super::{
     guard::{ReadGuard, Removed},
     insertion::{Inserter, Insertion},
 };
-use incin::{Incinerator, Pause};
+use crate::incin::{Incinerator, Pause};
 use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use std::{
     borrow::Borrow,

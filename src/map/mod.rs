@@ -17,7 +17,7 @@ use self::{
     table::Table,
 };
 use owned_alloc::OwnedAlloc;
-use ptr::check_null_align;
+use crate::ptr::check_null_align;
 use std::{
     borrow::Borrow,
     fmt,
@@ -153,7 +153,7 @@ where
         K: Borrow<Q>,
     {
         let hash = self.hash_of(key);
-        let pause = self.incin.inner.pause();
+        let pause = self.incin.get_unchecked().pause();
         // Safe because we paused properly.
         unsafe { self.top.get(key, hash, pause) }
     }
@@ -164,7 +164,7 @@ where
     where
         K: Hash + Ord,
     {
-        let pause = self.incin.inner.pause();
+        let pause = self.incin.get_unchecked().pause();
         let hash = self.hash_of(&key);
         // Safe because we paused properly.
         let insertion = unsafe {
@@ -172,7 +172,7 @@ where
                 InsertNew::with_pair(|_, _, _| Preview::Keep, (key, val)),
                 hash,
                 &pause,
-                &self.incin.inner,
+                &self.incin.get_unchecked(),
             )
         };
 
@@ -205,14 +205,14 @@ where
         F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
     {
         let hash = self.hash_of(&key);
-        let pause = self.incin.inner.pause();
+        let pause = self.incin.get_unchecked().pause();
         // Safe because we paused properly.
         let insertion = unsafe {
             self.top.insert(
                 InsertNew::with_key(interactive, key),
                 hash,
                 &pause,
-                &self.incin.inner,
+                &self.incin.get_unchecked(),
             )
         };
 
@@ -241,20 +241,20 @@ where
     where
         K: Hash + Ord,
     {
-        if !Removed::is_usable_by(&mut removed, &self.incin.inner) {
+        if !Removed::is_usable_by(&mut removed, &self.incin.get_unchecked()) {
             return Insertion::Failed(removed);
         }
 
         let hash = self.hash_of(removed.key());
 
-        let pause = self.incin.inner.pause();
+        let pause = self.incin.get_unchecked().pause();
         // Safe because we paused properly.
         let insertion = unsafe {
             self.top.insert(
                 Reinsert::new(|_, _| true, removed),
                 hash,
                 &pause,
-                &self.incin.inner,
+                &self.incin.get_unchecked(),
             )
         };
 
@@ -293,20 +293,20 @@ where
         K: Hash + Ord,
         F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
     {
-        if !Removed::is_usable_by(&mut removed, &self.incin.inner) {
+        if !Removed::is_usable_by(&mut removed, &self.incin.get_unchecked()) {
             return Insertion::Failed(removed);
         }
 
         let hash = self.hash_of(removed.key());
 
-        let pause = self.incin.inner.pause();
+        let pause = self.incin.get_unchecked().pause();
         // Safe because we paused properly.
         let insertion = unsafe {
             self.top.insert(
                 Reinsert::new(interactive, removed),
                 hash,
                 &pause,
-                &self.incin.inner,
+                &self.incin.get_unchecked(),
             )
         };
 
@@ -350,10 +350,10 @@ where
         F: FnMut(&(K, V)) -> bool,
     {
         let hash = self.hash_of(key);
-        let pause = self.incin.inner.pause();
+        let pause = self.incin.get_unchecked().pause();
         // Safe because we paused properly.
         unsafe {
-            self.top.remove(key, interactive, hash, &pause, &self.incin.inner)
+            self.top.remove(key, interactive, hash, &pause, &self.incin.get_unchecked())
         }
     }
 
@@ -395,7 +395,7 @@ where
         write!(
             fmtr,
             "Map {} top_table: {:?}, incin: {:?}, build_hasher: {:?}  {}",
-            '{', self.top, self.incin.inner, self.builder, '}'
+            '{', self.top, self.incin.get_unchecked(), self.builder, '}'
         )
     }
 }
@@ -422,7 +422,7 @@ impl<'map, K, V, H> IntoIterator for &'map Map<K, V, H> {
     type IntoIter = Iter<'map, K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter::new(self.incin.inner.pause(), &self.top)
+        Iter::new(self.incin.get_unchecked().pause(), &self.top)
     }
 }
 

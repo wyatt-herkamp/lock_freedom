@@ -3,7 +3,7 @@ pub use super::{
     RecvErr::{self, *},
 };
 use owned_alloc::OwnedAlloc;
-use ptr::check_null_align;
+use crate::ptr::check_null_align;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
@@ -253,7 +253,7 @@ struct Node<T> {
 
 #[cfg(test)]
 mod test {
-    use channel::spsc;
+    use crate::channel::spsc;
     use std::thread;
 
     #[test]

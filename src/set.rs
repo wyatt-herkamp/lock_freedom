@@ -1,5 +1,5 @@
-pub use map::RandomState;
-use map::{
+pub use crate::map::RandomState;
+use crate::map::{
     Insertion as MapInsertion,
     IntoIter as MapIntoIter,
     Iter as MapIter,

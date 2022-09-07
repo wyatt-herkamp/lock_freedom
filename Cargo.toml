@@ -1,5 +1,5 @@
 [package]
-name = "lockfree"
+name = "tux_lockfreec"
 version = "0.5.1"
 authors = ["Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
 description = "This crate provides concurrent data structures and a solution to the ABA problem as an alternative of hazard pointers"
@@ -8,6 +8,6 @@ keywords = ["concurrency", "lock-free", "atomics", "data-structures"]
 categories = ["concurrency", "data-structures", "algorithms"]
 license = "MIT"
 readme = "README.md"
-
+edition = "2021"
 [dependencies]
 owned-alloc = "0.2"

@@ -2,10 +2,10 @@ pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
-use incin::Pause;
+use crate::incin::Pause;
 use owned_alloc::OwnedAlloc;
-use ptr::{bypass_null, check_null_align};
-use removable::Removable;
+use crate::ptr::{bypass_null, check_null_align};
+use crate::removable::Removable;
 use std::{
     fmt,
     ptr::{null_mut, NonNull},
@@ -185,7 +185,7 @@ impl<T> Receiver<T> {
     pub fn recv(&self) -> Result<T, RecvErr> {
         // We need this because of the infamous ABA problem (and
         // use-after-free).
-        let pause = self.inner.incin.inner.pause();
+        let pause = self.inner.incin.get_unchecked().pause();
 
         // Bypassing null check is safe because we never store null in
         // the front.
@@ -225,7 +225,7 @@ impl<T> Receiver<T> {
     /// called.
     pub fn is_connected(&self) -> bool {
         // We need this pause because of use-after-free.
-        let _pause = self.inner.incin.inner.pause();
+        let _pause = self.inner.incin.get_unchecked().pause();
         // Safe to derefer this pointer because we paused the incinerator and we
         // only delete nodes via incinerator.
         let front = unsafe { &*self.inner.front.load(Relaxed) };
@@ -483,7 +483,7 @@ unsafe fn delete_before_last<T>(
 
 #[cfg(test)]
 mod test {
-    use channel::mpmc;
+    use crate::channel::mpmc;
     use std::{
         sync::{
             atomic::{AtomicBool, Ordering::*},
