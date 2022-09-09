@@ -1,9 +1,9 @@
 [package]
 name = "tux_lockfree"
-version = "0.5.1"
-authors = ["Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
+version = "0.6.0-beta"
+authors = ["Wyatt Jacob Herkamp <wherkamp@kingtux.me>", "Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
 description = "This crate provides concurrent data structures and a solution to the ABA problem as an alternative of hazard pointers"
-repository = "https://gitlab.com/bzim/lockfree/"
+repository = "https://github.com/wyatt-herkamp/tux_lockfree"
 keywords = ["concurrency", "lock-free", "atomics", "data-structures"]
 categories = ["concurrency", "data-structures", "algorithms"]
 license = "MIT"
@@ -12,6 +12,15 @@ edition = "2021"
 rust-version = "1.60.0"
 [dependencies]
 owned-alloc = { git = "https://github.com/wyatt-herkamp/tux-owned-alloc.git" }
+
+[[bench]]
+name = "map"
+harness = false
+
+[dev-dependencies]
+criterion = "0.3"
+
 [features]
 default = ["std"]
 std = []
+

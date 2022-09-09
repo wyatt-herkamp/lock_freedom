@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 pub use super::{
     NoRecv,
     RecvErr::{self, *},
@@ -8,14 +7,13 @@ use crate::{
     ptr::{bypass_null, check_null_align},
     removable::Removable,
 };
-use owned_alloc::OwnedAlloc;
+use alloc::sync::Arc;
 use core::{
     fmt,
     ptr::{null_mut, NonNull},
-    sync::{
-        atomic::{AtomicPtr, Ordering::*},
-    },
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
+use owned_alloc::OwnedAlloc;
 
 /// Creates an asynchronous lock-free Single-Producer-Multi-Consumer (SPMC)
 /// channel. In order to allow multiple consumers, [`Receiver`] is clonable and
@@ -72,12 +70,10 @@ impl<T> Sender<T> {
             // We try to update the back's next pointer. We want to catch any
             // bit marking here. A marked lower bit means the receiver
             // disconnected.
-            self.back.as_ref().next.compare_exchange(
-                null_mut(),
-                nnptr.as_ptr(),
-                Release,
-                Relaxed,
-            )
+            self.back
+                .as_ref()
+                .next
+                .compare_exchange(null_mut(), nnptr.as_ptr(), Release, Relaxed)
         };
 
         if res.is_ok() {
@@ -175,7 +171,7 @@ impl<T> Receiver<T> {
                     // passing.
                     unsafe { self.try_clear_first(front_nnptr, &pause) };
                     break Ok(val);
-                },
+                }
 
                 // Safe to call because we passed a pointer from the front
                 // which was loaded during the very same pause we are passing.
@@ -199,8 +195,7 @@ impl<T> Receiver<T> {
         // Safe to derefer this pointer because we paused the incinerator and we
         // only delete nodes via incinerator.
         let front = unsafe { &*self.inner.front.load(Relaxed) };
-        front.message.is_present(Relaxed)
-            || front.next.load(Relaxed) as usize & 1 == 0
+        front.message.is_present(Relaxed) || front.next.load(Relaxed) as usize & 1 == 0
     }
 
     /// The shared incinerator used by this [`Receiver`].
@@ -240,7 +235,7 @@ impl<T> Receiver<T> {
                     // problem and use-after-frees.
                     pause.add_to_incin(OwnedAlloc::from_raw(expected));
                     next
-                },
+                }
 
                 Err(found) => found,
             };
@@ -254,7 +249,9 @@ impl<T> Receiver<T> {
 
 impl<T> Clone for Receiver<T> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -315,7 +312,7 @@ impl<T> Drop for ReceiverInner<T> {
 
                     // Now let's keep going until the list is empty.
                     *front = next;
-                },
+                }
             }
         }
     }
@@ -335,19 +332,19 @@ make_shared_incin! {
 
 #[cfg(test)]
 mod test {
+    use crate::channel::spmc;
     use alloc::sync::Arc;
     use alloc::vec::Vec;
     use core::sync::atomic::AtomicBool;
     use core::sync::atomic::Ordering::{AcqRel, Relaxed};
     use std::thread;
-    use crate::channel::spmc;
     #[test]
     fn correct_numbers() {
         const THREADS: usize = 8;
         const MSGS: usize = 512;
 
         let mut done = Vec::with_capacity(MSGS);
-        for _ in 0 .. MSGS {
+        for _ in 0..MSGS {
             done.push(AtomicBool::new(false));
         }
         let done = Arc::<[AtomicBool]>::from(done);
@@ -355,7 +352,7 @@ mod test {
         let (mut sender, receiver) = spmc::create::<usize>();
         let mut threads = Vec::with_capacity(THREADS);
 
-        for _ in 0 .. THREADS {
+        for _ in 0..THREADS {
             let done = done.clone();
             let receiver = receiver.clone();
             threads.push(thread::spawn(move || loop {
@@ -367,7 +364,7 @@ mod test {
             }))
         }
 
-        for i in 0 .. MSGS {
+        for i in 0..MSGS {
             sender.send(i).unwrap();
         }
 

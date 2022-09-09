@@ -1,10 +1,10 @@
-use owned_alloc::OwnedAlloc;
 use core::{
     fmt,
     marker::PhantomData,
     ptr::null_mut,
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering::*},
 };
+use owned_alloc::OwnedAlloc;
 
 /// A cached thread-id. Repeated calls to [`ThreadLocal`](super::ThreadLocal)'s
 /// methods with cached IDs should be faster than reloading the ID everytime.
@@ -18,7 +18,10 @@ impl ThreadId {
     /// Loads the ID for this thread.
     #[inline]
     pub fn current() -> Self {
-        ID.with(|id| Self { bits: id.bits, _non_tsafe: PhantomData })
+        ID.with(|id| Self {
+            bits: id.bits,
+            _non_tsafe: PhantomData,
+        })
     }
 
     pub(super) fn bits(self) -> usize {
@@ -40,11 +43,12 @@ impl fmt::Debug for ThreadId {
 
 static ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
-static ID_LIST: Node =
-    Node { free: AtomicUsize::new(0), next: AtomicPtr::new(null_mut()) };
+static ID_LIST: Node = Node {
+    free: AtomicUsize::new(0),
+    next: AtomicPtr::new(null_mut()),
+};
 
-static ID_LIST_BACK: AtomicPtr<Node> =
-    AtomicPtr::new(&ID_LIST as *const _ as *mut _);
+static ID_LIST_BACK: AtomicPtr<Node> = AtomicPtr::new(&ID_LIST as *const _ as *mut _);
 
 thread_local! {
     static ID: IdGuard = IdGuard::new();

@@ -1,15 +1,15 @@
-mod table;
 mod bucket;
-mod insertion;
 mod guard;
+mod insertion;
 mod iter;
+mod table;
 
-use alloc::vec::Vec;
 pub use self::{
     guard::{ReadGuard, Removed},
     insertion::{Insertion, Preview},
     iter::{IntoIter, Iter, IterMut},
 };
+use alloc::vec::Vec;
 
 use self::{
     bucket::{Bucket, Garbage},
@@ -17,7 +17,6 @@ use self::{
     table::Table,
 };
 use crate::ptr::check_null_align;
-use owned_alloc::OwnedAlloc;
 use core::{
     borrow::Borrow,
     fmt,
@@ -25,6 +24,7 @@ use core::{
     iter::FromIterator,
     mem,
 };
+use owned_alloc::OwnedAlloc;
 use std::collections::hash_map::RandomState;
 
 /// A lock-free map. Implemented using multi-level hash-tables (in a tree
@@ -128,7 +128,11 @@ where
     /// Creates the [`Map`] using the given hasher builder and shared
     /// incinerator.
     pub fn with_hasher_and_incin(builder: H, incin: SharedIncin<K, V>) -> Self {
-        Self { top: Table::new_alloc(), incin, builder }
+        Self {
+            top: Table::new_alloc(),
+            incin,
+            builder,
+        }
     }
 
     /// The shared incinerator used by this [`Map`].
@@ -196,11 +200,7 @@ where
     /// entry. Obviously, if no stored entry was found, it is `None`. The return
     /// value of the closure is a specification of "what to do with the
     /// insertion now".
-    pub fn insert_with<F>(
-        &self,
-        key: K,
-        interactive: F,
-    ) -> Insertion<K, V, (K, Option<V>)>
+    pub fn insert_with<F>(&self, key: K, interactive: F) -> Insertion<K, V, (K, Option<V>)>
     where
         K: Hash + Ord,
         F: FnMut(&K, Option<&mut V>, Option<&(K, V)>) -> Preview<V>,
@@ -220,9 +220,7 @@ where
         match insertion {
             Insertion::Created => Insertion::Created,
             Insertion::Updated(old) => Insertion::Updated(old),
-            Insertion::Failed(inserter) => {
-                Insertion::Failed(inserter.into_pair())
-            },
+            Insertion::Failed(inserter) => Insertion::Failed(inserter.into_pair()),
         }
     }
 
@@ -235,10 +233,7 @@ where
     ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.
-    pub fn reinsert(
-        &self,
-        mut removed: Removed<K, V>,
-    ) -> Insertion<K, V, Removed<K, V>>
+    pub fn reinsert(&self, mut removed: Removed<K, V>) -> Insertion<K, V, Removed<K, V>>
     where
         K: Hash + Ord,
     {
@@ -314,9 +309,7 @@ where
         match insertion {
             Insertion::Created => Insertion::Created,
             Insertion::Updated(old) => Insertion::Updated(old),
-            Insertion::Failed(inserter) => {
-                Insertion::Failed(inserter.into_removed())
-            },
+            Insertion::Failed(inserter) => Insertion::Failed(inserter.into_removed()),
         }
     }
 
@@ -340,11 +333,7 @@ where
     /// method will only work correctly if [`Hash`] and [`Ord`] are implemented
     /// in the same way for the borrowed type and the stored type. If the
     /// entry was not found, [`None`] is returned.
-    pub fn remove_with<Q, F>(
-        &self,
-        key: &Q,
-        interactive: F,
-    ) -> Option<Removed<K, V>>
+    pub fn remove_with<Q, F>(&self, key: &Q, interactive: F) -> Option<Removed<K, V>>
     where
         Q: ?Sized + Hash + Ord,
         K: Borrow<Q>,
@@ -354,13 +343,8 @@ where
         let pause = self.incin.get_unchecked().pause();
         // Safe because we paused properly.
         unsafe {
-            self.top.remove(
-                key,
-                interactive,
-                hash,
-                &pause,
-                self.incin.get_unchecked(),
-            )
+            self.top
+                .remove(key, interactive, hash, &pause, self.incin.get_unchecked())
         }
     }
 
@@ -520,10 +504,10 @@ impl<K, V> fmt::Debug for SharedIncin<K, V> {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use alloc::format;
     use alloc::sync::Arc;
-    use super::*;
-    use std::{collections::HashMap,  thread};
+    use std::{collections::HashMap, thread};
 
     #[test]
     fn inserts_and_gets() {
@@ -544,25 +528,19 @@ mod test {
     fn create() {
         let map = Map::new();
         assert!(map
-            .insert_with(
-                "five".to_owned(),
-                |_, _, stored| if stored.is_none() {
-                    Preview::New(5)
-                } else {
-                    Preview::Discard
-                },
-            )
+            .insert_with("five".to_owned(), |_, _, stored| if stored.is_none() {
+                Preview::New(5)
+            } else {
+                Preview::Discard
+            },)
             .created());
         assert_eq!(*map.get("five").unwrap().val(), 5);
         assert!(map
-            .insert_with(
-                "five".to_owned(),
-                |_, _, stored| if stored.is_none() {
-                    Preview::New(500)
-                } else {
-                    Preview::Discard
-                },
-            )
+            .insert_with("five".to_owned(), |_, _, stored| if stored.is_none() {
+                Preview::New(500)
+            } else {
+                Preview::Discard
+            },)
             .failed()
             .is_some());
     }
@@ -711,8 +689,8 @@ mod test {
     #[test]
     fn iter_valid_items() {
         let map = Map::new();
-        for i in 0 .. 10u128 {
-            for j in 0 .. 32 {
+        for i in 0..10u128 {
+            for j in 0..32 {
                 map.insert((i, j), i << j);
             }
         }
@@ -724,8 +702,8 @@ mod test {
             result.insert((k, v), in_place + 1);
         }
 
-        for i in 0 .. 10 {
-            for j in 0 .. 32 {
+        for i in 0..10 {
+            for j in 0..32 {
                 let pair = ((i, j), i << j);
                 assert_eq!(*result.get(&pair).unwrap(), 1);
             }
@@ -735,14 +713,14 @@ mod test {
     #[test]
     fn optimize_space_preserves_entries() {
         let mut map = Map::new();
-        for i in 0 .. 200u128 {
-            for j in 0 .. 128 {
+        for i in 0..200u128 {
+            for j in 0..128 {
                 map.insert((i, j), i << j);
             }
         }
 
-        for i in 0 .. 200 {
-            for j in 0 .. 16 {
+        for i in 0..200 {
+            for j in 0..16 {
                 map.remove(&(i, j));
             }
         }
@@ -756,8 +734,8 @@ mod test {
             result.insert((k, v), in_place + 1);
         }
 
-        for i in 0 .. 200 {
-            for j in 16 .. 128 {
+        for i in 0..200 {
+            for j in 16..128 {
                 let pair = ((i, j), i << j);
                 assert_eq!(*result.get(&pair).unwrap(), 1);
             }
@@ -767,8 +745,8 @@ mod test {
     #[test]
     fn iter_mut_and_into_iter() {
         let mut map = Map::new();
-        for i in 0 .. 10u128 {
-            for j in 0 .. 32 {
+        for i in 0..10u128 {
+            for j in 0..32 {
                 map.insert((i, j), i << j);
             }
         }
@@ -780,8 +758,8 @@ mod test {
             *v += 1;
         }
 
-        for i in 0 .. 10 {
-            for j in 0 .. 32 {
+        for i in 0..10 {
+            for j in 0..32 {
                 let pair = ((i, j), i << j);
                 assert_eq!(*result.get(&pair).unwrap(), 1);
             }
@@ -794,8 +772,8 @@ mod test {
             result.insert((k, v), in_place + 1);
         }
 
-        for i in 0 .. 10 {
-            for j in 0 .. 32 {
+        for i in 0..10 {
+            for j in 0..32 {
                 let pair = ((i, j), (i << j) + 1);
                 assert_eq!(*result.get(&pair).unwrap(), 1);
             }
@@ -806,25 +784,22 @@ mod test {
     fn multithreaded() {
         let map = Arc::new(Map::new());
         let mut threads = Vec::new();
-        for i in 1i64 ..= 20 {
+        for i in 1i64..=20 {
             let map = map.clone();
             threads.push(thread::spawn(move || {
                 let prev = map
                     .get(&format!("prefix{}suffix", i - 1))
                     .map_or(0, |guard| *guard.val());
                 map.insert(format!("prefix{}suffix", i), prev + i);
-                map.insert_with(
-                    format!("prefix{}suffix", i + 1),
-                    |_, _, stored| {
-                        Preview::New(stored.map_or(0, |&(_, x)| x + i))
-                    },
-                );
+                map.insert_with(format!("prefix{}suffix", i + 1), |_, _, stored| {
+                    Preview::New(stored.map_or(0, |&(_, x)| x + i))
+                });
             }));
         }
         for thread in threads {
             thread.join().expect("thread failed");
         }
-        for i in 1i64 ..= 20 {
+        for i in 1i64..=20 {
             let val = *map.get(&format!("prefix{}suffix", i)).unwrap().val();
             assert!(val > 0);
         }

@@ -1,5 +1,5 @@
-use alloc::vec::Vec;
 use crate::tls::ThreadLocal;
+use alloc::vec::Vec;
 use core::{
     cell::Cell,
     fmt,
@@ -72,7 +72,10 @@ pub struct Incinerator<T> {
 impl<T> Incinerator<T> {
     /// Creates a new incinerator, with no pauses and empty garbage list.
     pub fn new() -> Self {
-        Self { counter: AtomicUsize::new(0), tls_list: ThreadLocal::new() }
+        Self {
+            counter: AtomicUsize::new(0),
+            tls_list: ThreadLocal::new(),
+        }
     }
 
     /// Increments the pause counter and creates a pause associated with this
@@ -89,19 +92,17 @@ impl<T> Incinerator<T> {
             // Simply try to increment it. This will be decremented at
             // `Pause::drop`. Nobody will be able to drop stuff while this is
             // not 0.
-            match self.counter.compare_exchange(
-                count,
-                count + 1,
-                AcqRel,
-                Relaxed,
-            ) {
+            match self
+                .counter
+                .compare_exchange(count, count + 1, AcqRel, Relaxed)
+            {
                 Ok(_) => {
                     break Pause {
                         incin: self,
                         had_list: self.tls_list.get().is_some(),
                         _unsync: PhantomData,
                     };
-                },
+                }
 
                 Err(new) => count = new,
             }
@@ -244,7 +245,9 @@ struct GarbageList<T> {
 
 impl<T> GarbageList<T> {
     fn new() -> Self {
-        Self { list: Cell::new(Vec::new()) }
+        Self {
+            list: Cell::new(Vec::new()),
+        }
     }
 
     fn add(&self, val: T) {

@@ -1,5 +1,3 @@
-use alloc::sync::Arc;
-use alloc::vec::Vec;
 use super::{
     guard::{ReadGuard, Removed},
     insertion::Inserter,
@@ -8,17 +6,16 @@ use crate::{
     incin::{Incinerator, Pause},
     ptr::non_zero_null,
 };
-use owned_alloc::OwnedAlloc;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::{
     borrow::Borrow,
     cmp::Ordering,
-    fmt,
-    mem,
+    fmt, mem,
     ptr::{null_mut, NonNull},
-    sync::{
-        atomic::{AtomicPtr, Ordering::*},
-    },
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
+use owned_alloc::OwnedAlloc;
 
 #[repr(align(/* at least */ 2))]
 pub struct Bucket<K, V> {
@@ -31,7 +28,10 @@ impl<K, V> Bucket<K, V> {
         // We create a bucket with a single entry.
 
         // First we create an entry for the pair whose next node is null.
-        let entry = Entry { pair, next: null_mut() };
+        let entry = Entry {
+            pair,
+            next: null_mut(),
+        };
 
         // Then we create an intermediate node to keep the entry.
         let list = List::new(entry);
@@ -84,19 +84,18 @@ impl<K, V> Bucket<K, V> {
         key: &Q,
         pause: Pause<'map, Garbage<K, V>>,
     ) -> GetRes<'map, K, V>
-        where
-            Q: ?Sized + Ord,
-            K: Borrow<Q>,
+    where
+        Q: ?Sized + Ord,
+        K: Borrow<Q>,
     {
         match self.find(key, &pause) {
             // The table must delete the whole bucket.
             FindRes::Delete => GetRes::Delete(pause),
 
             // We found the entry.
-            FindRes::Exact { curr, .. } => GetRes::Found(ReadGuard::new(
-                &*curr.as_ref().pair.as_ptr(),
-                pause,
-            )),
+            FindRes::Exact { curr, .. } => {
+                GetRes::Found(ReadGuard::new(&*curr.as_ref().pair.as_ptr(), pause))
+            }
 
             // We found no entry.
             FindRes::After { .. } => GetRes::NotFound,
@@ -113,9 +112,9 @@ impl<K, V> Bucket<K, V> {
         pause: &Pause<Garbage<K, V>>,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> InsertRes<I, K, V>
-        where
-            I: Inserter<K, V>,
-            K: Ord,
+    where
+        I: Inserter<K, V>,
+        K: Ord,
     {
         loop {
             match self.find(inserter.key(), pause) {
@@ -135,7 +134,10 @@ impl<K, V> Bucket<K, V> {
                         None => break InsertRes::Failed(inserter),
                     };
                     // Create a new entry with a new pair but same next field.
-                    let new_entry = Entry { pair, next: curr.as_ref().next };
+                    let new_entry = Entry {
+                        pair,
+                        next: curr.as_ref().next,
+                    };
                     let new_ptr = OwnedAlloc::new(new_entry).into_raw();
 
                     // We extract the old pair.
@@ -166,7 +168,10 @@ impl<K, V> Bucket<K, V> {
                     };
 
                     // Create a new entry with the next field.
-                    let curr_entry = Entry { pair, next: prev.as_ref().next };
+                    let curr_entry = Entry {
+                        pair,
+                        next: prev.as_ref().next,
+                    };
                     // Make an intermediate node for it.
                     let curr_list = List::new(curr_entry);
                     let curr_nnptr = OwnedAlloc::new(curr_list).into_raw();
@@ -203,23 +208,29 @@ impl<K, V> Bucket<K, V> {
         pause: &Pause<Garbage<K, V>>,
         incin: &Arc<Incinerator<Garbage<K, V>>>,
     ) -> RemoveRes<K, V>
-        where
-            Q: ?Sized + Ord,
-            K: Borrow<Q>,
-            F: FnMut(&(K, V)) -> bool,
+    where
+        Q: ?Sized + Ord,
+        K: Borrow<Q>,
+        F: FnMut(&(K, V)) -> bool,
     {
         loop {
             match self.find(key, pause) {
                 // The table must delete the whole bucket.
                 FindRes::Delete => {
-                    break RemoveRes { pair: None, delete: true };
+                    break RemoveRes {
+                        pair: None,
+                        delete: true,
+                    };
                 }
 
                 // We found an entry whose key matches the input.
                 FindRes::Exact { curr_list, curr } => {
                     // Let's test if the met conditions are ok!
                     if !interactive(curr.as_ref().pair.as_ref()) {
-                        break RemoveRes { pair: None, delete: false };
+                        break RemoveRes {
+                            pair: None,
+                            delete: false,
+                        };
                     }
 
                     // Let's first remove it logically. Let's create an entry
@@ -244,7 +255,10 @@ impl<K, V> Bucket<K, V> {
 
                 // This means the entry was not found.
                 FindRes::After { .. } => {
-                    break RemoveRes { pair: None, delete: false };
+                    break RemoveRes {
+                        pair: None,
+                        delete: false,
+                    };
                 }
             }
         }
@@ -309,9 +323,9 @@ impl<K, V> Bucket<K, V> {
         key: &Q,
         pause: &Pause<Garbage<K, V>>,
     ) -> FindRes<'map, K, V>
-        where
-            Q: ?Sized + Ord,
-            K: Borrow<Q>,
+    where
+        Q: ?Sized + Ord,
+        K: Borrow<Q>,
     {
         'retry: loop {
             let mut prev_list = &self.list;
@@ -352,10 +366,7 @@ impl<K, V> Bucket<K, V> {
 
                             // The previous is the point of insertion.
                             Ordering::Less => {
-                                break 'retry FindRes::After {
-                                    prev_list,
-                                    prev,
-                                };
+                                break 'retry FindRes::After { prev_list, prev };
                             }
 
                             // Let's keep looking.
@@ -379,15 +390,13 @@ impl<K, V> IntoIterator for Bucket<K, V> {
     fn into_iter(self) -> Self::IntoIter {
         // By-passing this null check is ok because we never store null pointer
         // on the list's AomticPtr.
-        let nnptr =
-            unsafe { NonNull::new_unchecked(self.list.atomic.load(Relaxed)) };
+        let nnptr = unsafe { NonNull::new_unchecked(self.list.atomic.load(Relaxed)) };
         let head = unsafe { OwnedAlloc::from_raw(nnptr) };
         mem::forget(self);
         // Making an owned allocation is safe because we have ownership over the
         // bucket.
         IntoIter {
-            curr: NonNull::new(head.next)
-                .map(|nnptr| unsafe { OwnedAlloc::from_raw(nnptr) }),
+            curr: NonNull::new(head.next).map(|nnptr| unsafe { OwnedAlloc::from_raw(nnptr) }),
         }
     }
 }
@@ -403,7 +412,9 @@ impl<'map, K, V> IntoIterator for &'map mut Bucket<K, V> {
         let head = unsafe { &mut *self.list.atomic.load(Relaxed) };
         // This dereferral is ok because we have exclusive reference to the
         // bucket.
-        IterMut { curr: unsafe { head.next.as_mut() } }
+        IterMut {
+            curr: unsafe { head.next.as_mut() },
+        }
     }
 }
 
@@ -475,7 +486,10 @@ impl<K, V> Entry<K, V> {
 
 impl<K, V> Clone for Entry<K, V> {
     fn clone(&self) -> Self {
-        Self { pair: self.pair, next: self.next }
+        Self {
+            pair: self.pair,
+            next: self.next,
+        }
     }
 }
 
@@ -498,7 +512,9 @@ impl<K, V> List<K, V> {
     #[inline]
     fn new(entry: Entry<K, V>) -> Self {
         let ptr = OwnedAlloc::new(entry).into_raw().as_ptr();
-        Self { atomic: AtomicPtr::new(ptr) }
+        Self {
+            atomic: AtomicPtr::new(ptr),
+        }
     }
 
     // Unsafe because `Bucket` needs to store entries correctly.
@@ -531,8 +547,10 @@ impl<K, V> List<K, V> {
             // Make a new previous node. A node with the same pair as the found
             // previous, but with next field pointing to current node's the
             // intermediate list.
-            let new_entry =
-                Entry { pair: prev.as_ref().pair, next: (next & !1) as *mut _ };
+            let new_entry = Entry {
+                pair: prev.as_ref().pair,
+                next: (next & !1) as *mut _,
+            };
             let new_ptr = OwnedAlloc::new(new_entry).into_raw();
 
             // Then we try to update the previous node.
@@ -560,20 +578,13 @@ impl<K, V> List<K, V> {
         new: NonNull<Entry<K, V>>,
         pause: &Pause<Garbage<K, V>>,
     ) -> bool {
-        let res = self.atomic.compare_exchange_weak(
-            loaded.as_ptr(),
-            new.as_ptr(),
-            Release,
-            Relaxed,
-        );
+        let res =
+            self.atomic
+                .compare_exchange_weak(loaded.as_ptr(), new.as_ptr(), Release, Relaxed);
 
         let res = match res {
-            Ok(res) => {
-                res
-            }
-            Err(err) => {
-                err
-            }
+            Ok(res) => res,
+            Err(err) => err,
         };
         if res == loaded.as_ptr() {
             // Clean-up of the old pointer.
@@ -607,9 +618,9 @@ impl<K, V> fmt::Debug for Garbage<K, V> {
 }
 
 pub enum GetRes<'map, K, V>
-    where
-        K: 'map,
-        V: 'map,
+where
+    K: 'map,
+    V: 'map,
 {
     Found(ReadGuard<'map, K, V>),
     NotFound,
@@ -629,15 +640,21 @@ pub struct RemoveRes<K, V> {
 }
 
 enum FindRes<'map, K, V>
-    where
-        K: 'map,
-        V: 'map,
+where
+    K: 'map,
+    V: 'map,
 {
     Delete,
 
-    Exact { curr_list: &'map List<K, V>, curr: NonNull<Entry<K, V>> },
+    Exact {
+        curr_list: &'map List<K, V>,
+        curr: NonNull<Entry<K, V>>,
+    },
 
-    After { prev_list: &'map List<K, V>, prev: NonNull<Entry<K, V>> },
+    After {
+        prev_list: &'map List<K, V>,
+        prev: NonNull<Entry<K, V>>,
+    },
 }
 
 enum LoadNextRes<K, V> {
@@ -645,9 +662,14 @@ enum LoadNextRes<K, V> {
 
     End,
 
-    Cleared { new_prev: NonNull<Entry<K, V>> },
+    Cleared {
+        new_prev: NonNull<Entry<K, V>>,
+    },
 
-    Ok { list: NonNull<List<K, V>>, entry: NonNull<Entry<K, V>> },
+    Ok {
+        list: NonNull<List<K, V>>,
+        entry: NonNull<Entry<K, V>>,
+    },
 }
 
 pub struct IntoIter<K, V> {
@@ -696,9 +718,9 @@ impl<K, V> fmt::Debug for IntoIter<K, V> {
 }
 
 pub struct IterMut<'map, K, V>
-    where
-        K: 'map,
-        V: 'map,
+where
+    K: 'map,
+    V: 'map,
 {
     curr: Option<&'map mut List<K, V>>,
 }

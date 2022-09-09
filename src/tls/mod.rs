@@ -1,10 +1,9 @@
 mod tid;
 
-use alloc::vec::Vec;
 pub use self::tid::ThreadId;
+use alloc::vec::Vec;
 
 use crate::ptr::check_null_align;
-use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use core::{
     fmt,
     marker::PhantomData,
@@ -12,6 +11,7 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
+use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 
 const BITS: usize = 8;
 
@@ -55,7 +55,9 @@ impl<T> ThreadLocal<T> {
     pub fn new() -> Self {
         check_null_align::<Table<T>>();
         check_null_align::<Entry<T>>();
-        Self { top: Table::new_alloc() }
+        Self {
+            top: Table::new_alloc(),
+        }
     }
 
     /// Removes and drops all entries. The TLS is considered empty then. This
@@ -80,18 +82,24 @@ impl<T> ThreadLocal<T> {
 
     /// Creates an iterator over immutable refereces of entries.
     pub fn iter(&self) -> Iter<T>
-        where
-            T: Sync,
+    where
+        T: Sync,
     {
-        Iter { curr_table: Some((&self.top, 0)), tables: Vec::new() }
+        Iter {
+            curr_table: Some((&self.top, 0)),
+            tables: Vec::new(),
+        }
     }
 
     /// Creates an iterator over mutable refereces of entries.
     pub fn iter_mut(&mut self) -> IterMut<T>
-        where
-            T: Send,
+    where
+        T: Send,
     {
-        IterMut { curr_table: Some((&mut self.top, 0)), tables: Vec::new() }
+        IterMut {
+            curr_table: Some((&mut self.top, 0)),
+            tables: Vec::new(),
+        }
     }
 
     /// Accesses the entry for the current thread. No initialization is
@@ -165,8 +173,8 @@ impl<T> ThreadLocal<T> {
     /// closure is called to initialize the entry.
     #[inline]
     pub fn with_init<F>(&self, init: F) -> &T
-        where
-            F: FnOnce() -> T,
+    where
+        F: FnOnce() -> T,
     {
         self.with_id_and_init(ThreadId::current(), init)
     }
@@ -176,8 +184,8 @@ impl<T> ThreadLocal<T> {
     /// everytime. If necessary, the `init` closure is called to initialize the
     /// entry.
     pub fn with_id_and_init<F>(&self, id: ThreadId, init: F) -> &T
-        where
-            F: FnOnce() -> T,
+    where
+        F: FnOnce() -> T,
     {
         let mut table = &*self.top;
         // The depth of the iterations.
@@ -289,12 +297,9 @@ impl<T> ThreadLocal<T> {
                         //
                         // This is safe since it is the table we just allocated
                         // and we don't share it.
-                        let new_tbl =
-                            unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
+                        let new_tbl = unsafe { OwnedAlloc::from_raw(new_tbl_ptr) };
                         // Clear that pre-inserted node.
-                        new_tbl.nodes[other_index]
-                            .atomic
-                            .store(null_mut(), Relaxed);
+                        new_tbl.nodes[other_index].atomic.store(null_mut(), Relaxed);
 
                         // Store it into the cache for later.
                         tbl_cache.store(new_tbl);
@@ -333,8 +338,8 @@ impl<T> ThreadLocal<T> {
     /// initialized with default value.
     #[inline]
     pub fn with_default(&self) -> &T
-        where
-            T: Default,
+    where
+        T: Default,
     {
         self.with_init(T::default)
     }
@@ -345,8 +350,8 @@ impl<T> ThreadLocal<T> {
     /// value.
     #[inline]
     pub fn with_id_and_default(&self, id: ThreadId) -> &T
-        where
-            T: Default,
+    where
+        T: Default,
     {
         self.with_id_and_init(id, T::default)
     }
@@ -371,8 +376,8 @@ impl<T> Drop for ThreadLocal<T> {
 }
 
 impl<T> fmt::Debug for ThreadLocal<T>
-    where
-        T: fmt::Debug,
+where
+    T: fmt::Debug,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(fmtr, "ThreadLocal {{ storage: ")?;
@@ -395,8 +400,8 @@ unsafe impl<T> Send for ThreadLocal<T> {}
 unsafe impl<T> Sync for ThreadLocal<T> {}
 
 impl<T> IntoIterator for ThreadLocal<T>
-    where
-        T: Send,
+where
+    T: Send,
 {
     type IntoIter = IntoIter<T>;
     type Item = T;
@@ -407,13 +412,16 @@ impl<T> IntoIterator for ThreadLocal<T>
         // Safe since this is the allocation we just forgot about.
         let top = unsafe { OwnedAlloc::from_raw(raw) };
 
-        IntoIter { curr_table: Some((top, 0)), tables: Vec::new() }
+        IntoIter {
+            curr_table: Some((top, 0)),
+            tables: Vec::new(),
+        }
     }
 }
 
 impl<'tls, T> IntoIterator for &'tls ThreadLocal<T>
-    where
-        T: Sync,
+where
+    T: Sync,
 {
     type IntoIter = Iter<'tls, T>;
     type Item = &'tls T;
@@ -424,8 +432,8 @@ impl<'tls, T> IntoIterator for &'tls ThreadLocal<T>
 }
 
 impl<'tls, T> IntoIterator for &'tls mut ThreadLocal<T>
-    where
-        T: Send,
+where
+    T: Send,
 {
     type IntoIter = IterMut<'tls, T>;
     type Item = &'tls mut T;
@@ -437,8 +445,8 @@ impl<'tls, T> IntoIterator for &'tls mut ThreadLocal<T>
 
 /// An iterator over immutable references to entries of TLS.
 pub struct Iter<'tls, T>
-    where
-        T: 'tls,
+where
+    T: 'tls,
 {
     tables: Vec<&'tls Table<T>>,
     curr_table: Option<(&'tls Table<T>, usize)>,
@@ -451,9 +459,7 @@ impl<'tls, T> Iterator for Iter<'tls, T> {
         loop {
             let (table, index) = self.curr_table.take()?;
             match table.nodes.get(index).map(|node| node.atomic.load(Acquire)) {
-                Some(ptr) if ptr.is_null() => {
-                    self.curr_table = Some((table, index + 1))
-                }
+                Some(ptr) if ptr.is_null() => self.curr_table = Some((table, index + 1)),
 
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Entry<T>;
@@ -494,8 +500,8 @@ impl<'tls, T> Iterator for Iter<'tls, T> {
 
 /// An iterator over mutable references to entries of TLS.
 pub struct IterMut<'tls, T>
-    where
-        T: 'tls,
+where
+    T: 'tls,
 {
     tables: Vec<&'tls mut Table<T>>,
     curr_table: Option<(&'tls mut Table<T>, usize)>,
@@ -507,11 +513,12 @@ impl<'tls, T> Iterator for IterMut<'tls, T> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let (table, index) = self.curr_table.take()?;
-            match table.nodes.get_mut(index).map(|node| *node.atomic.get_mut())
+            match table
+                .nodes
+                .get_mut(index)
+                .map(|node| *node.atomic.get_mut())
             {
-                Some(ptr) if ptr.is_null() => {
-                    self.curr_table = Some((table, index + 1))
-                }
+                Some(ptr) if ptr.is_null() => self.curr_table = Some((table, index + 1)),
 
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Entry<T>;
@@ -572,11 +579,12 @@ impl<T> Iterator for IntoIter<T> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let (mut table, index) = self.curr_table.take()?;
-            match table.nodes.get_mut(index).map(|node| *node.atomic.get_mut())
+            match table
+                .nodes
+                .get_mut(index)
+                .map(|node| *node.atomic.get_mut())
             {
-                Some(ptr) if ptr.is_null() => {
-                    self.curr_table = Some((table, index + 1))
-                }
+                Some(ptr) if ptr.is_null() => self.curr_table = Some((table, index + 1)),
 
                 Some(ptr) if ptr as usize & 1 == 0 => {
                     let ptr = ptr as *mut Entry<T>;
@@ -587,9 +595,7 @@ impl<T> Iterator for IntoIter<T> {
                     //
                     // 2. We have ownership over the TLS, so no one else is
                     // reading or writing or deleting.
-                    let alloc = unsafe {
-                        OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
-                    };
+                    let alloc = unsafe { OwnedAlloc::from_raw(NonNull::new_unchecked(ptr)) };
                     let (entry, _) = alloc.move_inner();
                     self.curr_table = Some((table, index + 1));
                     break Some(entry.data);
@@ -604,9 +610,8 @@ impl<T> Iterator for IntoIter<T> {
                     //
                     // 2. We have ownership over the TLS, so no one else is
                     // reading or writing or deleting.
-                    self.tables.push(unsafe {
-                        OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
-                    });
+                    self.tables
+                        .push(unsafe { OwnedAlloc::from_raw(NonNull::new_unchecked(ptr)) });
                     self.curr_table = Some((table, index + 1));
                 }
 
@@ -635,10 +640,7 @@ struct Node<T> {
 impl<T> Node<T> {
     // Unsafe because it is *pretty easy* to make undefined behavior out of this
     // because the pointer does not have even a fixed type.
-    unsafe fn free_ptr(
-        ptr: *mut (),
-        tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>,
-    ) {
+    unsafe fn free_ptr(ptr: *mut (), tbl_stack: &mut Vec<OwnedAlloc<Table<T>>>) {
         if ptr.is_null() {
             return;
         }
@@ -649,8 +651,7 @@ impl<T> Node<T> {
             let table_ptr = (ptr as usize & !1) as *mut Table<T>;
 
             debug_assert!(!table_ptr.is_null());
-            tbl_stack
-                .push(OwnedAlloc::from_raw(NonNull::new_unchecked(table_ptr)));
+            tbl_stack.push(OwnedAlloc::from_raw(NonNull::new_unchecked(table_ptr)));
         }
     }
 }
@@ -724,8 +725,8 @@ enum LazyInit<T, F> {
 }
 
 impl<T, F> LazyInit<T, F>
-    where
-        F: FnOnce() -> T,
+where
+    F: FnOnce() -> T,
 {
     fn is_pending(&self) -> bool {
         matches!(self, LazyInit::Pending(_))
@@ -746,9 +747,9 @@ impl<T, F> LazyInit<T, F>
 }
 #[cfg(all(test, feature = "std"))]
 mod test {
+    use super::ThreadLocal;
     use alloc::sync::Arc;
     use alloc::vec::Vec;
-    use super::ThreadLocal;
     use std::sync::Barrier;
     use std::thread;
 

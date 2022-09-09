@@ -3,12 +3,12 @@ pub use super::{
     RecvErr::{self, *},
 };
 use crate::ptr::check_null_align;
-use owned_alloc::OwnedAlloc;
 use core::{
     fmt,
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
+use owned_alloc::OwnedAlloc;
 
 /// Creates an asynchronous lock-free Single-Producer-Single-Consumer (SPSC)
 /// channel.
@@ -52,12 +52,10 @@ impl<T> Sender<T> {
             // mark the lower bit of the pointer. In order words, it will be
             // null | 1. We do not need to publish the new node if we receiver
             // disconnected.
-            self.back.as_ref().next.compare_exchange(
-                null_mut(),
-                nnptr.as_ptr(),
-                Release,
-                Relaxed,
-            )
+            self.back
+                .as_ref()
+                .next
+                .compare_exchange(null_mut(), nnptr.as_ptr(), Release, Relaxed)
         };
 
         if res.is_ok() {
@@ -152,7 +150,7 @@ impl<T> Receiver<T> {
                     }
 
                     break Ok(message);
-                },
+                }
 
                 None => {
                     if next as usize & 1 == 0 {
@@ -165,7 +163,7 @@ impl<T> Receiver<T> {
                                 // it has a single node).
                                 unsafe { OwnedAlloc::from_raw(self.front) };
                                 self.front = nnptr;
-                            },
+                            }
 
                             // If the next is null, we have no message and we
                             // will not remove this list's single node.
@@ -176,7 +174,7 @@ impl<T> Receiver<T> {
                         // has disconnected.
                         break Err(RecvErr::NoSender);
                     }
-                },
+                }
             }
         }
     }
@@ -205,10 +203,10 @@ impl<T> Drop for Receiver<T> {
                 // to just swap, since we have only two possible
                 // values (null and null | 1) and we everyone
                 // will be setting to the same value (null | 1).
-                self.front.as_ref().next.swap(
-                    (null_mut::<Node<T>>() as usize | 1) as *mut _,
-                    Acquire,
-                )
+                self.front
+                    .as_ref()
+                    .next
+                    .swap((null_mut::<Node<T>>() as usize | 1) as *mut _, Acquire)
             };
 
             // Then we check for null (success of our swap).
@@ -262,13 +260,13 @@ mod test {
 
         let (mut sender, mut receiver) = spsc::create::<usize>();
         let thread = thread::spawn(move || {
-            for i in 0 .. MSGS {
+            for i in 0..MSGS {
                 loop {
                     match receiver.recv() {
                         Ok(j) => {
                             assert_eq!(i, j);
                             break;
-                        },
+                        }
 
                         Err(spsc::NoMessage) => (),
 
@@ -278,7 +276,7 @@ mod test {
             }
         });
 
-        for i in 0 .. MSGS {
+        for i in 0..MSGS {
             sender.send(i).unwrap();
         }
 

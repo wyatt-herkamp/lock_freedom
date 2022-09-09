@@ -30,8 +30,8 @@
 //! In order to achieve a better time performance with lockfree, it is
 //! recommended to avoid global locking stuff like heap allocation.
 
-extern crate owned_alloc;
 extern crate alloc;
+extern crate owned_alloc;
 
 /// Provides convenient re-exports.
 pub mod prelude;

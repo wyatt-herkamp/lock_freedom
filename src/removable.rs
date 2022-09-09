@@ -1,12 +1,12 @@
+use core::mem::MaybeUninit;
 use core::{
     fmt,
-    mem::{ManuallyDrop},
+    mem::ManuallyDrop,
     sync::atomic::{
         AtomicBool,
         Ordering::{self, *},
     },
 };
-use core::mem::MaybeUninit;
 
 /// A shared removable value. You can only take values from this type (no
 /// insertion allowed). No extra allocation is necessary. It may be useful for
@@ -19,7 +19,10 @@ pub struct Removable<T> {
 impl<T> Removable<T> {
     /// Creates a removable item with the passed argument as a present value.
     pub fn new(val: T) -> Self {
-        Self { item: ManuallyDrop::new(MaybeUninit::new(val)), present: AtomicBool::new(true) }
+        Self {
+            item: ManuallyDrop::new(MaybeUninit::new(val)),
+            present: AtomicBool::new(true),
+        }
     }
 
     /// Creates a removable item with no present value.
@@ -27,7 +30,7 @@ impl<T> Removable<T> {
         Self {
             // This is safe because we will only read from the item if present
             // is true. Present will only be true if we write to it.
-            item: ManuallyDrop::new(MaybeUninit::uninit() ),
+            item: ManuallyDrop::new(MaybeUninit::uninit()),
             present: AtomicBool::new(false),
         }
     }
@@ -41,9 +44,7 @@ impl<T> Removable<T> {
         match val {
             Some(val) => {
                 if *present {
-                    let t = unsafe {
-                        self.item.assume_init_read()
-                    };
+                    let t = unsafe { self.item.assume_init_read() };
                     self.item.write(val);
                     Some(t)
                 } else {
@@ -70,9 +71,7 @@ impl<T> Removable<T> {
     /// not present, `None` is returned.
     pub fn get_mut(&mut self) -> Option<&mut T> {
         if *self.present.get_mut() {
-            unsafe {
-                Some(self.item.assume_init_mut())
-            }
+            unsafe { Some(self.item.assume_init_mut()) }
         } else {
             None
         }
@@ -100,7 +99,11 @@ impl<T> Removable<T> {
 
 impl<T> fmt::Debug for Removable<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "Removable {{ present: {:?} }}", self.is_present(Relaxed))
+        write!(
+            fmtr,
+            "Removable {{ present: {:?} }}",
+            self.is_present(Relaxed)
+        )
     }
 }
 

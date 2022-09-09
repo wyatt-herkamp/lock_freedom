@@ -1,12 +1,12 @@
-use alloc::vec::Vec;
 use super::{
     bucket::{self, Bucket, Garbage},
     guard::ReadGuard,
     table::Table,
 };
 use crate::incin::Pause;
-use owned_alloc::OwnedAlloc;
+use alloc::vec::Vec;
 use core::{fmt, ptr::NonNull, sync::atomic::Ordering::*};
+use owned_alloc::OwnedAlloc;
 
 /// An iterator over key-vaue entries of a [`Map`](super::Map). The `Item` of
 /// this iterator is a [`ReadGuard`]. This iterator may be inconsistent, but
@@ -27,10 +27,7 @@ where
 }
 
 impl<'map, K, V> Iter<'map, K, V> {
-    pub(super) fn new(
-        pause: Pause<'map, Garbage<K, V>>,
-        top: &'map Table<K, V>,
-    ) -> Self {
+    pub(super) fn new(pause: Pause<'map, Garbage<K, V>>, top: &'map Table<K, V>) -> Self {
         Self {
             pause,
             tables: Vec::new(),
@@ -75,7 +72,7 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
 
                     self.cache = cache;
                     Some((table, index + 1))
-                },
+                }
 
                 // If the pointer is a table, put it on the table list.
                 Some(ptr) => {
@@ -92,7 +89,7 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
                     // 4. We cleared the marked bit.
                     self.tables.push(unsafe { &*ptr });
                     Some((table, index + 1))
-                },
+                }
 
                 // If the pointer is null, get the next table.
                 None => self.tables.pop().map(|tbl| (tbl, 0)),
@@ -161,13 +158,11 @@ impl<K, V> Iterator for IntoIter<K, V> {
                     // and mark buckets with 0.
                     //
                     // 3. We have ownership over the `Map`.
-                    let alloc = unsafe {
-                        OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
-                    };
+                    let alloc = unsafe { OwnedAlloc::from_raw(NonNull::new_unchecked(ptr)) };
                     let (bucket, _) = alloc.move_inner();
                     self.entries = bucket.into_iter();
                     Some((table, index + 1))
-                },
+                }
 
                 // If the pointer is a table, put it on the table list.
                 Some(ptr) => {
@@ -182,12 +177,10 @@ impl<K, V> Iterator for IntoIter<K, V> {
                     // 3. We cleared the marked bit.
                     //
                     // 4. We have ownership over the `Map`.
-                    let alloc = unsafe {
-                        OwnedAlloc::from_raw(NonNull::new_unchecked(ptr))
-                    };
+                    let alloc = unsafe { OwnedAlloc::from_raw(NonNull::new_unchecked(ptr)) };
                     self.tables.push(alloc);
                     Some((table, index + 1))
-                },
+                }
 
                 // If the pointer is null, get the next table.
                 None => self.tables.pop().map(|tbl| (tbl, 0)),
@@ -280,7 +273,7 @@ impl<'map, K, V> Iterator for IterMut<'map, K, V> {
                     let bucket = unsafe { &mut *ptr };
                     self.entries = bucket.into_iter();
                     Some((table, index + 1))
-                },
+                }
 
                 // If the pointer is a table, put it on the table list.
                 Some(ptr) => {
@@ -297,7 +290,7 @@ impl<'map, K, V> Iterator for IterMut<'map, K, V> {
                     // 4. We have exclusive reference over the `Map`.
                     self.tables.push(unsafe { &mut *ptr });
                     Some((table, index + 1))
-                },
+                }
 
                 // If the pointer is null, get the next table.
                 None => self.tables.pop().map(|tbl| (tbl, 0)),

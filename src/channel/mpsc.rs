@@ -1,17 +1,15 @@
-use alloc::sync::Arc;
 pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
 use crate::ptr::{bypass_null, check_null_align};
-use owned_alloc::OwnedAlloc;
+use alloc::sync::Arc;
 use core::{
     fmt,
     ptr::{null_mut, NonNull},
-    sync::{
-        atomic::{AtomicPtr, Ordering::*},
-    },
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
+use owned_alloc::OwnedAlloc;
 
 /// Creates an asynchronous lock-free Multi-Producer-Single-Consumer (MPSC)
 /// channel. In order to allow multiple producers, [`Sender`] is clonable and
@@ -28,13 +26,20 @@ pub fn create<T>() -> (Sender<T>, Receiver<T>) {
 
     // Also, we share a pointer to an atomic pointer to a node. This is because
     // we mark the atomic pointer.
-    let shared = SharedBack { ptr: AtomicPtr::new(single_node.as_ptr()) };
+    let shared = SharedBack {
+        ptr: AtomicPtr::new(single_node.as_ptr()),
+    };
     let alloc = OwnedAlloc::new(shared);
     let back = alloc.into_raw();
 
     // Sender with an Arc because it is shared.
-    let sender = Sender { inner: Arc::new(SenderInner { back }) };
-    let receiver = Receiver { back, front: single_node };
+    let sender = Sender {
+        inner: Arc::new(SenderInner { back }),
+    };
+    let receiver = Receiver {
+        back,
+        front: single_node,
+    };
 
     (sender, receiver)
 }
@@ -122,7 +127,7 @@ impl<T> Sender<T> {
                     }
 
                     break Ok(());
-                },
+                }
 
                 Err(new) => loaded = new,
             }
@@ -144,7 +149,9 @@ impl<T> Sender<T> {
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -195,7 +202,7 @@ impl<T> Receiver<T> {
                     }
 
                     break Ok(message);
-                },
+                }
 
                 None => {
                     match NonNull::new(next) {
@@ -208,13 +215,9 @@ impl<T> Receiver<T> {
                             // when both sides disconnected. We load it to check
                             // for bit
                             // marking (since it means sender disconnected).
-                            let back = unsafe {
-                                self.back.as_ref().ptr.load(Relaxed) as usize
-                            };
+                            let back = unsafe { self.back.as_ref().ptr.load(Relaxed) as usize };
 
-                            break if back & 1 == 0
-                                || (back & !1) as *mut _ != self.front.as_ptr()
-                            {
+                            break if back & 1 == 0 || (back & !1) as *mut _ != self.front.as_ptr() {
                                 // If back is not marked, we just don't have
                                 // messages.
                                 Err(RecvErr::NoMessage)
@@ -222,7 +225,7 @@ impl<T> Receiver<T> {
                                 // Back is marked, sender disconnected.
                                 Err(RecvErr::NoSender)
                             };
-                        },
+                        }
 
                         Some(nnptr) => {
                             // This is safe because we only store nodes
@@ -241,9 +244,9 @@ impl<T> Receiver<T> {
                             // Update our front to its successor. And let's try
                             // again.
                             self.front = nnptr;
-                        },
+                        }
                     }
-                },
+                }
             }
         }
     }
@@ -325,11 +328,9 @@ impl<T> Drop for Receiver<T> {
                     // "last". We cannot even dereference
                     // it. We are also the only ones with
                     // reference to nodes from the front until before last.
-                    unsafe {
-                        delete_before_last(self.front, Some(bypass_null(ptr)))
-                    }
+                    unsafe { delete_before_last(self.front, Some(bypass_null(ptr))) }
                     break;
-                },
+                }
 
                 Err(new) => ptr = new,
             }
@@ -414,10 +415,7 @@ struct Node<T> {
 // loaded from the back, and must be reachable from `curr` if non-null. Also,
 // the conditions for removal of the back needs to be respected. The function
 // stops whenever the pointer or a node whose next field is null is reached.
-unsafe fn delete_before_last<T>(
-    mut curr: NonNull<Node<T>>,
-    last: Option<NonNull<Node<T>>>,
-) {
+unsafe fn delete_before_last<T>(mut curr: NonNull<Node<T>>, last: Option<NonNull<Node<T>>>) {
     while last != Some(curr) {
         // Let's try to mark the next field so other threads can see this node
         // needs to be thrown away. It is ok to swap since we are the
@@ -434,7 +432,7 @@ unsafe fn delete_before_last<T>(
             Some(next) => {
                 OwnedAlloc::from_raw(curr);
                 curr = next;
-            },
+            }
 
             // Success. We have nothing more to do.
             None => break,
@@ -457,11 +455,11 @@ mod test {
         let (sender, mut receiver) = mpsc::create::<usize>();
         let mut threads = Vec::with_capacity(THREADS);
 
-        for i in 0 .. THREADS {
+        for i in 0..THREADS {
             let sender = sender.clone();
             threads.push(thread::spawn(move || {
                 let start = i * MSGS_PER_THREAD;
-                for j in start .. start + MSGS_PER_THREAD {
+                for j in start..start + MSGS_PER_THREAD {
                     sender.send(j).unwrap();
                 }
             }))
@@ -474,7 +472,7 @@ mod test {
                 Ok(i) => {
                     assert!(!done[i]);
                     done[i] = true;
-                },
+                }
 
                 Err(mpsc::NoMessage) => (),
 

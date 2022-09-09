@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 pub use super::{
     NoRecv,
     RecvErr::{self, *},
@@ -8,14 +7,13 @@ use crate::{
     ptr::{bypass_null, check_null_align},
     removable::Removable,
 };
-use owned_alloc::OwnedAlloc;
+use alloc::sync::Arc;
 use core::{
     fmt,
     ptr::{null_mut, NonNull},
-    sync::{
-        atomic::{AtomicPtr, Ordering::*},
-    },
+    sync::atomic::{AtomicPtr, Ordering::*},
 };
+use owned_alloc::OwnedAlloc;
 
 /// Creates an asynchronous lock-free Multi-Producer-Multi-Consumer (MPMC)
 /// channel. In order to allow multiple producers and multiple receivers,
@@ -37,12 +35,16 @@ pub fn with_incin<T>(incin: SharedIncin<T>) -> (Sender<T>, Receiver<T>) {
     let single_node = alloc.into_raw();
 
     // The we put it in a shared back.
-    let shared = SharedBack { ptr: AtomicPtr::new(single_node.as_ptr()) };
+    let shared = SharedBack {
+        ptr: AtomicPtr::new(single_node.as_ptr()),
+    };
     let alloc = OwnedAlloc::new(shared);
     let back = alloc.into_raw();
 
     // Put the shared back in the sender.
-    let sender = Sender { inner: Arc::new(SenderInner { back }) };
+    let sender = Sender {
+        inner: Arc::new(SenderInner { back }),
+    };
 
     // And put the shared back and the single node (again) as front in the
     // receiver.
@@ -138,7 +140,7 @@ impl<T> Sender<T> {
                     }
 
                     break Ok(());
-                },
+                }
 
                 Err(new) => loaded = new,
             }
@@ -163,7 +165,9 @@ unsafe impl<T> Sync for Sender<T> where T: Send {}
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -207,7 +211,7 @@ impl<T> Receiver<T> {
                     // passing.
                     unsafe { self.try_clear_first(front_nnptr, &pause) };
                     break Ok(val);
-                },
+                }
 
                 // Safe to call because we passed a pointer from the front
                 // which was loaded during the very same pause we are passing.
@@ -256,12 +260,10 @@ impl<T> Receiver<T> {
         let next = expected.as_ref().next.load(Acquire);
 
         if let Some(next_nnptr) = NonNull::new(next) {
-            let res = self.inner.front.compare_exchange(
-                expected.as_ptr(),
-                next,
-                Relaxed,
-                Relaxed,
-            );
+            let res = self
+                .inner
+                .front
+                .compare_exchange(expected.as_ptr(), next, Relaxed, Relaxed);
 
             // We are not oblied to succeed. This is just cleanup and some other
             // thread might do it.
@@ -269,7 +271,7 @@ impl<T> Receiver<T> {
                 Ok(_) => {
                     pause.add_to_incin(OwnedAlloc::from_raw(expected));
                     Ok(next_nnptr)
-                },
+                }
 
                 // Safe to by-pass the check since we only store non-null
                 // pointers on the front.
@@ -291,7 +293,9 @@ unsafe impl<T> Sync for Receiver<T> where T: Send {}
 
 impl<T> Clone for Receiver<T> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -423,7 +427,7 @@ impl<T> Drop for ReceiverInner<T> {
                         )
                     }
                     break;
-                },
+                }
 
                 Err(new) => ptr = new,
             }
@@ -455,10 +459,7 @@ make_shared_incin! {
 // loaded from the back, and must be reachable from `curr` if non-null. Also,
 // the conditions for removal of the back needs to be respected. The function
 // stops whenever the pointer or a node whose next field is null is reached.
-unsafe fn delete_before_last<T>(
-    mut curr: NonNull<Node<T>>,
-    last: Option<NonNull<Node<T>>>,
-) {
+unsafe fn delete_before_last<T>(mut curr: NonNull<Node<T>>, last: Option<NonNull<Node<T>>>) {
     while last != Some(curr) {
         // Let's try to mark the next field so other threads can see this node
         // needs to be thrown away. It is ok to swap since we are the
@@ -475,7 +476,7 @@ unsafe fn delete_before_last<T>(
             Some(next) => {
                 OwnedAlloc::from_raw(curr);
                 curr = next;
-            },
+            }
 
             // Success. We have nothing more to do.
             None => break,
@@ -485,12 +486,12 @@ unsafe fn delete_before_last<T>(
 
 #[cfg(test)]
 mod test {
+    use crate::channel::mpmc;
     use alloc::sync::Arc;
     use alloc::vec::Vec;
     use core::sync::atomic::AtomicBool;
     use core::sync::atomic::Ordering::{AcqRel, Relaxed};
     use std::thread;
-    use crate::channel::mpmc;
 
     #[test]
     fn correct_numbers() {
@@ -499,18 +500,18 @@ mod test {
         const MSGS: usize = THREADS * MSGS_PER_THREAD;
 
         let mut done = Vec::with_capacity(MSGS);
-        for _ in 0 .. MSGS {
+        for _ in 0..MSGS {
             done.push(AtomicBool::new(false));
         }
         let done = Arc::<[AtomicBool]>::from(done);
         let (sender, receiver) = mpmc::create::<usize>();
         let mut threads = Vec::with_capacity(THREADS);
 
-        for i in 0 .. THREADS {
+        for i in 0..THREADS {
             let sender = sender.clone();
             threads.push(thread::spawn(move || {
                 let start = i * MSGS_PER_THREAD;
-                for j in start .. start + MSGS_PER_THREAD {
+                for j in start..start + MSGS_PER_THREAD {
                     sender.send(j).unwrap();
                 }
             }));

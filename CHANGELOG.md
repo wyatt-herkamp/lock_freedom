@@ -1,3 +1,6 @@
+# 0.6.0 (release)
+* Updates to the latest Rust version
+
 # 0.5.1 (release)
 * Performance improvement.
 * Sanity checks added.

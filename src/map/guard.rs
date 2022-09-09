@@ -1,7 +1,6 @@
-use alloc::sync::{Arc, Weak};
 use super::bucket::Garbage;
 use crate::incin::{Incinerator, Pause};
-use owned_alloc::OwnedAlloc;
+use alloc::sync::{Arc, Weak};
 use core::{
     borrow::Borrow,
     cmp::Ordering,
@@ -11,6 +10,7 @@ use core::{
     ops::Deref,
     ptr::NonNull,
 };
+use owned_alloc::OwnedAlloc;
 
 /// A read-operation guard. This ensures no entry allocation is
 /// mutated or freed while potential reads are performed.
@@ -26,10 +26,7 @@ where
 }
 
 impl<'map, K, V> ReadGuard<'map, K, V> {
-    pub(super) fn new(
-        pair: &'map (K, V),
-        pause: Pause<'map, Garbage<K, V>>,
-    ) -> Self {
+    pub(super) fn new(pair: &'map (K, V), pause: Pause<'map, Garbage<K, V>>) -> Self {
         Self { pair, pause }
     }
 
@@ -152,11 +149,11 @@ pub struct Removed<K, V> {
 }
 
 impl<K, V> Removed<K, V> {
-    pub(super) fn new(
-        alloc: OwnedAlloc<(K, V)>,
-        origin: &Arc<Incinerator<Garbage<K, V>>>,
-    ) -> Self {
-        Self { nnptr: alloc.into_raw(), origin: Arc::downgrade(origin) }
+    pub(super) fn new(alloc: OwnedAlloc<(K, V)>, origin: &Arc<Incinerator<Garbage<K, V>>>) -> Self {
+        Self {
+            nnptr: alloc.into_raw(),
+            origin: Arc::downgrade(origin),
+        }
     }
 
     pub(super) fn into_alloc(mut this: Self) -> OwnedAlloc<(K, V)> {
@@ -173,10 +170,7 @@ impl<K, V> Removed<K, V> {
         this.nnptr
     }
 
-    pub(super) fn is_usable_by(
-        this: &mut Self,
-        origin: &Arc<Incinerator<Garbage<K, V>>>,
-    ) -> bool {
+    pub(super) fn is_usable_by(this: &mut Self, origin: &Arc<Incinerator<Garbage<K, V>>>) -> bool {
         match &this.origin.upgrade() {
             None => true,
             Some(arc) if Arc::ptr_eq(arc, origin) => true,
@@ -187,7 +181,7 @@ impl<K, V> Removed<K, V> {
                 } else {
                     false
                 }
-            },
+            }
         }
     }
 
@@ -218,7 +212,7 @@ impl<K, V> Removed<K, V> {
                 } else {
                     false
                 }
-            },
+            }
         };
 
         if success {
@@ -240,8 +234,7 @@ impl<K, V> Removed<K, V> {
 
         if success {
             // We own the allocation. This must be safe.
-            let (ret, _) =
-                unsafe { OwnedAlloc::from_raw(this.nnptr) }.move_inner();
+            let (ret, _) = unsafe { OwnedAlloc::from_raw(this.nnptr) }.move_inner();
             forget(this);
             Ok(ret)
         } else {

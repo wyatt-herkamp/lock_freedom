@@ -1,4 +1,3 @@
-use owned_alloc::OwnedAlloc;
 use core::{
     fmt,
     iter::FromIterator,
@@ -6,6 +5,7 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
+use owned_alloc::OwnedAlloc;
 
 /// A lock-free stack. LIFO/FILO semanthics are fully respected.
 pub struct Stack<T> {
@@ -21,7 +21,10 @@ impl<T> Stack<T> {
 
     /// Creates an empty queue using the passed shared incinerator.
     pub fn with_incin(incin: SharedIncin<T>) -> Self {
-        Self { top: AtomicPtr::new(null_mut()), incin }
+        Self {
+            top: AtomicPtr::new(null_mut()),
+            incin,
+        }
     }
 
     /// Returns the shared incinerator used by this [`Stack`].
@@ -38,18 +41,15 @@ impl<T> Stack<T> {
     /// Pushes a new value onto the top of the stack.
     pub fn push(&self, val: T) {
         // Let's first create a node.
-        let mut target =
-            OwnedAlloc::new(Node::new(val, self.top.load(Acquire)));
+        let mut target = OwnedAlloc::new(Node::new(val, self.top.load(Acquire)));
 
         loop {
             // Let's try to publish our changes.
             let new_top = target.raw().as_ptr();
-            match self.top.compare_exchange(
-                target.next,
-                new_top,
-                Release,
-                Relaxed,
-            ) {
+            match self
+                .top
+                .compare_exchange(target.next, new_top, Release, Relaxed)
+            {
                 Ok(_) => {
                     // Let's be sure we do not deallocate the pointer.
                     target.into_raw();
@@ -77,12 +77,10 @@ impl<T> Stack<T> {
             //
             // Note this dereferral is safe because we only delete nodes via
             // incinerator and we have a pause now.
-            match self.top.compare_exchange(
-                top,
-                unsafe { nnptr.as_ref().next },
-                AcqRel,
-                Acquire,
-            ) {
+            match self
+                .top
+                .compare_exchange(top, unsafe { nnptr.as_ref().next }, AcqRel, Acquire)
+            {
                 Ok(_) => {
                     // Done with an element. Let's first get the "val" to be
                     // returned.
@@ -90,8 +88,7 @@ impl<T> Stack<T> {
                     // This derreferal and read are safe since we drop the
                     // node via incinerator and we never drop the inner value
                     // when dropping the node in the incinerator.
-                    let val =
-                        unsafe { (&mut *nnptr.as_mut().val as *mut T).read() };
+                    let val = unsafe { (&mut *nnptr.as_mut().val as *mut T).read() };
                     // Safe because we already removed the node and we are
                     // adding to the incinerator rather than
                     // dropping it directly.
@@ -107,8 +104,8 @@ impl<T> Stack<T> {
     /// Pushes elements from the given iterable. Acts just like
     /// [`Extend::extend`] but does not require mutability.
     pub fn extend<I>(&self, iterable: I)
-        where
-            I: IntoIterator<Item=T>,
+    where
+        I: IntoIterator<Item = T>,
     {
         for elem in iterable {
             self.push(elem);
@@ -148,8 +145,8 @@ impl<T> Iterator for Stack<T> {
 
 impl<T> Extend<T> for Stack<T> {
     fn extend<I>(&mut self, iterable: I)
-        where
-            I: IntoIterator<Item=T>,
+    where
+        I: IntoIterator<Item = T>,
     {
         (*self).extend(iterable)
     }
@@ -157,8 +154,8 @@ impl<T> Extend<T> for Stack<T> {
 
 impl<T> FromIterator<T> for Stack<T> {
     fn from_iter<I>(iterable: I) -> Self
-        where
-            I: IntoIterator<Item=T>,
+    where
+        I: IntoIterator<Item = T>,
     {
         let this = Self::new();
         this.extend(iterable);
@@ -168,7 +165,11 @@ impl<T> FromIterator<T> for Stack<T> {
 
 impl<T> fmt::Debug for Stack<T> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "Stack {{ top: {:?}, incin: {:?} }}", self.top, self.incin)
+        write!(
+            fmtr,
+            "Stack {{ top: {:?}, incin: {:?} }}",
+            self.top, self.incin
+        )
     }
 }
 
@@ -178,8 +179,8 @@ unsafe impl<T> Sync for Stack<T> where T: Send {}
 
 /// An iterator based on [`pop`](Stack::pop) operation of the [`Stack`].
 pub struct PopIter<'stack, T>
-    where
-        T: 'stack,
+where
+    T: 'stack,
 {
     stack: &'stack Stack<T>,
 }
@@ -217,7 +218,10 @@ struct Node<T> {
 
 impl<T> Node<T> {
     fn new(val: T, next: *mut Node<T>) -> Self {
-        Self { val: ManuallyDrop::new(val), next }
+        Self {
+            val: ManuallyDrop::new(val),
+            next,
+        }
     }
 }
 
@@ -258,7 +262,7 @@ mod test {
     #[cfg(feature = "std")]
     #[test]
     fn no_data_corruption() {
-        use std::{thread, sync::Arc};
+        use std::{sync::Arc, thread};
 
         const NTHREAD: usize = 20;
         const NITER: usize = 800;

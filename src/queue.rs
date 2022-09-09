@@ -3,13 +3,13 @@ use crate::{
     ptr::{bypass_null, check_null_align},
     removable::Removable,
 };
-use owned_alloc::OwnedAlloc;
 use core::{
     fmt,
     iter::FromIterator,
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
+use owned_alloc::OwnedAlloc;
 
 /// A lock-free general-purpouse queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.
@@ -102,8 +102,8 @@ impl<T> Queue<T> {
     /// Pushes elements from the given iterable. Acts just like
     /// [`Extend::extend`] but does not require mutability.
     pub fn extend<I>(&self, iterable: I)
-        where
-            I: IntoIterator<Item=T>,
+    where
+        I: IntoIterator<Item = T>,
     {
         for elem in iterable {
             self.push(elem);
@@ -167,8 +167,8 @@ impl<T> Drop for Queue<T> {
 
 impl<T> FromIterator<T> for Queue<T> {
     fn from_iter<I>(iterable: I) -> Self
-        where
-            I: IntoIterator<Item=T>,
+    where
+        I: IntoIterator<Item = T>,
     {
         let this = Self::new();
         this.extend(iterable);
@@ -178,8 +178,8 @@ impl<T> FromIterator<T> for Queue<T> {
 
 impl<T> Extend<T> for Queue<T> {
     fn extend<I>(&mut self, iterable: I)
-        where
-            I: IntoIterator<Item=T>,
+    where
+        I: IntoIterator<Item = T>,
     {
         (*self).extend(iterable)
     }
@@ -241,8 +241,8 @@ unsafe impl<T> Sync for Queue<T> where T: Send {}
 
 /// An iterator based on [`pop`](Queue::pop) operation of the [`Queue`].
 pub struct PopIter<'queue, T>
-    where
-        T: 'queue,
+where
+    T: 'queue,
 {
     queue: &'queue Queue<T>,
 }
@@ -280,7 +280,10 @@ struct Node<T> {
 
 impl<T> Node<T> {
     fn new(item: Removable<T>) -> Self {
-        Self { item, next: AtomicPtr::new(null_mut()) }
+        Self {
+            item,
+            next: AtomicPtr::new(null_mut()),
+        }
     }
 }
 
@@ -288,12 +291,10 @@ impl<T> Node<T> {
 // via fuzzing
 #[cfg(test)]
 mod test {
+    use super::*;
     use alloc::sync::Arc;
     use alloc::vec::Vec;
-    use super::*;
-    use core::{
-        sync::{atomic::AtomicUsize},
-    };
+    use core::sync::atomic::AtomicUsize;
 
     #[test]
     fn on_empty_first_pop_is_none() {

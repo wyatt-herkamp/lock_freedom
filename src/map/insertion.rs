@@ -1,6 +1,6 @@
 use super::Removed;
-use owned_alloc::{OwnedAlloc, UninitAlloc};
 use core::{mem::forget, ptr::NonNull};
+use owned_alloc::{OwnedAlloc, UninitAlloc};
 
 /// A [`insert_with`](super::Map::insert_with) operation result.
 #[derive(Debug, PartialEq, Eq)]
@@ -115,9 +115,8 @@ where
             // I know it sounds weird, but we need to initialize just the key.
             // We handle it in drop through the field `is_val_init`.
             nnptr: unsafe {
-                let alloc = UninitAlloc::new().init_in_place(|(key_mem, _)| {
-                    (key_mem as *mut K).write(key)
-                });
+                let alloc =
+                    UninitAlloc::new().init_in_place(|(key_mem, _)| (key_mem as *mut K).write(key));
                 alloc.into_raw()
             },
             is_val_init: false,
@@ -135,8 +134,7 @@ where
     pub fn into_pair(self) -> (K, Option<V>) {
         // Doing this is safe by itself. However, callers should be careful if
         // they used the pointer.
-        let ((key, val), _) =
-            unsafe { OwnedAlloc::from_raw(self.nnptr) }.move_inner();
+        let ((key, val), _) = unsafe { OwnedAlloc::from_raw(self.nnptr) }.move_inner();
         // Note we check for the case in which val is uninitialized.
         let val = if self.is_val_init {
             Some(val)
@@ -179,7 +177,11 @@ where
         let (key, val) = unsafe { self.nnptr.as_mut() };
 
         let preview = {
-            let val = if self.is_val_init { Some(&mut *val) } else { None };
+            let val = if self.is_val_init {
+                Some(&mut *val)
+            } else {
+                None
+            };
             (self.interactive)(key, val, found)
         };
 
@@ -189,7 +191,7 @@ where
                 // Safe because we check for the initialization of the value and
                 // we update it too.
                 unsafe { (val as *mut V).drop_in_place() };
-            },
+            }
 
             Preview::New(new_val) => {
                 if self.is_val_init {
@@ -200,7 +202,7 @@ where
                     // and we update it too.
                     unsafe { (val as *mut V).write(new_val) };
                 }
-            },
+            }
 
             _ => (),
         }
@@ -236,7 +238,11 @@ where
     F: FnMut(&(K, V), Option<&(K, V)>) -> bool,
 {
     pub fn new(interactive: F, removed: Removed<K, V>) -> Self {
-        Self { interactive, removed, is_valid: false }
+        Self {
+            interactive,
+            removed,
+            is_valid: false,
+        }
     }
 
     pub fn into_removed(self) -> Removed<K, V> {

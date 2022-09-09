@@ -1,24 +1,22 @@
-use alloc::sync::Arc;
-use alloc::vec::Vec;
 use super::{
     bucket::{Bucket, Garbage, GetRes, InsertRes},
     guard::{ReadGuard, Removed},
     insertion::{Inserter, Insertion},
 };
 use crate::incin::{Incinerator, Pause};
-use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::{
     borrow::Borrow,
     fmt,
     marker::PhantomData,
     ptr::{null_mut, NonNull},
-    sync::{
-        atomic::{
-            AtomicPtr,
-            Ordering::{self, *},
-        },
+    sync::atomic::{
+        AtomicPtr,
+        Ordering::{self, *},
     },
 };
+use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 
 const BITS: usize = 8;
 
@@ -32,9 +30,7 @@ impl<K, V> Table<K, V> {
     pub fn new_alloc() -> OwnedAlloc<Self> {
         // Safe because it calls a correctly a function which correctly
         // initializes uninitialized memory with, indeed, uninitialized memory.
-        unsafe {
-            UninitAlloc::<Self>::new().init_in_place(|val| val.init_in_place())
-        }
+        unsafe { UninitAlloc::<Self>::new().init_in_place(|val| val.init_in_place()) }
     }
 
     // Unsafe because passing ininitialized memory may cause leaks.
@@ -97,16 +93,15 @@ impl<K, V> Table<K, V> {
                         );
 
                         if res.is_ok() {
-                            let alloc = OwnedAlloc::from_raw(
-                                NonNull::new_unchecked(loaded as *mut _),
-                            );
+                            let alloc =
+                                OwnedAlloc::from_raw(NonNull::new_unchecked(loaded as *mut _));
                             // Needs to be destroyed by the incinerator as it is
                             // shared.
                             pause.add_to_incin(Garbage::Bucket(alloc));
                         }
 
                         None
-                    },
+                    }
                 };
             }
 
@@ -139,8 +134,8 @@ impl<K, V> Table<K, V> {
         let mut tbl_cache = Cache::<OwnedAlloc<Self>>::new();
 
         // Compute the index from the shifted hash's lower bits.
-        let mut index = shifted as usize & ((1 << BITS) - 1);
-        // Load what is in the index before trying to insert.
+        let mut index = shifted as usize & ((1 << BITS) - 1); // shifted & 255
+                                                              // Load what is in the index before trying to insert.
         let mut loaded = table.nodes[index].atomic.load(Acquire);
 
         loop {
@@ -172,14 +167,14 @@ impl<K, V> Table<K, V> {
                         // deallocating the pointer.
                         inserter.take_pointer();
                         break Insertion::Created;
-                    },
+                    }
 
                     Err(new) => {
                         // If we failed this try, we have to clean up.
                         let mut bucket = OwnedAlloc::from_raw(bucket_nnptr);
                         bucket.take_first();
                         loaded = new;
-                    },
+                    }
                 }
             } else if loaded as usize & 1 == 0 {
                 // We keep pointers to Buckets with the lower bit cleared.
@@ -194,48 +189,40 @@ impl<K, V> Table<K, V> {
 
                         InsertRes::Updated(old) => {
                             break Insertion::Updated(old);
-                        },
+                        }
 
                         InsertRes::Failed(inserter) => {
                             break Insertion::Failed(inserter);
-                        },
+                        }
 
                         // This means we must delete the bucket entirely. And
                         // try again, obviously.
                         InsertRes::Delete(returned) => {
                             let ptr = &table.nodes[index].atomic;
-                            let res = ptr.compare_exchange(
-                                loaded,
-                                null_mut(),
-                                AcqRel,
-                                Acquire,
-                            );
+                            let res = ptr.compare_exchange(loaded, null_mut(), AcqRel, Acquire);
 
                             match res {
                                 Ok(_) => {
-                                    let alloc = OwnedAlloc::from_raw(
-                                        NonNull::new_unchecked(
-                                            loaded as *mut _,
-                                        ),
-                                    );
+                                    let alloc = OwnedAlloc::from_raw(NonNull::new_unchecked(
+                                        loaded as *mut _,
+                                    ));
                                     incin.add(Garbage::Bucket(alloc));
                                     loaded = null_mut()
-                                },
+                                }
 
                                 Err(new) => {
                                     loaded = new;
-                                },
+                                }
                             }
 
                             inserter = returned;
-                        },
+                        }
                     }
                 } else {
                     // In the case hashes aren't equal, we will branch!
                     let new_table = tbl_cache.take_or(|| Self::new_alloc());
                     let other_shifted = bucket.hash() >> (depth * BITS);
-                    let other_index =
-                        other_shifted as usize & ((1 << BITS) - 1);
+                    let other_index = other_shifted as usize & ((1 << BITS) - 1);
 
                     // Placing the found bucket into the new table first.
                     new_table.nodes[other_index].atomic.store(loaded, Relaxed);
@@ -262,7 +249,7 @@ impl<K, V> Table<K, V> {
                             // Load what is in the index before trying to
                             // insert.
                             loaded = table.nodes[index].atomic.load(Acquire);
-                        },
+                        }
 
                         Err(new) => {
                             // If we failed -> clean up! And store the
@@ -270,14 +257,13 @@ impl<K, V> Table<K, V> {
                             // some cache, since allocating a table can be
                             // really expensive due
                             // to it's size.
-                            let new_table =
-                                OwnedAlloc::from_raw(new_table_nnptr);
+                            let new_table = OwnedAlloc::from_raw(new_table_nnptr);
                             new_table.nodes[other_index]
                                 .atomic
                                 .store(null_mut(), Relaxed);
                             tbl_cache.store(new_table);
                             loaded = new;
-                        },
+                        }
                     }
                 }
             } else {
@@ -350,9 +336,7 @@ impl<K, V> Table<K, V> {
                     );
 
                     if res.is_ok() {
-                        let alloc = OwnedAlloc::from_raw(
-                            NonNull::new_unchecked(loaded as *mut _),
-                        );
+                        let alloc = OwnedAlloc::from_raw(NonNull::new_unchecked(loaded as *mut _));
                         incin.add(Garbage::Bucket(alloc));
                     }
                 }
@@ -370,10 +354,7 @@ impl<K, V> Table<K, V> {
     // Unsafe because calling this function and using the table again later will
     // cause undefined behavior.
     #[inline]
-    pub unsafe fn free_nodes(
-        &mut self,
-        tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>,
-    ) {
+    pub unsafe fn free_nodes(&mut self, tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>) {
         for node in &self.nodes as &[Node<K, V>] {
             Node::free_ptr(node.atomic.load(Relaxed), tbl_stack);
         }
@@ -384,10 +365,7 @@ impl<K, V> Table<K, V> {
         for node in &self.nodes as &[Node<K, V>] {
             // This should be safe because we store only proper pointers.
             unsafe {
-                Node::free_ptr(
-                    node.atomic.swap(null_mut(), Relaxed),
-                    tbl_stack,
-                );
+                Node::free_ptr(node.atomic.swap(null_mut(), Relaxed), tbl_stack);
             }
         }
     }
@@ -418,9 +396,7 @@ impl<K, V> Table<K, V> {
                     // map. Also, we remove the bucket from the table so no one
                     // else will find it.
                     unsafe {
-                        OwnedAlloc::from_raw(NonNull::new_unchecked(
-                            bucket_ptr,
-                        ));
+                        OwnedAlloc::from_raw(NonNull::new_unchecked(bucket_ptr));
                     }
                 } else {
                     // Safe because of the same things in the list above. Also,
@@ -453,7 +429,7 @@ impl<K, V> Table<K, V> {
                             OwnedAlloc::from_raw(nnptr);
                         }
                         removed += 1;
-                    },
+                    }
 
                     OptSpaceRes::TableToBucket(bucket) => {
                         unsafe {
@@ -464,7 +440,7 @@ impl<K, V> Table<K, V> {
                             OwnedAlloc::from_raw(nnptr);
                         }
                         node.atomic.store(bucket.as_ptr() as *mut _, Relaxed)
-                    },
+                    }
                 }
             }
         }
@@ -478,18 +454,18 @@ impl<K, V> Table<K, V> {
         }
     }
 
-    pub fn load_index(
-        &self,
-        index: usize,
-        ordering: Ordering,
-    ) -> Option<*mut ()> {
+    pub fn load_index(&self, index: usize, ordering: Ordering) -> Option<*mut ()> {
         self.nodes.get(index).map(|node| node.atomic.load(ordering))
     }
 }
 
 impl<K, V> fmt::Debug for Table<K, V> {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmtr, "Table {{ nodes: {:?} }}", &self.nodes as &[Node<K, V>])
+        write!(
+            fmtr,
+            "Table {{ nodes: {:?} }}",
+            &self.nodes as &[Node<K, V>]
+        )
     }
 }
 
@@ -502,31 +478,28 @@ struct Node<K, V> {
 impl<K, V> Node<K, V> {
     // Unsafe because it is *pretty easy* to make undefined behavior out of this
     // because the pointer does not have even a fixed type.
-    unsafe fn free_ptr(
-        ptr: *mut (),
-        tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>,
-    ) {
+    unsafe fn free_ptr(ptr: *mut (), tbl_stack: &mut Vec<OwnedAlloc<Table<K, V>>>) {
         if ptr.is_null() {
             return;
         }
 
         if ptr as usize & 1 == 0 {
-            OwnedAlloc::from_raw(NonNull::new_unchecked(
-                ptr as *mut Bucket<K, V>,
-            ));
+            OwnedAlloc::from_raw(NonNull::new_unchecked(ptr as *mut Bucket<K, V>));
         } else {
             let table_ptr = (ptr as usize & !1) as *mut Table<K, V>;
 
             debug_assert!(!table_ptr.is_null());
-            tbl_stack
-                .push(OwnedAlloc::from_raw(NonNull::new_unchecked(table_ptr)));
+            tbl_stack.push(OwnedAlloc::from_raw(NonNull::new_unchecked(table_ptr)));
         }
     }
 }
 
 impl<K, V> Node<K, V> {
     fn new() -> Self {
-        Self { atomic: AtomicPtr::new(null_mut()), _marker: PhantomData }
+        Self {
+            atomic: AtomicPtr::new(null_mut()),
+            _marker: PhantomData,
+        }
     }
 }
 
