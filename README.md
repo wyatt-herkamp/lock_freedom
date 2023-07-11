@@ -1,4 +1,4 @@
-# tux_lockfree
+# lock_freedom
 
 A fork of the [lockfree](https://gitlab.com/bzim/lockfree/)
 

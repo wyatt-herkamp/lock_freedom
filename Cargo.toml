@@ -1,9 +1,9 @@
 [package]
-name = "tux_lockfree"
-version = "0.6.0-beta"
+name = "lock_freedom"
+version = "0.1.0"
 authors = ["Wyatt Jacob Herkamp <wherkamp@kingtux.me>", "Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
 description = "This crate provides concurrent data structures and a solution to the ABA problem as an alternative of hazard pointers"
-repository = "https://github.com/wyatt-herkamp/tux_lockfree"
+repository = "https://github.com/wyatt-herkamp/lock_freedom"
 keywords = ["concurrency", "lock-free", "atomics", "data-structures"]
 categories = ["concurrency", "data-structures", "algorithms"]
 license = "MIT"

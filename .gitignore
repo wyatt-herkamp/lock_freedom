@@ -7,3 +7,4 @@ Cargo.lock
 *grind.out*
 fuzz*.log
 *.dump
+.idea
