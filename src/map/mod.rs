@@ -24,7 +24,7 @@ use core::{
     iter::FromIterator,
     mem,
 };
-use owned_alloc::OwnedAlloc;
+use crate::owned_alloc::OwnedAlloc;
 use std::collections::hash_map::RandomState;
 
 /// A lock-free map. Implemented using multi-level hash-tables (in a tree

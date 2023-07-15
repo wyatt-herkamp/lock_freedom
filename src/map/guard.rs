@@ -10,7 +10,7 @@ use core::{
     ops::Deref,
     ptr::NonNull,
 };
-use owned_alloc::OwnedAlloc;
+use crate::owned_alloc::OwnedAlloc;
 
 /// A read-operation guard. This ensures no entry allocation is
 /// mutated or freed while potential reads are performed.

@@ -11,7 +11,7 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
+use crate::owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 
 const BITS: usize = 8;
 

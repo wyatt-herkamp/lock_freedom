@@ -9,7 +9,7 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use owned_alloc::OwnedAlloc;
+use crate::owned_alloc::OwnedAlloc;
 
 /// A lock-free general-purpouse queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.

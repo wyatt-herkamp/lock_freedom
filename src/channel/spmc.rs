@@ -13,7 +13,7 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use owned_alloc::OwnedAlloc;
+use crate::owned_alloc::OwnedAlloc;
 
 /// Creates an asynchronous lock-free Single-Producer-Multi-Consumer (SPMC)
 /// channel. In order to allow multiple consumers, [`Receiver`] is clonable and
