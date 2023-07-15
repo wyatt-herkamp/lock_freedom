@@ -25,7 +25,7 @@ use core::{
 /// # Example
 /// ```rust
 /// ///
-/// use tux_lockfree::incin::Incinerator;
+/// use lock_freedom::incin::Incinerator;
 /// use std::{
 ///     ptr::{null_mut, NonNull},
 ///     sync::{

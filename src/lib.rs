@@ -78,9 +78,3 @@ pub mod removable;
 mod ptr;
 
 
-mod tests{
-    #[test]
-    pub fn test(){
-        println!("test");
-    }
-}

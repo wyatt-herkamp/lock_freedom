@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tux_lockfree::map::Map;
+use lock_freedom::map::Map;
 
 fn random_read_write(n: u64) {
     let mut map = Map::new();

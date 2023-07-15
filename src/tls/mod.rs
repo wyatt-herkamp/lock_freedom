@@ -23,7 +23,7 @@ const BITS: usize = 8;
 /// # Example
 /// ```
 /// ///
-/// use tux_lockfree::tls::ThreadLocal;
+/// use lock_freedom::tls::ThreadLocal;
 /// use std::{cell::Cell, sync::Arc, thread};
 ///
 /// let tls = Arc::new(ThreadLocal::<Cell<usize>>::new());
