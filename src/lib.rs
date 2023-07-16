@@ -31,11 +31,10 @@
 //! recommended to avoid global locking stuff like heap allocation.
 
 extern crate alloc;
-extern crate owned_alloc;
 
 /// Provides convenient re-exports.
 pub mod prelude;
-
+pub(crate) mod owned_alloc;
 /// Incinerator API. The purpouse of this module is to solve the "ABA problem"
 /// related to pointers while still being lock-free. See documentation of the
 /// inner type for more details.
@@ -77,3 +76,5 @@ pub mod removable;
 
 #[allow(dead_code)]
 mod ptr;
+
+

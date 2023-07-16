@@ -6,7 +6,7 @@ use super::{
 use crate::incin::Pause;
 use alloc::vec::Vec;
 use core::{fmt, ptr::NonNull, sync::atomic::Ordering::*};
-use owned_alloc::OwnedAlloc;
+use crate::owned_alloc::OwnedAlloc;
 
 /// An iterator over key-vaue entries of a [`Map`](super::Map). The `Item` of
 /// this iterator is a [`ReadGuard`]. This iterator may be inconsistent, but

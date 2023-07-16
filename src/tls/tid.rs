@@ -4,7 +4,7 @@ use core::{
     ptr::null_mut,
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering::*},
 };
-use owned_alloc::OwnedAlloc;
+use crate::owned_alloc::OwnedAlloc;
 
 /// A cached thread-id. Repeated calls to [`ThreadLocal`](super::ThreadLocal)'s
 /// methods with cached IDs should be faster than reloading the ID everytime.

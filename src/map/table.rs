@@ -16,7 +16,7 @@ use core::{
         Ordering::{self, *},
     },
 };
-use owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
+use crate::owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 
 const BITS: usize = 8;
 

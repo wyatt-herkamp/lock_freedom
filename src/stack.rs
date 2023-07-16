@@ -5,7 +5,7 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use owned_alloc::OwnedAlloc;
+use crate::owned_alloc::OwnedAlloc;
 
 /// A lock-free stack. LIFO/FILO semanthics are fully respected.
 pub struct Stack<T> {
