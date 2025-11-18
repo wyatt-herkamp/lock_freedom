@@ -81,7 +81,7 @@ impl<T> ThreadLocal<T> {
     }
 
     /// Creates an iterator over immutable refereces of entries.
-    pub fn iter(&self) -> Iter<T>
+    pub fn iter(&self) -> Iter<'_, T>
     where
         T: Sync,
     {
@@ -92,7 +92,7 @@ impl<T> ThreadLocal<T> {
     }
 
     /// Creates an iterator over mutable refereces of entries.
-    pub fn iter_mut(&mut self) -> IterMut<T>
+    pub fn iter_mut(&mut self) -> IterMut<'_, T>
     where
         T: Send,
     {

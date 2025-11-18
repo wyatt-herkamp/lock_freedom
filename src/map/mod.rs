@@ -83,13 +83,13 @@ impl<K, V> Map<K, V> {
 
 impl<K, V, H> Map<K, V, H> {
     /// Creates an iterator over guarded references to the key-value entries.
-    pub fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V> {
         self.into_iter()
     }
 
     /// Creates an iterator over the key-value entries, with a mutable reference
     /// to the value.
-    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         self.into_iter()
     }
 
@@ -227,9 +227,9 @@ where
     /// Reinserts a previously removed entry. The entry must have been either:
     ///
     /// 1. Removed from any [`Map`] using the same [`SharedIncin`] as this
-    /// [`Map`]. 2. Removed from an already dead [`Map`] with dead
-    /// [`SharedIncin`]. 3. Removed from a [`Map`] whose `SharedIncin` has
-    /// no sensitive reads active.
+    ///    [`Map`]. 2. Removed from an already dead [`Map`] with dead
+    ///    [`SharedIncin`]. 3. Removed from a [`Map`] whose `SharedIncin` has
+    ///    no sensitive reads active.
     ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.
@@ -274,9 +274,9 @@ where
     /// The entry must have been either:
     ///
     /// 1. Removed from any [`Map`] using the same [`SharedIncin`] as this
-    /// [`Map`]. 2. Removed from an already dead [`Map`] with dead
-    /// `SharedIncin`. 3. Removed from a [`Map`] whose `SharedIncin` has no
-    /// sensitive reads active.
+    ///    [`Map`]. 2. Removed from an already dead [`Map`] with dead
+    ///    `SharedIncin`. 3. Removed from a [`Map`] whose `SharedIncin` has no
+    ///    sensitive reads active.
     ///
     /// If the removed entry does not fit any category, the insertion will fail.
     /// Otherwise, insertion cannot fail.

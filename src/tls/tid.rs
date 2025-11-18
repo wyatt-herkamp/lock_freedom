@@ -70,7 +70,7 @@ impl IdGuard {
 
         loop {
             // First we try to acquire the current node.
-            let bits = node.free.swap(usize::max_value(), Relaxed);
+            let bits = node.free.swap(usize::MAX, Relaxed);
             if bits != usize::MAX {
                 break Self { node, bits };
             }
@@ -78,7 +78,7 @@ impl IdGuard {
             let next = node.next.load(Acquire);
 
             // Then we check if we reached the limited we loaded previously.
-            if next.is_null() || node as *const _ == back_then {
+            if next.is_null() || std::ptr::eq(node, back_then) {
                 // If so, we create a new node.
                 break Self::create_node();
             }
@@ -91,7 +91,7 @@ impl IdGuard {
 
     fn create_node() -> Self {
         let new = Node {
-            free: AtomicUsize::new(usize::max_value()),
+            free: AtomicUsize::new(usize::MAX),
             next: AtomicPtr::new(null_mut()),
         };
 
