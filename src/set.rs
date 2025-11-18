@@ -34,7 +34,7 @@ impl<T> Set<T> {
 
 impl<T, H> Set<T, H> {
     /// Creates an iterator over guarded references to the elements.
-    pub fn iter(&self) -> Iter<T> {
+    pub fn iter(&self) -> Iter<'_, T> {
         self.into_iter()
     }
 }
@@ -634,7 +634,7 @@ mod test {
 
     impl PartialOrd for EqI {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            self.i.partial_cmp(&other.i)
+            Some(self.cmp(other))
         }
     }
 
@@ -719,12 +719,12 @@ mod test {
         set.insert(EqI { i: 32, j: 0 }).unwrap();
         set.insert(EqI { i: 34, j: 10 }).unwrap();
         set.insert(EqI { i: 34, j: 6 }).unwrap_err();
-        let _34 = set.remove(&EqI { i: 34, j: 325 }).unwrap();
-        let _32 = set.remove(&EqI { i: 32, j: 534 }).unwrap();
+        let removed_item_34 = set.remove(&EqI { i: 34, j: 325 }).unwrap();
+        let removed_item_32 = set.remove(&EqI { i: 32, j: 534 }).unwrap();
 
         set.insert(EqI { i: 34, j: 6 }).unwrap();
-        set.reinsert_with(_34, |_, _| true).updated().unwrap();
-        let _32 = set.reinsert_with(_32, |_, _| false).take_failed().unwrap();
-        assert!(set.reinsert_with(_32, |_, _| true).created());
+        set.reinsert_with(removed_item_34, |_, _| true).updated().unwrap();
+        let removed_item_32 = set.reinsert_with(removed_item_32, |_, _| false).take_failed().unwrap();
+        assert!(set.reinsert_with(removed_item_32, |_, _| true).created());
     }
 }

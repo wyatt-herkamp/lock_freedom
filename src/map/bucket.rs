@@ -486,10 +486,7 @@ impl<K, V> Entry<K, V> {
 
 impl<K, V> Clone for Entry<K, V> {
     fn clone(&self) -> Self {
-        Self {
-            pair: self.pair,
-            next: self.next,
-        }
+        *self
     }
 }
 

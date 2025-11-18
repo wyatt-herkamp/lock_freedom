@@ -82,7 +82,7 @@ impl<T> Incinerator<T> {
     /// incinerator. Only after creating the pause you should perform atomic
     /// operations such as `load` and any other operation affected by ABA
     /// problem. This operation performs [`AcqRel`] on the pause counter.
-    pub fn pause(&self) -> Pause<T> {
+    pub fn pause(&self) -> Pause<'_, T> {
         let mut count = self.counter.load(Relaxed);
         loop {
             // Sanity check.
