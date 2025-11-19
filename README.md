@@ -1,6 +1,10 @@
-# lock_freedom
+# lock_freedom [![Latest Version]][crates.io]
+[Latest Version]: https://img.shields.io/crates/v/lock_freedom
+[crates.io]: https://crates.io/crates/lock_freedom
 
 A fork of the [lockfree](https://gitlab.com/bzim/lockfree/)
+
+[Docs](https://docs.rs/lock_freedom/latest/lock_freedom/)
 
 Lockfree data structures for Rust.
 
