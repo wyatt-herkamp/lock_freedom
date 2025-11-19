@@ -1,6 +1,6 @@
 [package]
 name = "lock_freedom"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Wyatt Jacob Herkamp <wherkamp@gmail.com>", "Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
 description = "This crate provides concurrent data structures and a solution to the ABA problem as an alternative of hazard pointers"
 repository = "https://github.com/wyatt-herkamp/lock_freedom"
