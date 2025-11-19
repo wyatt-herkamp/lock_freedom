@@ -3,6 +3,7 @@ mod tid;
 pub use self::tid::ThreadId;
 use alloc::vec::Vec;
 
+use crate::owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use crate::ptr::check_null_align;
 use core::{
     fmt,
@@ -11,7 +12,6 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use crate::owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 
 const BITS: usize = 8;
 

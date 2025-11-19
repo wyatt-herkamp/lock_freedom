@@ -1,10 +1,10 @@
+use crate::owned_alloc::OwnedAlloc;
 use core::{
     fmt,
     marker::PhantomData,
     ptr::null_mut,
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering::*},
 };
-use crate::owned_alloc::OwnedAlloc;
 
 /// A cached thread-id. Repeated calls to [`ThreadLocal`](super::ThreadLocal)'s
 /// methods with cached IDs should be faster than reloading the ID everytime.

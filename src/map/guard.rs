@@ -1,5 +1,6 @@
 use super::bucket::Garbage;
 use crate::incin::{Incinerator, Pause};
+use crate::owned_alloc::OwnedAlloc;
 use alloc::sync::{Arc, Weak};
 use core::{
     borrow::Borrow,
@@ -10,7 +11,6 @@ use core::{
     ops::Deref,
     ptr::NonNull,
 };
-use crate::owned_alloc::OwnedAlloc;
 
 /// A read-operation guard. This ensures no entry allocation is
 /// mutated or freed while potential reads are performed.

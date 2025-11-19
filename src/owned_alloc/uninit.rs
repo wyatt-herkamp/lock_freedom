@@ -13,15 +13,14 @@ use std::{
 /// For the drop checker, the type acts as if it contains a `T` due to usage of
 /// `PhantomData<T>`.
 pub struct UninitAlloc<T>
-    where
-        T: ?Sized,
+where
+    T: ?Sized,
 {
     nnptr: NonNull<T>,
     _marker: PhantomData<T>,
 }
 
-impl<T> Default for UninitAlloc<T>
-{
+impl<T> Default for UninitAlloc<T> {
     fn default() -> Self {
         Self::new()
     }
@@ -46,7 +45,10 @@ impl<T> UninitAlloc<T> {
                 .ok_or(AllocErr { layout })
         };
 
-        res.map(|nnptr| Self { nnptr, _marker: PhantomData })
+        res.map(|nnptr| Self {
+            nnptr,
+            _marker: PhantomData,
+        })
     }
 
     /// Initializes the memory and returns the allocation now considered
@@ -61,8 +63,8 @@ impl<T> UninitAlloc<T> {
 }
 
 impl<T> UninitAlloc<T>
-    where
-        T: ?Sized,
+where
+    T: ?Sized,
 {
     /// Calls a function with a mutable reference to uninitialized memory and
     /// returns the allocation now considered initialized. The passed function
@@ -72,8 +74,8 @@ impl<T> UninitAlloc<T>
     /// This function is `unsafe` because the passed function might not
     /// initialize the memory correctly.
     pub unsafe fn init_in_place<F>(self, init: F) -> OwnedAlloc<T>
-        where
-            F: FnOnce(&mut T),
+    where
+        F: FnOnce(&mut T),
     {
         let mut raw = self.into_raw();
         init(raw.as_mut());
@@ -86,7 +88,10 @@ impl<T> UninitAlloc<T>
     /// This functions is `unsafe` because passing the wrong pointer leads to
     /// undefined behaviour.
     pub unsafe fn from_raw(nnptr: NonNull<T>) -> Self {
-        Self { nnptr, _marker: PhantomData }
+        Self {
+            nnptr,
+            _marker: PhantomData,
+        }
     }
 
     /// Returns the raw non-null pointer of the allocation.
@@ -103,8 +108,8 @@ impl<T> UninitAlloc<T>
 }
 
 impl<T> Drop for UninitAlloc<T>
-    where
-        T: ?Sized,
+where
+    T: ?Sized,
 {
     fn drop(&mut self) {
         unsafe {
@@ -118,8 +123,8 @@ impl<T> Drop for UninitAlloc<T>
 }
 
 impl<T> fmt::Debug for UninitAlloc<T>
-    where
-        T: ?Sized,
+where
+    T: ?Sized,
 {
     fn fmt(&self, fmtr: &mut fmt::Formatter) -> fmt::Result {
         write!(fmtr, "{:?}", self.nnptr)
@@ -128,7 +133,10 @@ impl<T> fmt::Debug for UninitAlloc<T>
 
 impl<T> From<RawVec<T>> for UninitAlloc<[T]> {
     fn from(alloc: RawVec<T>) -> Self {
-        Self { nnptr: alloc.into_raw_slice(), _marker: PhantomData }
+        Self {
+            nnptr: alloc.into_raw_slice(),
+            _marker: PhantomData,
+        }
     }
 }
 

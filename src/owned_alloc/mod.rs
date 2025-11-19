@@ -14,11 +14,11 @@
 //! allocation, but may be useful for allocations. It can save unused
 //! allocations requested on a tight loop.
 
-mod uninit;
-mod owned;
 mod cache;
-mod raw_vec;
 mod err;
+mod owned;
+mod raw_vec;
+mod uninit;
 
 pub use self::{
     cache::Cache,

@@ -723,8 +723,13 @@ mod test {
         let removed_item_32 = set.remove(&EqI { i: 32, j: 534 }).unwrap();
 
         set.insert(EqI { i: 34, j: 6 }).unwrap();
-        set.reinsert_with(removed_item_34, |_, _| true).updated().unwrap();
-        let removed_item_32 = set.reinsert_with(removed_item_32, |_, _| false).take_failed().unwrap();
+        set.reinsert_with(removed_item_34, |_, _| true)
+            .updated()
+            .unwrap();
+        let removed_item_32 = set
+            .reinsert_with(removed_item_32, |_, _| false)
+            .take_failed()
+            .unwrap();
         assert!(set.reinsert_with(removed_item_32, |_, _| true).created());
     }
 }

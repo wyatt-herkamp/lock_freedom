@@ -2,13 +2,13 @@ pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
+use crate::owned_alloc::OwnedAlloc;
 use crate::ptr::check_null_align;
 use core::{
     fmt,
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use crate::owned_alloc::OwnedAlloc;
 
 /// Creates an asynchronous lock-free Single-Producer-Single-Consumer (SPSC)
 /// channel.

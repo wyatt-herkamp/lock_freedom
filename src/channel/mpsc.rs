@@ -2,6 +2,7 @@ pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
+use crate::owned_alloc::OwnedAlloc;
 use crate::ptr::{bypass_null, check_null_align};
 use alloc::sync::Arc;
 use core::{
@@ -9,7 +10,6 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use crate::owned_alloc::OwnedAlloc;
 
 /// Creates an asynchronous lock-free Multi-Producer-Single-Consumer (MPSC)
 /// channel. In order to allow multiple producers, [`Sender`] is clonable and

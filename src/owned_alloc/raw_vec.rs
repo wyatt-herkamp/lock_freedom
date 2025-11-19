@@ -31,9 +31,12 @@ impl<T> RawVec<T> {
     /// Creates a new `RawVec` of capacity `0` and a dangling pointer. No
     /// allocation is performed.
     pub fn new() -> Self {
-        Self { nnptr: NonNull::dangling(), cap: 0, _marker: PhantomData }
+        Self {
+            nnptr: NonNull::dangling(),
+            cap: 0,
+            _marker: PhantomData,
+        }
     }
-
 
     /// Creates a new `RawVec` with a given capacity. In case of allocation
     /// error, the handler registered via stdlib is called. In case of overflow
@@ -60,7 +63,11 @@ impl<T> RawVec<T> {
                 .ok_or_else(|| AllocErr { layout }.into())
         };
 
-        res.map(|nnptr| Self { nnptr, cap, _marker: PhantomData })
+        res.map(|nnptr| Self {
+            nnptr,
+            cap,
+            _marker: PhantomData,
+        })
     }
 
     /// Creates a `RawVec` from a plain old standard library `Vec`. Beware, only
@@ -90,7 +97,11 @@ impl<T> RawVec<T> {
     /// undefined behaviour. Passing wrong capacity also leads to undefined
     /// behaviour.
     pub unsafe fn from_raw_parts(nnptr: NonNull<T>, cap: usize) -> Self {
-        Self { nnptr, cap, _marker: PhantomData }
+        Self {
+            nnptr,
+            cap,
+            _marker: PhantomData,
+        }
     }
 
     /// Recreate the `RawVec` from a raw non-null pointer to a slice with length
@@ -195,9 +206,7 @@ impl<T> RawVec<T> {
             Ok(NonNull::dangling())
         } else {
             let old = Self::make_layout(self.cap).unwrap();
-            NonNull::new(unsafe {
-                realloc(self.nnptr.cast().as_ptr(), old, layout.size())
-            })
+            NonNull::new(unsafe { realloc(self.nnptr.cast().as_ptr(), old, layout.size()) })
                 .map(NonNull::cast::<T>)
                 .ok_or_else(|| AllocErr { layout }.into())
         };
@@ -218,10 +227,8 @@ impl<T> RawVec<T> {
     }
 
     fn make_layout(cap: usize) -> Result<Layout, LayoutErr> {
-        let total_size =
-            mem::size_of::<T>().checked_mul(cap).ok_or(LayoutErr)?;
-        Layout::from_size_align(total_size, mem::align_of::<T>())
-            .map_err(Into::into)
+        let total_size = mem::size_of::<T>().checked_mul(cap).ok_or(LayoutErr)?;
+        Layout::from_size_align(total_size, mem::align_of::<T>()).map_err(Into::into)
     }
 }
 
@@ -243,7 +250,11 @@ impl<T> Drop for RawVec<T> {
 
 impl<T> From<UninitAlloc<T>> for RawVec<T> {
     fn from(alloc: UninitAlloc<T>) -> Self {
-        Self { nnptr: alloc.into_raw(), cap: 1, _marker: PhantomData }
+        Self {
+            nnptr: alloc.into_raw(),
+            cap: 1,
+            _marker: PhantomData,
+        }
     }
 }
 

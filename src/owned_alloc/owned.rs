@@ -55,7 +55,10 @@ where
     /// undefined behaviour. Passing a pointer to uninitialized memory is also
     /// undefined behaviour.
     pub unsafe fn from_raw(nnptr: NonNull<T>) -> Self {
-        Self { nnptr, _marker: PhantomData }
+        Self {
+            nnptr,
+            _marker: PhantomData,
+        }
     }
 
     /// Converts the plain old standard library `Box` into an owned allocation.

@@ -1,3 +1,4 @@
+use crate::owned_alloc::OwnedAlloc;
 use crate::{
     incin::Pause,
     ptr::{bypass_null, check_null_align},
@@ -9,7 +10,6 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use crate::owned_alloc::OwnedAlloc;
 
 /// A lock-free general-purpouse queue. FIFO semanthics are fully respected.
 /// It can be used as multi-producer and multi-consumer channel.

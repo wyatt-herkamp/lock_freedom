@@ -16,6 +16,7 @@ use self::{
     insertion::{InsertNew, Reinsert},
     table::Table,
 };
+use crate::owned_alloc::OwnedAlloc;
 use crate::ptr::check_null_align;
 use core::{
     borrow::Borrow,
@@ -24,7 +25,6 @@ use core::{
     iter::FromIterator,
     mem,
 };
-use crate::owned_alloc::OwnedAlloc;
 use std::collections::hash_map::RandomState;
 
 /// A lock-free map. Implemented using multi-level hash-tables (in a tree

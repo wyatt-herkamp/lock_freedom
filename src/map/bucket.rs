@@ -2,6 +2,7 @@ use super::{
     guard::{ReadGuard, Removed},
     insertion::Inserter,
 };
+use crate::owned_alloc::OwnedAlloc;
 use crate::{
     incin::{Incinerator, Pause},
     ptr::non_zero_null,
@@ -15,7 +16,6 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use crate::owned_alloc::OwnedAlloc;
 
 #[repr(align(/* at least */ 2))]
 pub struct Bucket<K, V> {

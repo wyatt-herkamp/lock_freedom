@@ -2,6 +2,7 @@ pub use super::{
     NoRecv,
     RecvErr::{self, *},
 };
+use crate::owned_alloc::OwnedAlloc;
 use crate::{
     incin::Pause,
     ptr::{bypass_null, check_null_align},
@@ -13,7 +14,6 @@ use core::{
     ptr::{null_mut, NonNull},
     sync::atomic::{AtomicPtr, Ordering::*},
 };
-use crate::owned_alloc::OwnedAlloc;
 
 /// Creates an asynchronous lock-free Multi-Producer-Multi-Consumer (MPMC)
 /// channel. In order to allow multiple producers and multiple receivers,

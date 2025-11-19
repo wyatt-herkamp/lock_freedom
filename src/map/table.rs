@@ -4,6 +4,7 @@ use super::{
     insertion::{Inserter, Insertion},
 };
 use crate::incin::{Incinerator, Pause};
+use crate::owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
@@ -16,7 +17,6 @@ use core::{
         Ordering::{self, *},
     },
 };
-use crate::owned_alloc::{Cache, OwnedAlloc, UninitAlloc};
 
 const BITS: usize = 8;
 
